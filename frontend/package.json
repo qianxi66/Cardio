@@ -13,6 +13,11 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
+    "naive-ui": "^2.38.1",
+    "sass": "^1.74.1",
+    "unplugin-auto-import": "^0.17.5",
+    "unplugin-vue-components": "^0.26.0",
+    "vfonts": "^0.0.3",
     "vue": "^3.4.21",
     "vue-router": "^4.3.0"
   },
