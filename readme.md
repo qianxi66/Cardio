@@ -105,7 +105,7 @@ a single message in the conversation.
 | id         | uint     |                   |
 | patient_id | uint     | `correspond to?`                  |
 | report_id  | uint     |  `what is report_id?`                 |
-| type       | string   | assistant or user |
+| role       | string   | assistant or user |
 | content    | string   |                   |
 | created_at | datetime |                   |
 
