@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import AppHeader from '@/components/AppHeader.vue';
-import type { GlobalThemeOverrides } from 'naive-ui';
-import {NConfigProvider} from 'naive-ui';
+import AppHeader from "@/components/AppHeader.vue";
+import type { GlobalThemeOverrides } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
-    bodyColor: '#e6e6e6',
+    bodyColor: "#e6e6e6",
   },
   Button: {
-    color: 'white',
-  }
+    color: "white",
+  },
 };
 </script>
 
@@ -33,6 +33,5 @@ const themeOverrides: GlobalThemeOverrides = {
   flex-direction: column;
   flex-wrap: nowrap;
   justify-content: flex-start;
-
 }
 </style>

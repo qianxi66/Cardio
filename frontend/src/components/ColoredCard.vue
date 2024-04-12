@@ -1,33 +1,37 @@
 <script setup lang="tsx">
-import { type CardProps } from 'naive-ui'
-import { computed } from 'vue'
+import { type CardProps } from "naive-ui";
+import { computed } from "vue";
 const props = defineProps<{
-  title?: string
-  color?: string
-  rounded?: boolean
-}>()
-type CardThemeOverrudes = NonNullable<CardProps['themeOverrides']>
+  title?: string;
+  color?: string;
+  rounded?: boolean;
+}>();
+type CardThemeOverrudes = NonNullable<CardProps["themeOverrides"]>;
 const themeOverrides: CardThemeOverrudes = {
-  borderRadius: '0px'
-}
+  borderRadius: "0px",
+};
 
 const title = computed(() => {
-  return props.rounded ? null : props.title
-})
+  return props.rounded ? null : props.title;
+});
 </script>
 <template>
   <n-card
     :class="{
       'color-card': !!props.color,
-      'rounded-card': !!props.rounded
+      'rounded-card': !!props.rounded,
     }"
     :title="title"
     :theme-overrides="themeOverrides"
     :style="{
-      '--card-color': props.color
+      '--card-color': props.color,
     }"
   >
-    <div v-if="rounded" className="roundtag" :style="{ '--color': props.color, '--white-ratio': '75%' }">
+    <div
+      v-if="rounded"
+      className="roundtag"
+      :style="{ '--color': props.color, '--white-ratio': '75%' }"
+    >
       <div className="roundtag__label">
         {{ props.title }}
       </div>
@@ -41,7 +45,7 @@ const title = computed(() => {
   border: none;
   box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.1);
   background-color: white;
-  position: relative!important;
+  position: relative !important;
 }
 .n-card.color-card {
   border-left: 8px solid var(--card-color);

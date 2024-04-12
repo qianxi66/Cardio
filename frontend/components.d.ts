@@ -5,26 +5,26 @@
 // Read more: https://github.com/vuejs/core/pull/3399
 export {}
 
-declare module 'vue' {
+declare module "vue" {
   export interface GlobalComponents {
-    AppHeader: typeof import('./src/components/AppHeader.vue')['default']
-    ColoredCard: typeof import('./src/components/ColoredCard.vue')['default']
-    Header: typeof import('./src/components/Header.vue')['default']
-    HelloWorld: typeof import('./src/components/HelloWorld.vue')['default']
-    IconCommunity: typeof import('./src/components/icons/IconCommunity.vue')['default']
-    IconDocumentation: typeof import('./src/components/icons/IconDocumentation.vue')['default']
-    IconEcosystem: typeof import('./src/components/icons/IconEcosystem.vue')['default']
-    IconSupport: typeof import('./src/components/icons/IconSupport.vue')['default']
-    IconTooling: typeof import('./src/components/icons/IconTooling.vue')['default']
-    NButton: typeof import('naive-ui')['NButton']
-    NCard: typeof import('naive-ui')['NCard']
-    NConfigProvider: typeof import('naive-ui')['NConfigProvider']
-    NDialogProvider: typeof import('naive-ui')['NDialogProvider']
-    NGlobalStyle: typeof import('naive-ui')['NGlobalStyle']
-    NMessageProvider: typeof import('naive-ui')['NMessageProvider']
-    RouterLink: typeof import('vue-router')['RouterLink']
-    RouterView: typeof import('vue-router')['RouterView']
-    TheWelcome: typeof import('./src/components/TheWelcome.vue')['default']
-    WelcomeItem: typeof import('./src/components/WelcomeItem.vue')['default']
+    AppHeader: (typeof import("./src/components/AppHeader.vue"))["default"];
+    ColoredCard: (typeof import("./src/components/ColoredCard.vue"))["default"];
+    Header: (typeof import("./src/components/Header.vue"))["default"];
+    HelloWorld: (typeof import("./src/components/HelloWorld.vue"))["default"];
+    IconCommunity: (typeof import("./src/components/icons/IconCommunity.vue"))["default"];
+    IconDocumentation: (typeof import("./src/components/icons/IconDocumentation.vue"))["default"];
+    IconEcosystem: (typeof import("./src/components/icons/IconEcosystem.vue"))["default"];
+    IconSupport: (typeof import("./src/components/icons/IconSupport.vue"))["default"];
+    IconTooling: (typeof import("./src/components/icons/IconTooling.vue"))["default"];
+    NButton: (typeof import("naive-ui"))["NButton"];
+    NCard: (typeof import("naive-ui"))["NCard"];
+    NConfigProvider: (typeof import("naive-ui"))["NConfigProvider"];
+    NDialogProvider: (typeof import("naive-ui"))["NDialogProvider"];
+    NGlobalStyle: (typeof import("naive-ui"))["NGlobalStyle"];
+    NMessageProvider: (typeof import("naive-ui"))["NMessageProvider"];
+    RouterLink: (typeof import("vue-router"))["RouterLink"];
+    RouterView: (typeof import("vue-router"))["RouterView"];
+    TheWelcome: (typeof import("./src/components/TheWelcome.vue"))["default"];
+    WelcomeItem: (typeof import("./src/components/WelcomeItem.vue"))["default"];
   }
 }

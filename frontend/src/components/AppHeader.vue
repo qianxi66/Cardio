@@ -1,7 +1,7 @@
 <script setup lang="tsx">
-import { computed } from 'vue';
+import { computed } from "vue";
 
-import { useDialog, useMessage } from 'naive-ui';
+import { useDialog, useMessage } from "naive-ui";
 </script>
 
 <template>
@@ -10,8 +10,11 @@ import { useDialog, useMessage } from 'naive-ui';
       <a
         class="title"
         href="#"
-        style="color: inherit; text-decoration: none;"
-        @click="$event.preventDefault(); $router.push('/')"
+        style="color: inherit; text-decoration: none"
+        @click="
+          $event.preventDefault();
+          $router.push('/');
+        "
       >
         Recover
       </a>
@@ -19,7 +22,6 @@ import { useDialog, useMessage } from 'naive-ui';
     </div>
   </header>
 </template>
-
 
 <style lang="scss">
 .header {
@@ -44,7 +46,7 @@ import { useDialog, useMessage } from 'naive-ui';
     flex: auto 0 0;
     height: 60px;
     .n-menu-item {
-      height: 60px
+      height: 60px;
     }
   }
 }
@@ -56,5 +58,4 @@ header {
   background-color: #041527;
   color: white;
 }
-
 </style>
