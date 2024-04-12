@@ -57,7 +57,12 @@ const patient = computed(() => patients.find((p) => p.id === +id.value!)!);
               v-for="symptom of Object.keys(config.symptoms)"
               :key="symptom"
             >
-              {{ symptom[0].toUpperCase() + symptom.slice(1) }}
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  {{ symptom[0].toUpperCase() + symptom.slice(1) }}
+                </template>
+                <div>{{ config.symptoms[symptom].description }}</div>
+              </n-tooltip>
             </div>
           </div>
           <div
