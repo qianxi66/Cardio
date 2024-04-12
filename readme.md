@@ -44,21 +44,25 @@ A professional and dashboard user
 
 Report for a single day. May contain multple conversations.
 
-| column      | type          | description                                         |
-| ----------- | ------------- | --------------------------------------------------- |
-| id          | uint          |                                                     |
-| patient_id  | uint          |                                                     |
-| created_at  | datetime      |                                                     |
-| updated_at  | datetime      |                                                     |
-| pain        | uint          | 0: no information; 1 green; 2 blue; 3 yellow; 4 red |
-| bleeding    |               |                                                     |
-| obstruction |               |                                                     |
-| chest_pain  |               |                                                     |
-| blood_clots |               |                                                     |
-| infections  |               |                                                     |
-| medications |               |                                                     |
-| mobility    |               |                                                     |
-| neuropsych  | same as above | same as above                                       |
+| column        | type     | description                                                        |
+|---------------|----------|--------------------------------------------------------------------|
+| id            | uint     |                                                                    |
+| patient_id    | uint     |                                                                    |
+| created_at    | datetime |                                                                    |
+| updated_at    | datetime |                                                                    |
+| pain          | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| breathing     | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| fever         | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| stools        | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| drainage      | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| activity      | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| consciousness | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| constipation  | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| diarrhea      | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| eating        | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| swelling      | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| mood          | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+
 
 ### ReportNote
 
