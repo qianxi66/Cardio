@@ -14,9 +14,16 @@ const router = createRouter({
           component: () => <div> empty </div>,
         },
         {
-          path: "/patient/:id",
+          path: "/patient/:patient_id",
           name: "patient.detail",
-          component: () => <div> id </div>,
+          component: () => import("../views/PatientDetailView.vue"),
+          children: [
+            {
+              path: "/patient/:patient_id/record/:record_id",
+              name: "patient.record.detail",
+              component: () => import("../views/RecordDetailView.vue"),
+            },
+          ],
         },
       ],
     },

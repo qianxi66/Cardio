@@ -37,7 +37,7 @@ const title = computed(() => {
       </div>
       <div className="roundtag__round"></div>
     </div>
-    test
+    <slot></slot>
   </n-card>
 </template>
 <style scoped lang="scss">

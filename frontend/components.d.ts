@@ -9,6 +9,7 @@ declare module "vue" {
   export interface GlobalComponents {
     AppHeader: (typeof import("./src/components/AppHeader.vue"))["default"];
     ColoredCard: (typeof import("./src/components/ColoredCard.vue"))["default"];
+    Dot: (typeof import("./src/components/Dot.vue"))["default"];
     Header: (typeof import("./src/components/Header.vue"))["default"];
     HelloWorld: (typeof import("./src/components/HelloWorld.vue"))["default"];
     IconCommunity: (typeof import("./src/components/icons/IconCommunity.vue"))["default"];
@@ -21,6 +22,7 @@ declare module "vue" {
     NConfigProvider: (typeof import("naive-ui"))["NConfigProvider"];
     NDialogProvider: (typeof import("naive-ui"))["NDialogProvider"];
     NGlobalStyle: (typeof import("naive-ui"))["NGlobalStyle"];
+    NInput: (typeof import("naive-ui"))["NInput"];
     NMessageProvider: (typeof import("naive-ui"))["NMessageProvider"];
     RouterLink: (typeof import("vue-router"))["RouterLink"];
     RouterView: (typeof import("vue-router"))["RouterView"];
