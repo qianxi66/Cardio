@@ -154,6 +154,7 @@ watch(
     align-items: center;
     height: 48px;
     font-size: 12px;
+    border-radius: 4px;
     &.header {
       font-weight: 700;
       border-bottom: 1px solid #e6e6e6;
@@ -167,7 +168,8 @@ watch(
       justify-content: center;
     }
     &:hover {
-      outline: 1px solid #e6e6e6;
+      outline: 2px solid #a1a1a1;
+      background-color: #f8f8f8;
     }
     .dot:hover {
       box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.2); /* More visible shadow */

@@ -8,8 +8,6 @@ import summaries_data from '@/data/summaries.json'
 import conversations from '@/data/conversations.json'
 import * as config from '@/config'
 import { computed, ref, type Ref } from 'vue'
-import { type InputProps } from 'naive-ui'
-type InputThemeOverrides = NonNullable<InputProps['themeOverrides']>
 const patient_id = useRouteParams('patient_id')
 const record_id = useRouteParams('record_id')
 const patient = computed(() => patients.find((p) => p.id === +patient_id.value!)!)
@@ -28,11 +26,6 @@ const summaries = computed(() => {
 })
 const notes: Ref<string[]> = ref(['a note', 'anoter note'])
 const editingNote = ref('')
-const themeOverrides: InputThemeOverrides = {
-  color: 'transparent',
-  border: 'none',
-  borderHover: '1px solid rgb(224, 224, 230)',
-}
 </script>
 <template>
   <ColoredCard color="#0094ff" rounded title="Conversation Summary">
@@ -70,9 +63,7 @@ const themeOverrides: InputThemeOverrides = {
         </div>
         <n-input
           v-model:value="editingNote"
-          placeholder="Add a note"
-          size="tiny"
-          :theme-overrides="themeOverrides"
+          placeholder="Add a note (prss enter to submit)"
           @keyup.enter="
             () => {
               notes.push(editingNote)

@@ -29,7 +29,7 @@ def get_patients():
                 for symptom in symptom_descriptions.keys()
             ]
         )
-    time.sleep(1)
+    time.sleep(10)
     return jsonify(patients)
 
 
@@ -40,7 +40,7 @@ def get_patient(id):
     reports = Report.query.filter_by(patient_id=id).all()
     patient = asdict(patient)
     patient["reports"] = reports
-    time.sleep(1)
+    time.sleep(10)
     return jsonify(patient)
 
 
