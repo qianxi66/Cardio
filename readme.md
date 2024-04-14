@@ -56,7 +56,7 @@ Report for a single day. May contain multple conversations.
 | stools        | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
 | drainage      | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
 | activity      | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
-| consciousness | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
+| conscious     | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
 | constipation  | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
 | diarrhea      | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |
 | eating        | uint     | 0: no information; 1 green; 2 blue; 3 yellow; 4 red                |

@@ -166,10 +166,23 @@ const patient = computed(() => patients.find((p) => p.id === +id.value!)!);
     &:hover {
       outline: 1px solid #e6e6e6;
     }
-    .dot:hover {
-      box-shadow: 0px 0px 4px 2px rgba(0, 0, 0, 0.1);
-      cursor: pointer;
-    }
+.dot:hover {
+  box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.2); /* More visible shadow */
+  cursor: pointer;
+  transform: scale(1.2); /* Slightly larger scale */
+  animation: float .5s ease-in-out infinite;
+}
+
+/* Adjusted floating effect for smaller movement due to size */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0) scale(1.2);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.2);
+  }
+}
+
   }
 }
 </style>

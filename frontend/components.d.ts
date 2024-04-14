@@ -5,20 +5,20 @@
 // Read more: https://github.com/vuejs/core/pull/3399
 export {}
 
-declare module "vue" {
+declare module 'vue' {
   export interface GlobalComponents {
-    AppHeader: (typeof import("./src/components/AppHeader.vue"))["default"];
-    ColoredCard: (typeof import("./src/components/ColoredCard.vue"))["default"];
-    Dot: (typeof import("./src/components/Dot.vue"))["default"];
-    NButton: (typeof import("naive-ui"))["NButton"];
-    NCard: (typeof import("naive-ui"))["NCard"];
-    NDialogProvider: (typeof import("naive-ui"))["NDialogProvider"];
-    NGlobalStyle: (typeof import("naive-ui"))["NGlobalStyle"];
-    NIcon: (typeof import("naive-ui"))["NIcon"];
-    NInput: (typeof import("naive-ui"))["NInput"];
-    NMessageProvider: (typeof import("naive-ui"))["NMessageProvider"];
-    NTooltip: (typeof import("naive-ui"))["NTooltip"];
-    RouterLink: (typeof import("vue-router"))["RouterLink"];
-    RouterView: (typeof import("vue-router"))["RouterView"];
+    AppHeader: typeof import('./src/components/AppHeader.vue')['default']
+    ColoredCard: typeof import('./src/components/ColoredCard.vue')['default']
+    Dot: typeof import('./src/components/Dot.vue')['default']
+    NButton: typeof import('naive-ui')['NButton']
+    NCard: typeof import('naive-ui')['NCard']
+    NDialogProvider: typeof import('naive-ui')['NDialogProvider']
+    NGlobalStyle: typeof import('naive-ui')['NGlobalStyle']
+    NIcon: typeof import('naive-ui')['NIcon']
+    NInput: typeof import('naive-ui')['NInput']
+    NMessageProvider: typeof import('naive-ui')['NMessageProvider']
+    NTooltip: typeof import('naive-ui')['NTooltip']
+    RouterLink: typeof import('vue-router')['RouterLink']
+    RouterView: typeof import('vue-router')['RouterView']
   }
 }

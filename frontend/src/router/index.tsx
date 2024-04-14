@@ -11,7 +11,7 @@ const router = createRouter({
         {
           path: "/patient/",
           name: "patient.empty",
-          component: () => <div> empty </div>,
+          component: () => import("../views/EmptyPatientView.vue"),
         },
         {
           path: "/patient/:patient_id",

@@ -1,6 +1,11 @@
+import types
 import typing as t
 from dataclasses import dataclass
 from datetime import datetime
+
+from flask import current_app
+from flask_sqlalchemy import SQLAlchemy
+from flask_sqlalchemy.table import _Table
 
 from .app import db
 
@@ -54,41 +59,60 @@ class User(db.Model):
 
 @dataclass
 class Report(db.Model):
-    id: int
-    patient_id: int
-    created_at: datetime
-    updated_at: datetime
-    pain: int
-    breathing: int
-    fever: int
-    stools: int
-    drainage: int
-    activity: int
-    consciousness: int
-    constipation: int
-    diarrhea: int
-    eating: int
-    swelling: int
-    mood: int
-
-    id = db.Column(db.Integer, primary_key=True)
-    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(
+    id: int = db.Column(db.Integer, primary_key=True)
+    patient_id: int = db.Column(db.Integer, db.ForeignKey("patient.id"))
+    created_at: datetime = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: datetime = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-    pain = db.Column(db.Integer)
-    breathing = db.Column(db.Integer)
-    fever = db.Column(db.Integer)
-    stools = db.Column(db.Integer)
-    drainage = db.Column(db.Integer)
-    activity = db.Column(db.Integer)
-    consciousness = db.Column(db.Integer)
-    constipation = db.Column(db.Integer)
-    diarrhea = db.Column(db.Integer)
-    eating = db.Column(db.Integer)
-    swelling = db.Column(db.Integer)
-    mood = db.Column(db.Integer)
+
+    pain_state: int = db.Column(db.Integer)
+    pain_read: bool = db.Column(db.Boolean)
+    pain_logs: str = db.Column(db.String)
+
+    breathing_state: int = db.Column(db.Integer)
+    breathing_read: bool = db.Column(db.Boolean)
+    breathing_logs: str = db.Column(db.String)
+
+    fever_state: int = db.Column(db.Integer)
+    fever_read: bool = db.Column(db.Boolean)
+    fever_logs: str = db.Column(db.String)
+
+    stools_state: int = db.Column(db.Integer)
+    stools_read: bool = db.Column(db.Boolean)
+    stools_logs: str = db.Column(db.String)
+
+    drainage_state: int = db.Column(db.Integer)
+    drainage_read: bool = db.Column(db.Boolean)
+    drainage_logs: str = db.Column(db.String)
+
+    activity_state: int = db.Column(db.Integer)
+    activity_read: bool = db.Column(db.Boolean)
+    activity_logs: str = db.Column(db.String)
+
+    conscious_state: int = db.Column(db.Integer)
+    conscious_read: bool = db.Column(db.Boolean)
+    conscious_logs: str = db.Column(db.String)
+
+    constipation_state: int = db.Column(db.Integer)
+    constipation_read: bool = db.Column(db.Boolean)
+    constipation_logs: str = db.Column(db.String)
+
+    diarrhea_state: int = db.Column(db.Integer)
+    diarrhea_read: bool = db.Column(db.Boolean)
+    diarrhea_logs: str = db.Column(db.String)
+
+    eating_state: int = db.Column(db.Integer)
+    eating_read: bool = db.Column(db.Boolean)
+    eating_logs: str = db.Column(db.String)
+
+    swelling_state: int = db.Column(db.Integer)
+    swelling_read: bool = db.Column(db.Boolean)
+    swelling_logs: str = db.Column(db.String)
+
+    mood_state: int = db.Column(db.Integer)
+    mood_read: bool = db.Column(db.Boolean)
+    mood_logs: str = db.Column(db.String)
 
 
 @dataclass
@@ -140,3 +164,31 @@ class ConversationLog(db.Model):
     role = db.Column(db.String(50))
     content = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+def get(
+    self: SQLAlchemy,
+    entity: type[_O] | _Table,
+    ident: t.Any,
+    *,
+    description: str | None = None,
+) -> _O:
+    print(entity)
+    # if entity is a type of model
+    if isinstance(entity, type) and issubclass(entity, self.Model):
+        value = self.session.get(entity, ident)
+        if value is None:
+            raise NotFound(entity.__name__, ident)
+        return value
+
+    else:
+        value = self.session.execute(
+            entity.select().where(entity.primary_key.columns[0] == ident)
+        ).first()
+
+        if value is None:
+            raise NotFound(entity.fullname, ident)
+        return value
+
+
+current_app.extensions["sqlalchemy"].get = types.MethodType(get, db)

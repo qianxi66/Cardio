@@ -1,42 +1,42 @@
 <script setup lang="tsx">
-import { useRouteParams } from "@vueuse/router";
-import ColoredCard from "@/components/ColoredCard.vue";
-import Dot from "@/components/Dot.vue";
-import records from "@/data/records.json";
-import patients from "@/data/patients.json";
-import summaries_data from "@/data/summaries.json";
-import conversations from "@/data/conversations.json";
-import * as config from "@/config";
-import { computed, ref } from "vue";
-
-const patient_id = useRouteParams("patient_id");
-const record_id = useRouteParams("record_id");
-const patient = computed(
-  () => patients.find((p) => p.id === +patient_id.value!)!,
-);
-const record = computed(() => records.find((r) => r.id === +record_id.value!)!);
+import { useRouteParams } from '@vueuse/router'
+import ColoredCard from '@/components/ColoredCard.vue'
+import Dot from '@/components/Dot.vue'
+import records from '@/data/records.json'
+import patients from '@/data/patients.json'
+import summaries_data from '@/data/summaries.json'
+import conversations from '@/data/conversations.json'
+import * as config from '@/config'
+import { computed, ref, type Ref } from 'vue'
+import { type InputProps } from 'naive-ui'
+type InputThemeOverrides = NonNullable<InputProps['themeOverrides']>
+const patient_id = useRouteParams('patient_id')
+const record_id = useRouteParams('record_id')
+const patient = computed(() => patients.find((p) => p.id === +patient_id.value!)!)
+const record = computed(() => records.find((r) => r.id === +record_id.value!)!)
 
 // group summaries by category
 const summaries = computed(() => {
-  const result = {};
+  const result = {}
   for (const summary of summaries_data) {
     if (!result[summary.category]) {
-      result[summary.category] = [];
+      result[summary.category] = []
     }
-    result[summary.category].push(summary);
+    result[summary.category].push(summary)
   }
-  return result;
-});
-const notes: Ref<[string]> = ref(["a note", "anoter note"]);
-const editingNote = ref("");
+  return result
+})
+const notes: Ref<string[]> = ref(['a note', 'anoter note'])
+const editingNote = ref('')
+const themeOverrides: InputThemeOverrides = {
+  color: 'transparent',
+  border: 'none',
+  borderHover: '1px solid rgb(224, 224, 230)',
+}
 </script>
 <template>
   <ColoredCard color="#0094ff" rounded title="Conversation Summary">
-    <div
-      class="summary"
-      v-for="category in Object.keys(summaries)"
-      :key="category"
-    >
+    <div class="summary" v-for="category in Object.keys(summaries)" :key="category">
       <div class="title">{{ category }}</div>
       <ul>
         <li v-for="summary in summaries[category]" :key="summary.id">
@@ -49,12 +49,7 @@ const editingNote = ref("");
       <div class="notes-list">
         <div v-for="note in notes" :key="note" class="note">
           {{ note }}
-          <n-button
-            size="tiny"
-            circle
-            @click="() => notes.splice(index, 1)"
-            quaternary
-          >
+          <n-button size="tiny" circle @click="() => notes.splice(index, 1)" quaternary>
             <template #icon>
               <n-icon>
                 <svg
@@ -77,10 +72,11 @@ const editingNote = ref("");
           v-model:value="editingNote"
           placeholder="Add a note"
           size="tiny"
+          :theme-overrides="themeOverrides"
           @keyup.enter="
             () => {
-              notes.push(editingNote);
-              editingNote = '';
+              notes.push(editingNote)
+              editingNote = ''
             }
           "
         />
@@ -94,7 +90,7 @@ const editingNote = ref("");
       :class="{
         message: true,
         assistant: message.role === 'assistant',
-        user: message.role === 'user',
+        user: message.role === 'user'
       }"
     >
       <div class="role">
@@ -133,6 +129,14 @@ const editingNote = ref("");
     width: 80px;
     font-size: 14px;
     font-weight: 700;
+  }
+  .notes-list {
+    flex: 1 1 0;
+    .note {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
   }
 }
 .message {
