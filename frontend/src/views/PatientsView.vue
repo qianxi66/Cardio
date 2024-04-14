@@ -1,29 +1,49 @@
 <script setup lang="ts">
-import ColoredCard from "@/components/ColoredCard.vue";
-import Dot from "@/components/Dot.vue";
-import patients from "@/data/patients.json";
+import ColoredCard from '@/components/ColoredCard.vue'
+import Dot from '@/components/Dot.vue'
+import { getPatients } from '@/api/patient'
+import Loading from '@/components/Loading.vue'
+const patients = ref([])
+const loading = ref(true)
+getPatients().then((res) => {
+  patients.value = res
+  loading.value = false
+})
 </script>
 <template>
   <div class="row holder">
     <n-card class="patient-list" title="Patients List">
-      <router-link
-        v-for="p in patients"
-        :key="p.id"
-        :to="{
-          name: 'patient.detail',
-          params: { patient_id: p.id },
-        }"
-      >
-        <div class="patient-card">
-          <div class="dot-holder">
-            <Dot :state="p.state"></Dot>
+      <loading :loading="loading" :has-data="patients.length !== 0" class="patient-list">
+        <router-link
+          v-for="p in patients"
+          :key="p.id"
+          :to="{
+            name: 'patient.detail',
+            params: { patient_id: p.id }
+          }"
+        >
+          <div class="patient-card">
+            <div class="dot-holder">
+              <Dot :state="p.state"></Dot>
+            </div>
+            <div class="patient-info">
+              <div class="name">Patient {{ p.participant_id }}</div>
+              <div class="age-sex">{{ p.age }} y.o., {{ p.gender }}</div>
+            </div>
           </div>
-          <div class="patient-info">
-            <div class="name">Patient {{ p.participant_id }}</div>
-            <div class="age-sex">{{ p.age }} y.o., {{ p.gender }}</div>
+        </router-link>
+        <template #loading>
+          <div class="patient-card" v-for="i in 10" :key="i">
+            <div class="dot-holder">
+              <n-skeleton box style="height: 24px; width: 24px; border-radius: 50%" />
+            </div>
+            <div class="patient-info">
+              <n-skeleton class="name" text style="width: 100px; height: 22px" />
+              <n-skeleton class="age-sex" text style="width: 70px; margin-top: 3px" />
+            </div>
           </div>
-        </div>
-      </router-link>
+        </template>
+      </loading>
     </n-card>
     <router-view></router-view>
   </div>
@@ -38,11 +58,13 @@ import patients from "@/data/patients.json";
   flex-basis: 250px;
   flex-grow: 0;
   flex-shrink: 0;
+  min-height: 100%;
 }
 .n-card:deep(.n-card__content) {
   padding: 0;
   overflow: overlay;
 }
+
 .dot-holder {
   display: flex;
   justify-content: center;

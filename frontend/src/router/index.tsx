@@ -19,9 +19,9 @@ const router = createRouter({
           component: () => import("../views/PatientDetailView.vue"),
           children: [
             {
-              path: "/patient/:patient_id/record/:record_id",
-              name: "patient.record.detail",
-              component: () => import("../views/RecordDetailView.vue"),
+              path: "/patient/:patient_id/report/:report_id",
+              name: "patient.report.detail",
+              component: () => import("../views/ReportDetailView.vue"),
             },
           ],
         },

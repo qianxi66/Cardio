@@ -12,23 +12,30 @@ def initialize_reports():
     with app.app_context():
         patients = Patient.query.all()
         for patient in patients:
-            # random state, read false, empty logs
-            symptom_kwargs = [
-                {
-                    f"{symptom}_state": random.randint(0, 5),
-                    f"{symptom}_read": False,
-                    f"{symptom}_logs": "",
-                }
-                for symptom in symptom_descriptions.keys()
-            ]
-            symptom_kwargs = dict((k, v) for d in symptom_kwargs for k, v in d.items())
             for i in range(10):
+                # random state, read false, empty logs
+                symptom_kwargs = [
+                    {
+                        f"{symptom}_state": random.randint(0, 4),
+                        f"{symptom}_read": False,
+                        f"{symptom}_logs": "",
+                    }
+                    for symptom in symptom_descriptions.keys()
+                ]
+                symptom_kwargs = dict(
+                    (k, v) for d in symptom_kwargs for k, v in d.items()
+                )
                 report = Report(
                     patient_id=patient.id,
-                    created_at=datetime.utcnow() - timedelta(days=i),
                     **symptom_kwargs,
                 )
                 db.session.add(report)
+            # update created_at
+            reports = Report.query.filter_by(patient_id=patient.id).all()
+            for i, report in enumerate(reports):
+                report.created_at = datetime.utcnow() - timedelta(days=i)
+                db.session.add(report)
+
         db.session.commit()
 
 

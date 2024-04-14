@@ -12,3 +12,4 @@ export const symptoms = {
   swelling: { description: "Pain or swelling in legs" },
   mood: { description: "Feeling Down or Depressed" },
 };
+export const apiBasePath = "http://localhost:5000/";

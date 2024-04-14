@@ -1,0 +1,94 @@
+export type Patient = {
+  id: number;
+  age: number;
+  gender: string;
+  EHR_id: string;
+  alexa_user_id?: string;
+  medical_history: string;
+  medication: string;
+  participant_id: string;
+  reports: Report[]; // Relationship: One-to-Many with Report
+  conversationLogs: ConversationLog[]; // Relationship: One-to-Many with ConversationLog
+};
+
+export type User = {
+  id: number;
+  username: string;
+  password: string;
+  email: string;
+  name: string;
+  reportNotes: ReportNote[]; // Relationship: One-to-Many with ReportNote
+};
+
+export type Report = {
+  id: number;
+  patient_id: number;
+  created_at: Date;
+  updated_at: Date;
+  pain_state: number;
+  pain_read: boolean;
+  pain_logs: string;
+  breathing_state: number;
+  breathing_read: boolean;
+  breathing_logs: string;
+  fever_state: number;
+  fever_read: boolean;
+  fever_logs: string;
+  stools_state: number;
+  stools_read: boolean;
+  stools_logs: string;
+  drainage_state: number;
+  drainage_read: boolean;
+  drainage_logs: string;
+  activity_state: number;
+  activity_read: boolean;
+  activity_logs: string;
+  conscious_state: number;
+  conscious_read: boolean;
+  conscious_logs: string;
+  constipation_state: number;
+  constipation_read: boolean;
+  constipation_logs: string;
+  diarrhea_state: number;
+  diarrhea_read: boolean;
+  diarrhea_logs: string;
+  eating_state: number;
+  eating_read: boolean;
+  eating_logs: string;
+  swelling_state: number;
+  swelling_read: boolean;
+  swelling_logs: string;
+  mood_state: number;
+  mood_read: boolean;
+  mood_logs: string;
+  reportNotes: ReportNote[]; // Relationship: One-to-Many with ReportNote
+  reportSummaries: ReportSummary[]; // Relationship: One-to-Many with ReportSummary
+  conversationLogs: ConversationLog[]; // Relationship: One-to-Many with ConversationLog
+};
+
+export type ReportNote = {
+  id: number;
+  report_id: number;
+  user_id: number;
+  content: string;
+  created_at: Date;
+  updated_at: Date;
+};
+
+export type ReportSummary = {
+  id: number;
+  report_id: number;
+  category: string;
+  content: string;
+  conversation_log_ids: string;
+  highlight_keywords: string;
+};
+
+export type ConversationLog = {
+  id: number;
+  patient_id: number;
+  report_id: number;
+  role: string;
+  content: string;
+  created_at: Date;
+};
