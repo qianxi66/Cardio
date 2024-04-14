@@ -84,3 +84,26 @@ def generate_reports():
     initialize_reports()
     generate_conversation_logs()
     update_reports()
+
+
+@app.cli.command("generate-patients")
+def generate_patients():
+    with app.app_context():
+        sql = """INSERT INTO patient VALUES(1,25,'male','E01-01',NULL,'no information','no information','T001');
+INSERT INTO patient VALUES(2,26,'female','E01-02',NULL,'no information','no information','T002');
+INSERT INTO patient VALUES(3,27,'male','E01-03',NULL,'no information','no information','T003');
+INSERT INTO patient VALUES(4,28,'female','E01-04',NULL,'no information','no information','T004');
+INSERT INTO patient VALUES(5,29,'male','E01-05',NULL,'no information','no information','T005');
+INSERT INTO patient VALUES(6,30,'female','E01-06',NULL,'no information','no information','T006');
+INSERT INTO patient VALUES(7,31,'male','E01-07',NULL,'no information','no information','T007');
+INSERT INTO patient VALUES(8,32,'female','E01-08',NULL,'no information','no information','T008');
+INSERT INTO patient VALUES(9,33,'male','E01-09',NULL,'no information','no information','T009');
+INSERT INTO patient VALUES(10,34,'female','E01-10',NULL,'no information','no information','T010');
+INSERT INTO patient VALUES(11,35,'male','E01-11',NULL,'no information','no information','T011');
+INSERT INTO patient VALUES(12,36,'female','E01-12',NULL,'no information','no information','T012');
+INSERT INTO patient VALUES(13,37,'male','E01-13',NULL,'no information','no information','T013');
+INSERT INTO patient VALUES(14,38,'female','E01-14',NULL,'no information','no information','T014');
+INSERT INTO patient VALUES(15,39,'male','E01-15',NULL,'no information','no information','T015');"""
+        db.engine.execute(sql)
+        db.session.commit()
+        print("Patients generated.")
