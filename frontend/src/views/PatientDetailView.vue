@@ -73,7 +73,7 @@ watch(patient, () => {
 </script>
 <template>
   <div class="row">
-    <div class="col" style="flex: 400px 1 1">
+    <div class="col" style="flex: 5 1 400px">
       <ColoredCard class="information">
         <Loading :loading="loading" :has-data="!!patient">
           <div class="participant-id">Patient {{ patient!.participant_id }}</div>
@@ -207,7 +207,7 @@ watch(patient, () => {
         </loading>
       </ColoredCard>
     </div>
-    <div class="col" style="flex: 0.5 1 100px">
+    <div class="col" style="flex: 1 1 300px">
       <router-view></router-view>
     </div>
   </div>
@@ -216,12 +216,14 @@ watch(patient, () => {
 .row {
   flex-grow: 1;
   .col {
+    min-width: 0;
     flex-grow: 1;
     display: flex;
     height: 100%;
     flex-direction: column;
     row-gap: 8px;
   }
+  overflow-x: hidden;
 }
 .participant-id {
   font-size: 16px;
@@ -254,13 +256,15 @@ watch(patient, () => {
 .key-question {
   min-height: 0px;
   flex-grow: 1;
-  flex-shrink: 1;
+  max-width: 100%;
   :deep(.n-card__content) {
-    overflow: overlay;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: overlay;
   }
 }
 .reports-table {
-  width: 100%;
+  min-width: 1150px;
   .table-row {
     width: 100%;
     display: flex;
@@ -287,13 +291,13 @@ watch(patient, () => {
       background-color: #f0f0f0;
     }
     .dot:not(.selected):hover {
-      box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.2); /* More visible shadow */
+      box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.1); /* More visible shadow */
       cursor: pointer;
       transform: scale(1.2); /* Slightly larger scale */
-      animation: float 0.5s ease-in-out infinite;
+      // animation: float 0.5s ease-in-out infinite;
     }
     .dot.selected {
-      outline: 2px solid #d4c5e2;
+      outline: 2px solid #5e5d5f;
       transform: scale(1.2); /* Slightly larger scale */
     }
 

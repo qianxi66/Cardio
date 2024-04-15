@@ -1,7 +1,7 @@
 <script setup lang="tsx">
-import { computed } from "vue";
+import { computed } from 'vue'
 
-import { useDialog, useMessage } from "naive-ui";
+import { useDialog, useMessage } from 'naive-ui'
 </script>
 
 <template>
@@ -11,12 +11,9 @@ import { useDialog, useMessage } from "naive-ui";
         class="title"
         href="#"
         style="color: inherit; text-decoration: none"
-        @click="
-          $event.preventDefault();
-          $router.push('/');
-        "
+        @click.prevent="$router.push('/')"
       >
-        Recover
+        Recover Dashboard
       </a>
       <div class="space"></div>
     </div>

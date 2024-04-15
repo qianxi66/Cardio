@@ -87,7 +87,7 @@ watch(patient_id, () => {
   margin: 0 8px 8px 8px;
 }
 .patient-list {
-  flex-basis: 250px;
+  flex-basis: 200px;
   flex-grow: 0;
   flex-shrink: 0;
   min-height: 100%;
