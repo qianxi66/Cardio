@@ -6,6 +6,7 @@ from flask_sqlalchemy import SQLAlchemy
 from . import config  # noqa
 
 db = SQLAlchemy()
+# cors allow everyting
 cors = CORS()
 
 app = Flask(__name__)

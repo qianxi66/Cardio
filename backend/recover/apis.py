@@ -2,7 +2,7 @@ import json
 import time
 from dataclasses import asdict
 
-from flask import current_app, jsonify
+from flask import current_app, jsonify, request
 
 from .config import symptom_descriptions
 from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
@@ -59,4 +59,30 @@ def get_patient_reports(id, report_id):
     notes = ReportNote.query.filter_by(report_id=report_id).all()
     reports["summary"] = summary
     reports["notes"] = notes
+    time.sleep(1)
     return jsonify(reports)
+
+
+# delete note
+@current_app.route(
+    "/patients/<int:id>/report/<int:report_id>/note/<int:note_id>", methods=["DELETE"]
+)
+def delete_report_note(id, report_id, note_id):
+    note = ReportNote.query.filter_by(id=note_id).first()
+    db.session.delete(note)
+    db.session.commit()
+    return jsonify({"message": "Note deleted."})
+
+
+# create note
+@current_app.route("/patients/<int:id>/report/<int:report_id>/note", methods=["POST"])
+def create_report_note(id, report_id):
+    data = request.get_json()
+    note = ReportNote(
+        report_id=report_id,
+        user_id=data["user_id"],
+        content=data["content"],
+    )
+    db.session.add(note)
+    db.session.commit()
+    return jsonify({"message": "Note created."})
