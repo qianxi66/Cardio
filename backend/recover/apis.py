@@ -5,7 +5,7 @@ from dataclasses import asdict
 from flask import current_app, jsonify
 
 from .config import symptom_descriptions
-from .db import ConversationLog, Patient, Report, db
+from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
 
 
 # get patients, return all patients
@@ -55,4 +55,8 @@ def get_patient_reports(id, report_id):
     conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
     reports = asdict(reports[0])
     reports["conversation_logs"] = conversation_logs
+    summary = ReportSummary.query.filter_by(report_id=report_id).all()
+    notes = ReportNote.query.filter_by(report_id=report_id).all()
+    reports["summary"] = summary
+    reports["notes"] = notes
     return jsonify(reports)

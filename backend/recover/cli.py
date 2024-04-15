@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from .app import app
 from .config import symptom_descriptions
-from .db import ConversationLog, Patient, Report, db
+from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
 
 
 def initialize_reports():
@@ -79,11 +79,65 @@ def update_reports():
         db.session.commit()
 
 
+def generate_summaries():
+    with app.app_context():
+        report = Report.query.all()
+        for r in report:
+            for i in range(5):
+                summary = ReportSummary(
+                    report_id=r.id,
+                    category=random.choice(
+                        ["Summary", "Additional Comments", "Recommendations"]
+                    ),
+                    content=random.choice(
+                        [
+                            "Patient is feeling better today",
+                            "Patient is feeling worse today",
+                            "Patient is feeling the same today",
+                        ]
+                    ),
+                    conversation_log_ids="",
+                    highlight_keywords="",
+                )
+                db.session.add(summary)
+        db.session.commit()
+
+
+def generate_notes():
+    with app.app_context():
+        report = Report.query.all()
+        for r in report:
+            for i in range(3):
+                note = ReportNote(
+                    report_id=r.id,
+                    user_id=0,
+                    content=random.choice(
+                        [
+                            "should check in with patient tomorrow",
+                            "shouldn't be a problem",
+                            "keep watch",
+                        ]
+                    ),
+                )
+                db.session.add(note)
+        db.session.commit()
+
+
 @app.cli.command("generate-reports")
 def generate_reports():
     initialize_reports()
     generate_conversation_logs()
     update_reports()
+
+
+@app.cli.command("generate-summaries")
+def generate_summaries_cmd():
+    generate_summaries()
+
+
+@app.cli.command("generate-notes")
+def generate_notes_cmd():
+    generate_notes()
 
 
 @app.cli.command("generate-patients")

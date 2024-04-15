@@ -9,18 +9,31 @@ import { getPatient } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
 import { format } from 'date-fns'
 import router from '@/router'
+import type { CancelStatic, CancelToken, CancelTokenSource } from 'axios'
+import axios from 'axios'
 
-const id = useRouteParams('patient_id')
+const patient_id = useRouteParams('patient_id')
 const report_id = useRouteParams('report_id')
 const current_symptom = useRouteQuery('symptom')
 const patient = ref<Patient | null>(null)
 const loading = ref(true)
+const cancelToken = ref<CancelTokenSource | null>(null)
 watch(
-  id,
+  patient_id,
   async () => {
+    if (!patient_id.value) {
+      patient.value = null
+      loading.value = true
+      return
+    }
+    console.log('fetching patient', patient_id.value)
+    if (cancelToken.value) {
+      cancelToken.value.cancel()
+    }
+    cancelToken.value = axios.CancelToken.source()
     patient.value = null
     loading.value = true
-    patient.value = await getPatient(parseInt(id.value as string))
+    patient.value = await getPatient(parseInt(patient_id.value as string), cancelToken.value.token)
     loading.value = false
   },
   { immediate: true }
@@ -28,7 +41,7 @@ watch(
 const jumpToReport = (report: Report, symptom: string | undefined) => {
   router.push({
     name: 'patient.report.detail',
-    params: { patient_id: id.value, report_id: report.id },
+    params: { patient_id: patient_id.value, report_id: report.id },
     query: symptom
       ? {
           symptom: symptom,
@@ -89,7 +102,7 @@ watch(patient, () => {
             </div>
           </div>
           <template #loading>
-            <n-skeleton class="participant-id" style="height: 24px; width: 100px"></n-skeleton>
+            <n-skeleton class="participant-id" style="height: 25px; width: 100px"></n-skeleton>
             <div class="row demographic">
               <n-skeleton class="age-sex" style="height: 21px"> </n-skeleton>
               <n-skeleton style="height: 21px; width: 38px"> </n-skeleton>
@@ -162,6 +175,35 @@ watch(patient, () => {
               </div>
             </div>
           </div>
+          <template #loading>
+            <div class="reports-table">
+              <div class="table-row header">
+                <div class="date">Date & Time (EST)</div>
+                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      {{ symptom[0].toUpperCase() + symptom.slice(1) }}
+                    </template>
+                    <div>{{ config.symptoms[symptom].description }}</div>
+                  </n-tooltip>
+                </div>
+              </div>
+
+              <div
+                :class="{
+                  'table-row': true,
+                  report: true
+                }"
+                v-for="i in 10"
+                :key="i"
+              >
+                <n-skeleton text class="date" style="height: 19.2px; width: 130px"> </n-skeleton>
+                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
+                  <Dot loading />
+                </div>
+              </div>
+            </div>
+          </template>
         </loading>
       </ColoredCard>
     </div>
@@ -183,6 +225,7 @@ watch(patient, () => {
 }
 .participant-id {
   font-size: 16px;
+  line-height: 24px;
   font-weight: 700;
 }
 .age-sex {
@@ -252,7 +295,6 @@ watch(patient, () => {
     .dot.selected {
       outline: 2px solid #d4c5e2;
       transform: scale(1.2); /* Slightly larger scale */
-      cursor: not-allowed;
     }
 
     /* Adjusted floating effect for smaller movement due to size */
@@ -268,7 +310,7 @@ watch(patient, () => {
   }
 }
 .information {
-  flex: 0 0 200px;
+  flex: 0 0 210px;
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;

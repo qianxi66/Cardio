@@ -3,7 +3,7 @@ import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
 import { getPatients } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouteParams } from '@vueuse/router'
 import { type Patient } from '@/api/types'
 import router from '@/router'
@@ -11,14 +11,29 @@ const patients = ref<Patient[]>([])
 const loading = ref(true)
 
 const patient_id = useRouteParams('patient_id')
-getPatients().then((res) => {
-  patients.value = res
-  loading.value = false
-  if (!patient_id.value) {
-    router.push({
-      name: 'patient.detail',
-      params: { patient_id: res[0].id }
-    })
+const loadPatient = () =>
+  getPatients().then((res) => {
+    patients.value = res
+    loading.value = false
+    if (!patient_id.value) {
+      router.push({
+        name: 'patient.detail',
+        params: { patient_id: res[0].id }
+      })
+    }
+  })
+loadPatient()
+watch(patient_id, () => {
+  console.log('patient_id changed', patient_id.value)
+  if (patient_id.value === undefined) {
+    if (patients.value.length > 0) {
+      router.push({
+        name: 'patient.detail',
+        params: { patient_id: patients.value[0].id }
+      })
+    } else {
+      loadPatient()
+    }
   }
 })
 </script>
@@ -52,7 +67,7 @@ getPatients().then((res) => {
         <template #loading>
           <div class="patient-card" v-for="i in 10" :key="i">
             <div class="dot-holder">
-              <n-skeleton box style="height: 24px; width: 24px; border-radius: 50%" />
+              <Dot loading></Dot>
             </div>
             <div class="patient-info">
               <n-skeleton class="name" text style="width: 100px; height: 22px" />
