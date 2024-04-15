@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { useRouteParams } from '@vueuse/router'
+import { useRouteParams, useRouteQuery } from '@vueuse/router'
 import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
 import * as config from '@/config'
 import { computed, watch, type Ref, ref } from 'vue'
-import type { Patient } from '@/api/types'
+import type { Patient, Report } from '@/api/types'
 import { getPatient } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
 import { format } from 'date-fns'
+import router from '@/router'
 
 const id = useRouteParams('patient_id')
+const report_id = useRouteParams('report_id')
+const current_symptom = useRouteQuery('symptom')
 const patient = ref<Patient | null>(null)
 const loading = ref(true)
 watch(
@@ -22,6 +25,38 @@ watch(
   },
   { immediate: true }
 )
+const jumpToReport = (report: Report, symptom: string | undefined) => {
+  router.push({
+    name: 'patient.report.detail',
+    params: { patient_id: id.value, report_id: report.id },
+    query: symptom
+      ? {
+          symptom: symptom,
+          logs: report[(symptom + '_logs') as keyof Report] as unknown as number[]
+        }
+      : {}
+  })
+}
+watch(patient, () => {
+  // get the latest report id
+  if (patient.value) {
+    const latestReport = patient.value.reports[0]
+    if (latestReport) {
+      const most_severe_symptom = Object.keys(config.symptoms).reduce(
+        (acc: { state: number; symptom: string }, symptom: string) => {
+          if ((latestReport[(symptom + '_state') as keyof Report] as number) > acc.state) {
+            acc.state = latestReport[(symptom + '_state') as keyof Report] as number
+            acc.symptom = symptom
+          }
+          return acc
+        },
+        { state: 0, symptom: '' }
+      )
+      console.log(most_severe_symptom)
+      jumpToReport(latestReport, most_severe_symptom.symptom)
+    }
+  }
+})
 </script>
 <template>
   <div class="row">
@@ -53,6 +88,31 @@ watch(
               {{ patient!.medication }}
             </div>
           </div>
+          <template #loading>
+            <n-skeleton class="participant-id" style="height: 24px; width: 100px"></n-skeleton>
+            <div class="row demographic">
+              <n-skeleton class="age-sex" style="height: 21px"> </n-skeleton>
+              <n-skeleton style="height: 21px; width: 38px"> </n-skeleton>
+            </div>
+            <div class="row patient-details">
+              <div class="box">
+                <div class="row">
+                  <div class="title">Medical History</div>
+                  <div class="space"></div>
+                  <div>
+                    <n-skeleton text style="display: inline-block; width: 150px"> </n-skeleton>
+                  </div>
+                </div>
+                <n-skeleton text :repeat="2"></n-skeleton>
+              </div>
+              <div class="box">
+                <div class="row">
+                  <div class="title">Medication</div>
+                </div>
+                <n-skeleton text :repeat="2"></n-skeleton>
+              </div>
+            </div>
+          </template>
         </Loading>
       </ColoredCard>
       <ColoredCard
@@ -75,15 +135,27 @@ watch(
                 </n-tooltip>
               </div>
             </div>
-            <div class="table-row report" v-for="report in patient!.reports" :key="report.id">
+            <div
+              :class="{
+                'table-row': true,
+                report: true,
+                selected: report.id === parseInt(report_id)
+              }"
+              v-for="report in patient!.reports"
+              :key="report.id"
+            >
               <div class="date">{{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}</div>
               <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
                 <Dot
+                  :class="{
+                    selected: current_symptom === symptom && report.id === parseInt(report_id)
+                  }"
                   :state="report[symptom + '_state']"
                   @click="
                     $router.push({
                       name: 'patient.report.detail',
-                      params: { patient_id: patient!.id, report_id: report.id }
+                      params: { patient_id: patient!.id, report_id: report.id },
+                      query: { symptom: symptom, logs: report[symptom + '_logs'] }
                     })
                   "
                 />
@@ -167,15 +239,20 @@ watch(
       display: flex;
       justify-content: center;
     }
-    &:hover {
-      outline: 2px solid #a1a1a1;
-      background-color: #f8f8f8;
+    &.selected {
+      // outline: 2px solid #a1a1a1;
+      background-color: #f0f0f0;
     }
-    .dot:hover {
+    .dot:not(.selected):hover {
       box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.2); /* More visible shadow */
       cursor: pointer;
       transform: scale(1.2); /* Slightly larger scale */
       animation: float 0.5s ease-in-out infinite;
+    }
+    .dot.selected {
+      outline: 2px solid #d4c5e2;
+      transform: scale(1.2); /* Slightly larger scale */
+      cursor: not-allowed;
     }
 
     /* Adjusted floating effect for smaller movement due to size */

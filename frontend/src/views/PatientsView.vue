@@ -3,11 +3,23 @@ import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
 import { getPatients } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
-const patients = ref([])
+import { ref } from 'vue'
+import { useRouteParams } from '@vueuse/router'
+import { type Patient } from '@/api/types'
+import router from '@/router'
+const patients = ref<Patient[]>([])
 const loading = ref(true)
+
+const patient_id = useRouteParams('patient_id')
 getPatients().then((res) => {
   patients.value = res
   loading.value = false
+  if (!patient_id.value) {
+    router.push({
+      name: 'patient.detail',
+      params: { patient_id: res[0].id }
+    })
+  }
 })
 </script>
 <template>
@@ -22,7 +34,12 @@ getPatients().then((res) => {
             params: { patient_id: p.id }
           }"
         >
-          <div class="patient-card">
+          <div
+            :class="{
+              'patient-card': true,
+              selected: p.id == parseInt(patient_id)
+            }"
+          >
             <div class="dot-holder">
               <Dot :state="p.state"></Dot>
             </div>
@@ -94,5 +111,8 @@ getPatients().then((res) => {
 }
 a {
   text-decoration: none;
+}
+.selected {
+  background-color: #f0f0f0;
 }
 </style>

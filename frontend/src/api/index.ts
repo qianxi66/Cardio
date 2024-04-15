@@ -4,7 +4,6 @@ import {apiBasePath} from '@/config';
 const request = axios.create({
   baseURL: apiBasePath,
   transformResponse: [data => {
-    console.log(data);
     return JSON.parse(data, dateReviver);
   }],
 });
@@ -27,7 +26,6 @@ request.interceptors.response.use((response) => response.data, errorHandler);
 
 const api = (req: AxiosRequestConfig<unknown>) => new Promise((resolve, reject) => {
   request(req).then((resp) => {
-    console.log(resp);
     resolve(resp);
   }).catch((err) => {
     window.$dialog.error({

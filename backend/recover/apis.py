@@ -1,3 +1,4 @@
+import json
 import time
 from dataclasses import asdict
 
@@ -29,7 +30,7 @@ def get_patients():
                 for symptom in symptom_descriptions.keys()
             ]
         )
-    time.sleep(10)
+    time.sleep(1)
     return jsonify(patients)
 
 
@@ -39,8 +40,12 @@ def get_patient(id):
     patient = db.get(Patient, id)
     reports = Report.query.filter_by(patient_id=id).all()
     patient = asdict(patient)
+    reports = [asdict(report) for report in reports]
+    for r in reports:
+        for symptom in symptom_descriptions.keys():
+            r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
     patient["reports"] = reports
-    time.sleep(10)
+    time.sleep(1)
     return jsonify(patient)
 
 
