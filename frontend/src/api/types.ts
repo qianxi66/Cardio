@@ -61,9 +61,9 @@ export type Report = {
   mood_state: number;
   mood_read: boolean;
   mood_logs: string;
-  reportNotes: ReportNote[]; // Relationship: One-to-Many with ReportNote
-  reportSummaries: ReportSummary[]; // Relationship: One-to-Many with ReportSummary
-  conversationLogs: ConversationLog[]; // Relationship: One-to-Many with ConversationLog
+  notes: ReportNote[]; // Relationship: One-to-Many with ReportNote
+  summary: ReportSummary[]; // Relationship: One-to-Many with ReportSummary
+  conversation_logs: ConversationLog[]; // Relationship: One-to-Many with ConversationLog
 };
 
 export type ReportNote = {

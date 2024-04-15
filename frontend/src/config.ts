@@ -13,3 +13,4 @@ export const symptoms = {
   mood: { description: "Feeling Down or Depressed" },
 };
 export const apiBasePath = "http://localhost:5001/";
+export const stateColors = ['#c1b9b6', '#4ca851', '#6283ac', '#f9d965', '#eb4c44'];

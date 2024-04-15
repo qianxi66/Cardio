@@ -9,7 +9,7 @@ import { getPatient } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
 import { format } from 'date-fns'
 import router from '@/router'
-import type { CancelStatic, CancelToken, CancelTokenSource } from 'axios'
+import type { CancelTokenSource } from 'axios'
 import axios from 'axios'
 
 const patient_id = useRouteParams('patient_id')
@@ -45,7 +45,8 @@ const jumpToReport = (report: Report, symptom: string | undefined) => {
     query: symptom
       ? {
           symptom: symptom,
-          logs: report[(symptom + '_logs') as keyof Report] as unknown as number[]
+          logs: report[(symptom + '_logs') as keyof Report] as unknown as number[],
+          state: report[(symptom + '_state') as keyof Report]
         }
       : {}
   })
@@ -164,13 +165,7 @@ watch(patient, () => {
                     selected: current_symptom === symptom && report.id === parseInt(report_id)
                   }"
                   :state="report[symptom + '_state']"
-                  @click="
-                    $router.push({
-                      name: 'patient.report.detail',
-                      params: { patient_id: patient!.id, report_id: report.id },
-                      query: { symptom: symptom, logs: report[symptom + '_logs'] }
-                    })
-                  "
+                  @click="jumpToReport(report, symptom)"
                 />
               </div>
             </div>

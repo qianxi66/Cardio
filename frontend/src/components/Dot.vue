@@ -1,5 +1,6 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup lang="ts">
+import { stateColors } from '@/config'
 const props = withDefaults(defineProps<{ loading?: boolean; state?: number }>(), {
   loading: false,
   state: 0
@@ -10,7 +11,7 @@ const props = withDefaults(defineProps<{ loading?: boolean; state?: number }>(),
     class="dot"
     v-if="!props.loading"
     :style="{
-      '--color': ['#c1b9b6', '#4ca851', '#6283ac', '#f9d965', '#eb4c44'][props.state!]
+      '--color': stateColors[props.state!]
     }"
   ></div>
   <n-skeleton v-else box style="height: 24px; width: 24px; border-radius: 50%" />

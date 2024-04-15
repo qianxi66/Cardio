@@ -9,24 +9,34 @@ const router = createRouter({
     },
     {
       path: '/patient',
-      name: 'patient',
       component: () => import('../views/PatientsView.vue'),
       children: [
         {
-          path: '/patient/',
-          name: 'patient.empty',
-          component: () => import('../views/PatientDetailView.vue')
-        },
-        {
-          path: '/patient/:patient_id',
-          name: 'patient.detail',
+          path: '',
+          name: 'patient',
           component: () => import('../views/PatientDetailView.vue'),
           children: [
             {
-              path: '/patient/:patient_id/report/:report_id',
-              name: 'patient.report.detail',
+              path: '',
+              name: 'patient.report.empty',
               component: () => import('../views/ReportDetailView.vue')
             }
+        ]
+        },
+        {
+          path: '/patient/:patient_id',
+          component: () => import('../views/PatientDetailView.vue'),
+          children: [
+            {
+              path: '/patient/:patient_id',
+              name: 'patient.detail',
+              component: () => import('../views/ReportDetailView.vue')
+            },
+            {
+              path: 'report/:report_id',
+              name: 'patient.report.detail',
+              component: () => import('../views/ReportDetailView.vue')
+            },
           ]
         }
       ]

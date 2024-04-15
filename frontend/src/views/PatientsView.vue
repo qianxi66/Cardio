@@ -10,7 +10,7 @@ import router from '@/router'
 const patients = ref<Patient[]>([])
 const loading = ref(true)
 
-const patient_id = useRouteParams('patient_id')
+const patient_id = useRouteParams<number>('patient_id')
 const loadPatient = () =>
   getPatients().then((res) => {
     patients.value = res
@@ -41,7 +41,8 @@ watch(patient_id, () => {
   <div class="row holder">
     <n-card class="patient-list" title="Patients List">
       <loading :loading="loading" :has-data="patients.length !== 0" class="patient-list">
-        <router-link
+        <component
+          :is="p.id == patient_id ? 'span' : 'router-link'"
           v-for="p in patients"
           :key="p.id"
           :to="{
@@ -52,7 +53,7 @@ watch(patient_id, () => {
           <div
             :class="{
               'patient-card': true,
-              selected: p.id == parseInt(patient_id)
+              selected: p.id == patient_id
             }"
           >
             <div class="dot-holder">
@@ -63,7 +64,7 @@ watch(patient_id, () => {
               <div class="age-sex">{{ p.age }} y.o., {{ p.gender }}</div>
             </div>
           </div>
-        </router-link>
+        </component>
         <template #loading>
           <div class="patient-card" v-for="i in 10" :key="i">
             <div class="dot-holder">
@@ -118,7 +119,6 @@ watch(patient_id, () => {
   flex-direction: column;
   flex: 1;
   color: black;
-  cursor: pointer;
   .name {
     font-size: 16px;
     font-weight: 500;
@@ -129,5 +129,6 @@ a {
 }
 .selected {
   background-color: #f0f0f0;
+  cursor: default;
 }
 </style>
