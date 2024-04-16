@@ -129,7 +129,7 @@ html {
       background-color: #f0f0f0;
     }
 
-    .dot:not(.selected):hover {
+    .dot:not(.selected):not(.disabled):hover {
       box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.1);
       /* More visible shadow */
       cursor: pointer;

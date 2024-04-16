@@ -153,10 +153,11 @@ watch(patient, () => {
               <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
                 <Dot
                   :class="{
-                    selected: current_symptom === symptom && report.id === parseInt(report_id)
+                    selected: current_symptom === symptom && report.id === parseInt(report_id),
+                    disabled: report[symptom + '_state'] === 0
                   }"
                   :state="report[symptom + '_state']"
-                  @click="jumpToReport(report, symptom)"
+                  @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
                 />
               </div>
             </div>
