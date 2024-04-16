@@ -65,53 +65,42 @@ class Report(db.Model):
     updated_at: datetime = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    read: bool = db.Column(db.Boolean, default=False)
 
     pain_state: int = db.Column(db.Integer)
-    pain_read: bool = db.Column(db.Boolean)
     pain_logs: str = db.Column(db.String)
 
     breathing_state: int = db.Column(db.Integer)
-    breathing_read: bool = db.Column(db.Boolean)
     breathing_logs: str = db.Column(db.String)
 
     fever_state: int = db.Column(db.Integer)
-    fever_read: bool = db.Column(db.Boolean)
     fever_logs: str = db.Column(db.String)
 
     stools_state: int = db.Column(db.Integer)
-    stools_read: bool = db.Column(db.Boolean)
     stools_logs: str = db.Column(db.String)
 
     drainage_state: int = db.Column(db.Integer)
-    drainage_read: bool = db.Column(db.Boolean)
     drainage_logs: str = db.Column(db.String)
 
     activity_state: int = db.Column(db.Integer)
-    activity_read: bool = db.Column(db.Boolean)
     activity_logs: str = db.Column(db.String)
 
     conscious_state: int = db.Column(db.Integer)
-    conscious_read: bool = db.Column(db.Boolean)
     conscious_logs: str = db.Column(db.String)
 
     constipation_state: int = db.Column(db.Integer)
-    constipation_read: bool = db.Column(db.Boolean)
     constipation_logs: str = db.Column(db.String)
 
     diarrhea_state: int = db.Column(db.Integer)
-    diarrhea_read: bool = db.Column(db.Boolean)
     diarrhea_logs: str = db.Column(db.String)
 
     eating_state: int = db.Column(db.Integer)
-    eating_read: bool = db.Column(db.Boolean)
     eating_logs: str = db.Column(db.String)
 
     swelling_state: int = db.Column(db.Integer)
-    swelling_read: bool = db.Column(db.Boolean)
     swelling_logs: str = db.Column(db.String)
 
     mood_state: int = db.Column(db.Integer)
-    mood_read: bool = db.Column(db.Boolean)
     mood_logs: str = db.Column(db.String)
 
 

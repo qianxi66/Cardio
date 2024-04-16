@@ -22,6 +22,7 @@ declare module 'vue' {
     NSkeleton: typeof import('naive-ui')['NSkeleton']
     NSpin: typeof import('naive-ui')['NSpin']
     NTooltip: typeof import('naive-ui')['NTooltip']
+    ReportTableHeader: typeof import('./src/components/ReportTableHeader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
   }

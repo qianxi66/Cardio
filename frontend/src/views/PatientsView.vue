@@ -7,7 +7,7 @@ import { ref, watch } from 'vue'
 import { useRouteParams } from '@vueuse/router'
 import { type Patient } from '@/api/types'
 import router from '@/router'
-const patients = ref<Patient[]>([])
+const patients = ref<Patient[] | null>(null)
 const loading = ref(true)
 
 const patient_id = useRouteParams<number>('patient_id')
@@ -26,10 +26,10 @@ loadPatient()
 watch(patient_id, () => {
   console.log('patient_id changed', patient_id.value)
   if (patient_id.value === undefined) {
-    if (patients.value.length > 0) {
+    if (patients.value?.length && patients.value?.length > 0) {
       router.push({
         name: 'patient.detail',
-        params: { patient_id: patients.value[0].id }
+        params: { patient_id: patients.value![0].id }
       })
     } else {
       loadPatient()
@@ -40,7 +40,7 @@ watch(patient_id, () => {
 <template>
   <div class="row holder">
     <n-card class="patient-list" title="Patients List">
-      <loading :loading="loading" :has-data="patients.length !== 0" class="patient-list">
+      <loading :loading="loading" :has-data="patients?.length !== 0" class="patient-list">
         <component
           :is="p.id == patient_id ? 'span' : 'router-link'"
           v-for="p in patients"

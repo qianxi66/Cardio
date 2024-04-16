@@ -10,6 +10,7 @@ import Loading from '@/components/Loading.vue'
 import { format } from 'date-fns'
 import router from '@/router'
 import type { CancelTokenSource } from 'axios'
+import ReportTableHeader from '@/components/ReportTableHeader.vue'
 import axios from 'axios'
 
 const patient_id = useRouteParams('patient_id')
@@ -138,17 +139,7 @@ watch(patient, () => {
       >
         <loading :loading="loading" :has-data="!!patient">
           <div class="reports-table">
-            <div class="table-row header">
-              <div class="date">Date & Time (EST)</div>
-              <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                <n-tooltip trigger="hover">
-                  <template #trigger>
-                    {{ symptom[0].toUpperCase() + symptom.slice(1) }}
-                  </template>
-                  <div>{{ config.symptoms[symptom].description }}</div>
-                </n-tooltip>
-              </div>
-            </div>
+            <ReportTableHeader></ReportTableHeader>
             <div
               :class="{
                 'table-row': true,
@@ -172,17 +163,7 @@ watch(patient, () => {
           </div>
           <template #loading>
             <div class="reports-table">
-              <div class="table-row header">
-                <div class="date">Date & Time (EST)</div>
-                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                  <n-tooltip trigger="hover">
-                    <template #trigger>
-                      {{ symptom[0].toUpperCase() + symptom.slice(1) }}
-                    </template>
-                    <div>{{ config.symptoms[symptom].description }}</div>
-                  </n-tooltip>
-                </div>
-              </div>
+              <ReportTableHeader></ReportTableHeader>
 
               <div
                 :class="{
@@ -256,56 +237,6 @@ watch(patient, () => {
     max-width: 100%;
     min-width: 0;
     overflow-x: overlay;
-  }
-}
-.reports-table {
-  min-width: 1150px;
-  .table-row {
-    width: 100%;
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-    height: 48px;
-    font-size: 12px;
-    border-radius: 4px;
-    &.header {
-      font-weight: 700;
-      border-bottom: 1px solid #e6e6e6;
-    }
-    .date {
-      flex: 0 0 130px;
-    }
-    .symptom {
-      flex: 1 0 50px;
-      display: flex;
-      justify-content: center;
-    }
-    &.selected {
-      // outline: 2px solid #a1a1a1;
-      background-color: #f0f0f0;
-    }
-    .dot:not(.selected):hover {
-      box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.1); /* More visible shadow */
-      cursor: pointer;
-      transform: scale(1.2); /* Slightly larger scale */
-      // animation: float 0.5s ease-in-out infinite;
-    }
-    .dot.selected {
-      outline: 2px solid #5e5d5f;
-      transform: scale(1.2); /* Slightly larger scale */
-    }
-
-    /* Adjusted floating effect for smaller movement due to size */
-    @keyframes float {
-      0%,
-      100% {
-        transform: translateY(0) scale(1.2);
-      }
-      50% {
-        transform: translateY(-3px) scale(1.2);
-      }
-    }
   }
 }
 .information {

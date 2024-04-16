@@ -4,7 +4,7 @@ import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
 import conversations from '@/data/conversations.json'
 import * as config from '@/config'
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, ref, watch, type Ref } from 'vue'
 import type { Report, ReportSummary } from '@/api/types'
 import type { CancelTokenSource } from 'axios'
 import { getReport, createNote as createNoteAPI, deleteNote as deleteNoteAPI } from '@/api/patient'
@@ -47,7 +47,7 @@ watch(
     conversationRefs.value = {}
     report.value = await getReport(patient_id.value, report_id.value, cancelToken.value.token)
     loading.value = false
-    scroll()
+    nextTick(scroll)
   },
   { immediate: true }
 )

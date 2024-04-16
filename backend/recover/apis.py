@@ -24,12 +24,15 @@ def get_patients():
             .order_by(Report.created_at.desc())
             .first()
         )
-        patient["state"] = max(
-            [
-                getattr(latest_report, f"{symptom}_state")
-                for symptom in symptom_descriptions.keys()
-            ]
-        )
+        if latest_report:
+            patient["state"] = max(
+                [
+                    getattr(latest_report, f"{symptom}_state")
+                    for symptom in symptom_descriptions.keys()
+                ]
+            )
+        else:
+            patient["state"] = 0
     time.sleep(1)
     return jsonify(patients)
 
