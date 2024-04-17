@@ -141,20 +141,43 @@ def create_conversation_log(alexa_user_id):
     # get all conversation logs for this report
     conversation_logs = ConversationLog.query.filter_by(report_id=report.id).all()
     conversation_logs = [asdict(log) for log in conversation_logs]
+    print(conversation_logs)
     conversation_logs = [
         {
-            "content": log["content"],
+            "content": log["content"]
+            if log["role"] == "user"
+            else log["chain_of_thoughts"] + "==============\n" + log["content"],
             "role": log["role"],
         }
         for log in conversation_logs
     ]
     print(conversation_logs)
     assistant_message = conversation(conversation_logs)
+    print(assistant_message)
+    try:
+        chain_of_thoughts = assistant_message.split("==============")[0]
+        assistant_message = assistant_message.split("==============")[1].strip(" \n")
+    except IndexError:
+        chain_of_thoughts = """breathing: false
+fever: false
+stools: false
+pain: false
+drainage: false
+activity: false
+conscious: false
+constipation: false
+diarrhea: false
+eating: false
+swelling: false
+mood: false
+"""
+        pass
     log = ConversationLog(
         patient_id=patient.id,
         report_id=report.id,
         role="assistant",
         content=assistant_message,
+        chain_of_thoughts=chain_of_thoughts,
     )
     db.session.add(log)
     db.session.commit()

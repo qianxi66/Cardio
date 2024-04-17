@@ -145,6 +145,7 @@ class ConversationLog(db.Model):
     report_id: int
     role: str
     content: str
+    chain_of_thoughts: str
     created_at: datetime
 
     id = db.Column(db.Integer, primary_key=True)
@@ -152,6 +153,7 @@ class ConversationLog(db.Model):
     report_id = db.Column(db.Integer, db.ForeignKey("report.id"))
     role = db.Column(db.String(50))
     content = db.Column(db.Text)
+    chain_of_thoughts = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
