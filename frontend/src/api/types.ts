@@ -9,6 +9,10 @@ export type Patient = {
   participant_id: string;
   reports: Report[]; // Relationship: One-to-Many with Report
   conversationLogs: ConversationLog[]; // Relationship: One-to-Many with ConversationLog
+  read: boolean;
+  last_read_at: Date;
+  reviewed: boolean;
+  state: number;
 };
 
 export type User = {

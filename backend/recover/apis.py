@@ -28,22 +28,35 @@ def get_patients():
             .first()
         )
         if latest_report:
-            patient["state"] = max(
-                [
-                    getattr(latest_report, f"{symptom}_state")
-                    for symptom in symptom_descriptions.keys()
-                ]
-            )
+            if patient["last_read_at"]:
+                patient["read"] = patient["last_read_at"] >= latest_report.created_at
+            else:
+                patient["read"] = False
         else:
             patient["state"] = 0
-    time.sleep(1)
     return jsonify(patients)
+
+
+@current_app.route("/patients/<int:id>", methods=["PATCH"])
+def update_patient(id):
+    data = request.get_json()
+    print(data)
+    patient = db.get(Patient, id)
+    for key in data:
+        setattr(patient, key, data[key])
+    db.session.add(patient)
+    db.session.commit()
+    # time.sleep(10)
+    return jsonify({"message": "Patient state updated."})
 
 
 @current_app.route("/patients/<int:id>", methods=["GET"])
 def get_patient(id):
     # also get reports
     patient = db.get(Patient, id)
+    patient.last_read_at = datetime.now()
+    db.session.add(patient)
+    db.session.commit()
     reports = (
         Report.query.filter_by(patient_id=id).order_by(Report.created_at.desc()).all()
     )
@@ -101,7 +114,6 @@ def get_or_create_report(patient_id):
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     # to utc
     today = today.astimezone(pytz.utc)
-    print(today)
     report = (
         Report.query.filter_by(patient_id=patient_id)
         .filter(Report.created_at >= today)
@@ -117,6 +129,9 @@ def get_or_create_report(patient_id):
         ]
         symptom_kwargs = {k: v for d in symptom_kwargs for k, v in d.items()}
         report = Report(patient_id=patient_id, **symptom_kwargs)
+        patient = Patient.query.get(patient_id)
+        patient.reviewed = False
+        db.session.add(patient)
         db.session.add(report)
         db.session.commit()
     return report
@@ -141,7 +156,6 @@ def create_conversation_log(alexa_user_id):
     # get all conversation logs for this report
     conversation_logs = ConversationLog.query.filter_by(report_id=report.id).all()
     conversation_logs = [asdict(log) for log in conversation_logs]
-    print(conversation_logs)
     conversation_logs = [
         {
             "content": log["content"]

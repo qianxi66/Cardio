@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
-import { getPatients } from '@/api/patient'
+import { getPatients, updatePatient } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
 import { ref, watch } from 'vue'
 import { useRouteParams } from '@vueuse/router'
@@ -34,37 +34,57 @@ watch(patient_id, () => {
     } else {
       loadPatient()
     }
+  } else {
+    if (patients.value?.find((p) => p.id == patient_id.value)) {
+      patients.value!.find((p) => p.id == patient_id.value)!.read = true
+    }
+    setTimeout(loadPatient, 100)
   }
 })
+const updateState = (id: number, state: number) => {
+  if (state >= 0) {
+    patients.value!.find((p) => p.id == id)!.state = state
+    patients.value!.find((p) => p.id == id)!.reviewed = false
+    updatePatient(id, { state, reviewed: false })
+  } else {
+    patients.value!.find((p) => p.id == id)!.reviewed = true
+    updatePatient(id, { reviewed: true })
+  }
+}
 </script>
 <template>
   <div class="row holder">
     <n-card class="patient-list" title="Patients List">
       <loading :loading="loading" :has-data="patients?.length !== 0" class="patient-list">
-        <component
-          :is="p.id == patient_id ? 'span' : 'router-link'"
+        <div
+          :class="{
+            'patient-card': true,
+            selected: p.id == patient_id,
+            read: p.read
+          }"
           v-for="p in patients"
           :key="p.id"
-          :to="{
-            name: 'patient.detail',
-            params: { patient_id: p.id }
-          }"
         >
-          <div
-            :class="{
-              'patient-card': true,
-              selected: p.id == patient_id
-            }"
-          >
-            <div class="dot-holder">
-              <Dot :state="p.state"></Dot>
-            </div>
-            <div class="patient-info">
-              <div class="name">Patient {{ p.participant_id }}</div>
-              <div class="age-sex">{{ p.age }} y.o., {{ p.gender }}</div>
-            </div>
+          <div class="dot-holder">
+            <Dot
+              @update:state="updateState(p.id, $event)"
+              :state="p.reviewed ? -1 : p.state"
+              editable
+              reviewable
+            ></Dot>
           </div>
-        </component>
+          <component
+            :is="p.id == patient_id ? 'div' : 'router-link'"
+            :to="{
+              name: 'patient.detail',
+              params: { patient_id: p.id }
+            }"
+            class="patient-info"
+          >
+            <div class="name">Patient {{ p.participant_id }}</div>
+            <div class="age-sex">{{ p.age }} y.o., {{ p.gender }}</div>
+          </component>
+        </div>
         <template #loading>
           <div class="patient-card" v-for="i in 10" :key="i">
             <div class="dot-holder">
@@ -113,6 +133,12 @@ watch(patient_id, () => {
   justify-content: space-between;
   align-items: center;
   border-top: 1px solid #e6e6e6;
+  &:not(.read) {
+    font-weight: 800;
+    .name {
+      font-weight: 800;
+    }
+  }
 }
 .patient-info {
   display: flex;

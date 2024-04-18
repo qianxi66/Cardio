@@ -31,6 +31,9 @@ class Patient(db.Model):
     medical_history: str
     medication: str
     participant_id: str
+    last_read_at: datetime
+    reviewed: bool
+    state: int
 
     id = db.Column(db.Integer, primary_key=True)
     age = db.Column(db.Integer)
@@ -40,6 +43,9 @@ class Patient(db.Model):
     medical_history = db.Column(db.Text)
     medication = db.Column(db.Text)
     participant_id = db.Column(db.String(20))
+    last_read_at = db.Column(db.DateTime)
+    reviewed = db.Column(db.Boolean, default=False)
+    state = db.Column(db.Integer, default=0)
 
 
 @dataclass
@@ -164,7 +170,6 @@ def get(
     *,
     description: str | None = None,
 ) -> _O:
-    print(entity)
     # if entity is a type of model
     if isinstance(entity, type) and issubclass(entity, self.Model):
         value = self.session.get(entity, ident)
