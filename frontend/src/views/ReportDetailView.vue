@@ -124,7 +124,7 @@ watch(select_log_ids, scroll)
             </div>
             <n-input
               v-model:value="editingNote"
-              placeholder="Add a note (prss enter to submit)"
+              placeholder="Add a note (press enter to submit)"
               @keyup.enter="createNote()"
             />
           </div>
