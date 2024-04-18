@@ -126,7 +126,7 @@ html {
 
     &.selected {
       // outline: 2px solid #a1a1a1;
-      background-color: #f0f0f0;
+      background-color: #f8f8f8;
     }
 
     .dot:not(.selected):not(.disabled):hover {
@@ -146,7 +146,6 @@ html {
 
     /* Adjusted floating effect for smaller movement due to size */
     @keyframes float {
-
       0%,
       100% {
         transform: translateY(0) scale(1.2);

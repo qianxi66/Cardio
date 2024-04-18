@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="tsx">
 import { useRouteParams, useRouteQuery } from '@vueuse/router'
 import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
@@ -12,6 +12,7 @@ import router from '@/router'
 import type { CancelTokenSource } from 'axios'
 import ReportTableHeader from '@/components/ReportTableHeader.vue'
 import axios from 'axios'
+import CircleProgress from '@/components/CircleProgress.vue'
 
 const patient_id = useRouteParams('patient_id')
 const report_id = useRouteParams('report_id')
@@ -151,7 +152,7 @@ watch(patient, () => {
             >
               <div class="date">{{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}</div>
               <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                <Dot
+                <!-- <Dot
                   :class="{
                     selected: current_symptom === symptom && report.id === parseInt(report_id),
                     disabled: report[symptom + '_state'] === 0
@@ -159,6 +160,9 @@ watch(patient, () => {
                   :state="report[symptom + '_state']"
                   @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
                 />
+               -->
+
+                <CircleProgress :percent="60" style="width: 50px"> 6 </CircleProgress>
               </div>
             </div>
           </div>

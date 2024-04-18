@@ -8,6 +8,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AppHeader: typeof import('./src/components/AppHeader.vue')['default']
+    CircleProgress: typeof import('./src/components/CircleProgress.vue')['default']
     ColoredCard: typeof import('./src/components/ColoredCard.vue')['default']
     Dot: typeof import('./src/components/Dot.vue')['default']
     Loading: typeof import('./src/components/Loading.vue')['default']
@@ -21,6 +22,7 @@ declare module 'vue' {
     NInput: typeof import('naive-ui')['NInput']
     NMessageProvider: typeof import('naive-ui')['NMessageProvider']
     NPopover: typeof import('naive-ui')['NPopover']
+    NProgress: typeof import('naive-ui')['NProgress']
     NSkeleton: typeof import('naive-ui')['NSkeleton']
     NSpin: typeof import('naive-ui')['NSpin']
     NTooltip: typeof import('naive-ui')['NTooltip']

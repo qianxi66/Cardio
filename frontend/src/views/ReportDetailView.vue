@@ -96,7 +96,7 @@ const scroll = () => {
       console.log('scrolling to', min)
       const el = conversationRefs.value[min]
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     }
   }
