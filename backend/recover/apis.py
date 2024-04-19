@@ -8,7 +8,7 @@ from flask import current_app, jsonify, request
 
 from .config import symptom_descriptions
 from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
-from .openai import conversation
+from .openai import conversation, key_questions, summary
 
 
 # get patients, return all patients
@@ -172,18 +172,18 @@ def create_conversation_log(alexa_user_id):
         chain_of_thoughts = assistant_message.split("==============")[0]
         assistant_message = assistant_message.split("==============")[1].strip(" \n")
     except IndexError:
-        chain_of_thoughts = """breathing: false
-fever: false
-stools: false
-pain: false
-drainage: false
-activity: false
-conscious: false
-constipation: false
-diarrhea: false
-eating: false
-swelling: false
-mood: false
+        chain_of_thoughts = """breathing: not discussed
+fever: not discussed
+stools: not discussed
+pain: not discussed
+drainage: not discussed
+activity: not discussed
+conscious: not discussed
+constipation: not discussed
+diarrhea: not discussed
+eating: not discussed
+swelling: not discussed
+mood: not discussed
 """
         pass
     log = ConversationLog(
@@ -196,3 +196,30 @@ mood: false
     db.session.add(log)
     db.session.commit()
     return jsonify(log)
+
+# summarize key questions
+@current_app.route("/alexa_user/<alexa_user_id>/session_end", methods=["POST"])
+def session_end(alexa_user_id):
+    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    report = get_or_create_report(patient.id)
+    messages = ConversationLog.query.filter_by(report_id=report.id).all()
+    messages = [asdict(message) for message in messages]
+    messages = [
+        {"id": message["id"], "content": message["content"], "role": message["role"]}
+        for message in messages
+    ]
+    try:
+        response = json.loads(key_questions(json.dumps(messages)))
+    except Exception as e:
+        response = {}
+    print(response)
+    for key in response:
+        setattr(report, f'{key}_state', response[key]['state'])
+        setattr(report, f'{key}_logs', json.dumps(response[key]['logs']))
+        # report[f'{key}_logs'] == response[key]['logs']
+
+    db.session.add(report)
+    db.session.commit()
+    summaries = summary(json.dumps(messages), json.dumps(response))
+    
+    return jsonify({"summaries": summaries, "message": messages, "response": response, "report": report})

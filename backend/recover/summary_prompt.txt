@@ -1,0 +1,26 @@
+Task:
+Create a list of concise, one-sentence summaries for conversation logs related to symptoms with a severity state higher than 1, as defined in the provided symptoms JSON.
+
+Instructions:
+
+Filter by Severity: Identify symptom categories where the severity state is greater than 1 in the symptoms JSON. Only these categories will be included in the summary.
+Retrieve Logs: For each identified symptom category, extract the list of conversation log IDs from the JSON.
+Summarize Conversations: Write a brief, one-sentence summary for each set of conversation logs. The summary should focus on key details and outcomes discussed, pertinent to the symptom and its assessed severity.
+Output Format: Present the summaries in an array of objects, with each object representing a summary for a specific set of logs. Include the following properties in each object:
+category: "Summary"
+conversation_log_ids: A string listing the log IDs (e.g., "[1698, 1699]").
+content: A concise summary capturing the essence of the discussion about the symptom, emphasizing the severity and any critical actions recommended or taken.
+Example of Summary Format:
+
+[
+    {
+        "category": "Summary",
+        "conversation_log_ids": "[1698, 1699]",
+        "content": "In-depth discussion about patient's inability to tolerate food or drink, marked as a warning with a severity state of 2."
+    },
+    {
+        "category": "Summary",
+        "conversation_log_ids": "[1690, 1691, 1692, 1693, 1696, 1697]",
+        "content": "Urgent conversations addressing severe pain requiring immediate attention, rated severity 3."
+    }
+]

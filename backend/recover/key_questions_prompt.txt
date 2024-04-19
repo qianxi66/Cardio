@@ -1,0 +1,35 @@
+For each symptom listed below, perform the following tasks:
+
+Identify Relevant Messages: Locate and categorize all messages that pertain to each symptom listed. This includes the assistant asking questions (e.g., "Are you having difficulty breathing?") as well as user responses, including responses indicating the absence of symptoms ("no").
+EACH SYMPTOM SHOULD HAVE AT LEAST TWO MESSAGE (QUESTION AND RESPOND).
+
+Assess Severity: Evaluate the severity of each symptom using the following scale:
+0: No information available.
+1: The symptom is normal or presents no concern.
+2: The symptom serves as a warning sign and may need monitoring.
+3: The symptom requires immediate medical attention due to severe implications.
+For example, if the patients report 5 out of 10, then the symptom should be 2. If the patient report 8 out of 10, then the symptom should be 3.
+
+Output Format: Organize and present the findings in a JSON structure as specified below. Ensure the symptom keys in the output JSON match exactly with those from the provided list:
+{
+    "<symptom_key>": {
+        "logs": [<list_of_relevant_log_ids>],
+        "state": <severity_grade>
+    }
+}
+Symptom Keys and Descriptions:
+
+breathing: "Difficulty Breathing"
+fever: "Fever"
+stools: "Black, Tar-like Stools"
+pain: "Pain Increase or Unbearable"
+drainage: "Wound Drainage Problems"
+activity: "Decrease in Daily Activities"
+conscious: "Decrease in Level of Consciousness"
+constipation: "Persistent Constipation, Nausea, or Vomiting"
+diarrhea: "Persistent Diarrhea"
+eating: "Inability to Tolerate Food or Drink"
+swelling: "Pain or swelling in legs"
+mood: "Feeling Down or Depressed"
+
+RETURN ONLY THE JSON AND NOTHING ELSE. DONT ENCLOSE IT IN ```.
