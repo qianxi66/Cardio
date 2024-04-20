@@ -1,14 +1,15 @@
 import json
 import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 from flask import current_app, jsonify, request
-
+from .app import app
 from .config import symptom_descriptions
 from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
 from .openai import conversation, key_questions, summary
+from threading import Thread
 
 
 # get patients, return all patients
@@ -111,9 +112,10 @@ def create_report_note(id, report_id):
 
 # helper function; get today's report (created_at >= today's begin) or create a new report for a user
 def get_or_create_report(patient_id):
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    # to utc
-    today = today.astimezone(pytz.utc)
+    # get last 4am, if pass 4am then today, otherwise yesterday
+    today = datetime.now().replace(hour=4, minute=0, second=0, microsecond=0)
+    if datetime.now() < today:
+        today -= timedelta(days=1)
     report = (
         Report.query.filter_by(patient_id=patient_id)
         .filter(Report.created_at >= today)
@@ -197,29 +199,50 @@ mood: not discussed
     db.session.commit()
     return jsonify(log)
 
+def session_end_hook(alexa_user_id):
+    with app.app_context():
+        patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+        report = get_or_create_report(patient.id)
+        messages = ConversationLog.query.filter_by(report_id=report.id).all()
+        messages = [asdict(message) for message in messages]
+        messages = [
+            {"id": message["id"], "content": message["content"], "role": message["role"]}
+            for message in messages
+        ]
+        try:
+            response = json.loads(key_questions(json.dumps(messages)))
+        except Exception as e:
+            response = {}
+        print(response)
+        for key in response:
+            setattr(report, f'{key}_state', response[key]['state'])
+            setattr(report, f'{key}_logs', json.dumps(response[key]['logs']))
+
+        db.session.add(report)
+        summaries = summary(json.dumps(messages), json.dumps(response))
+        try:
+            summaries = json.loads(summaries)
+            # firstly delete all old summaries
+            ReportSummary.query.filter_by(report_id=report.id).delete()
+            for summaryi in summaries:
+                report_summary = ReportSummary(
+                    report_id=report.id,
+                    highlight_keywords = "",
+                    **summaryi
+                )
+                db.session.add(report_summary)
+            db.session.commit()
+        except Exception as e:
+            print(e)
+        # set patient's state to the largest state in report
+        patient.state = max([getattr(report, f"{symptom}_state") for symptom in symptom_descriptions.keys()])
+        db.session.add(patient)
+        db.session.commit()
+        print("session end hook done")
+
 # summarize key questions
 @current_app.route("/alexa_user/<alexa_user_id>/session_end", methods=["POST"])
 def session_end(alexa_user_id):
-    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
-    report = get_or_create_report(patient.id)
-    messages = ConversationLog.query.filter_by(report_id=report.id).all()
-    messages = [asdict(message) for message in messages]
-    messages = [
-        {"id": message["id"], "content": message["content"], "role": message["role"]}
-        for message in messages
-    ]
-    try:
-        response = json.loads(key_questions(json.dumps(messages)))
-    except Exception as e:
-        response = {}
-    print(response)
-    for key in response:
-        setattr(report, f'{key}_state', response[key]['state'])
-        setattr(report, f'{key}_logs', json.dumps(response[key]['logs']))
-        # report[f'{key}_logs'] == response[key]['logs']
-
-    db.session.add(report)
-    db.session.commit()
-    summaries = summary(json.dumps(messages), json.dumps(response))
+    Thread(target=session_end_hook, args=(alexa_user_id,)).start()
     
-    return jsonify({"summaries": summaries, "message": messages, "response": response, "report": report})
+    return jsonify({"message": "success"})
