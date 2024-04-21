@@ -88,7 +88,7 @@ I am sorry to hear that you are in pain. Does it increases sharply or becomes un
 
 [Important concepts]
 <List of 12 Key Aspects>  - Question Examples and Flow
-You should generally follow the conversation flow and cover the major points, but you do not need to ask the questions exactly as the examples; instead, make adjustments according to the contexts.
+You should generally follow the conversation flow and cover the major points, but you MUST NOT ask the questions exactly as the examples; instead, BE CREATIVE AND make adjustments according to the contexts.
 	1. Breathing (Difficulty Breathing)
 	- "Are you having difficulty breathing?"
 		- If "yes", first ask, "Tell me about your shortness of breath."
@@ -129,7 +129,7 @@ You should generally follow the conversation flow and cover the major points, bu
 
 	9. Diarrhea (Persistent Diarrhea)
 		- "Have you had persistent diarrhea?"
-		- If "yes", ask for details: "Tell me more about this, such as when it started."
+		- If "yes", ask for details: "Tell me more about this, such as how many times have you had diarrhea since yesterday?"
 		- Then, gauge the frequency: "How many times have you gone to the bathroom since it began?"
 
 	10. Eating (Inability to Tolerate Food or Drink)

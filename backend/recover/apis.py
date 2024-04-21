@@ -15,11 +15,7 @@ from threading import Thread
 # get patients, return all patients
 @current_app.route("/patients", methods=["GET"])
 def get_patients():
-    # patients = Patient.query.all()
-    # return jsonify(patients)
-    # get all patints
-    # join the latest report
-    # query the maximum of all the states and return the patient
+    # sort by patient state
     patients = Patient.query.all()
     patients = [asdict(patient) for patient in patients]
     for patient in patients:
@@ -35,6 +31,10 @@ def get_patients():
                 patient["read"] = False
         else:
             patient["state"] = 0
+        if patient["state"] is None:
+            patient["state"] = 0
+            patient['read'] = True
+    patients = sorted(patients, key=lambda x: -1 if x['reviewed'] else (x["state"] if x["state"] else 0), reverse=True)
     return jsonify(patients)
 
 

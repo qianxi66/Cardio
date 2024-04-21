@@ -152,17 +152,17 @@ watch(patient, () => {
             >
               <div class="date">{{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}</div>
               <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                <!-- <Dot
+                <Dot
                   :class="{
                     selected: current_symptom === symptom && report.id === parseInt(report_id),
                     disabled: report[symptom + '_state'] === 0
                   }"
                   :state="report[symptom + '_state']"
                   @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                  v-if="config.symptoms[symptom].scale === 'state'"
                 />
-               -->
 
-                <CircleProgress :percent="60" style="width: 50px"> 6 </CircleProgress>
+                <CircleProgress v-else :percent="60" style="width: 50px"> 6 </CircleProgress>
               </div>
             </div>
           </div>
