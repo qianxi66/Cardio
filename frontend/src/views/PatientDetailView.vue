@@ -36,6 +36,11 @@ watch(
     patient.value = null
     loading.value = true
     patient.value = await getPatient(parseInt(patient_id.value as string), cancelToken.value.token)
+    for (const report of patient.value.reports) {
+      for (const symptom of Object.keys(config.symptoms)) {
+        report[symptom + '_likert'] = Math.floor(Math.random() * 10)
+      }
+    }
     loading.value = false
   },
   { immediate: true }
