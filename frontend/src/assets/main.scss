@@ -100,7 +100,7 @@ html {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    height: 48px;
+    height: 60px;
     font-size: 12px;
 
     &.header {
@@ -123,18 +123,18 @@ html {
       }
     }
 
-    .dot:not(.selected):not(.disabled):hover {
+    .dot-container:not(.selected):not(.disabled):hover .dot {
       box-shadow: 0px 0px 8px 4px rgba(0, 0, 0, 0.1);
       /* More visible shadow */
       cursor: pointer;
-      transform: scale(1.2);
+      transform: scale(1.1);
       /* Slightly larger scale */
       // animation: float 0.5s ease-in-out infinite;
     }
 
-    .dot.selected {
+    .selected .dot {
       outline: 2px solid #5e5d5f;
-      transform: scale(1.2);
+      transform: scale(1.1);
       /* Slightly larger scale */
     }
 
@@ -154,7 +154,7 @@ html {
 
 .table-row-block {
     border-radius: 4px;
-  &.selected {
+    &.selected {
       outline: 2px solid #a1a1a1;
       // background-color: #f8f8f8;
     }

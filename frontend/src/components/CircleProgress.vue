@@ -5,9 +5,11 @@ const props = withDefaults(
     percent: number
     color: string
     id: string
+    visible?: boolean
   }>(),
   {
-    percent: 0
+    percent: 0,
+    visible: true
   }
 )
 function getPath(
@@ -102,9 +104,9 @@ const Circle = computed(() => {
           <stop offset="100%" stop-color="var(--color-5)" />
         </linearGradient>
       </defs>
-      {getPath(100, radius * 2, strokeWidth, '#e0e0e0')}
-      {props.percent != 0 && getPath(props.percent, radius * 2, strokeWidth)}
-      {props.percent != 0 && getArrow(strokeWidth)}
+      {props.visible && getPath(100, radius * 2, strokeWidth, '#e0e0e0')}
+      {props.visible && props.percent != 0 && getPath(props.percent, radius * 2, strokeWidth)}
+      {props.visible && props.percent != 0 && getArrow(strokeWidth)}
     </svg>
   )
 })
@@ -123,8 +125,8 @@ const Circle = computed(() => {
 }
 .content {
   position: absolute;
-  bottom: 10%;
+  bottom: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(50%);
 }
 </style>

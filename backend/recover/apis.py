@@ -89,6 +89,28 @@ def get_patient_reports(id, report_id):
     return jsonify(reports)
 
 
+# update report
+@current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["PATCH"])
+def update_report(id, report_id):
+    patient = Patient.query.get(id)
+    data = request.get_json()
+    report = Report.query.filter_by(id=report_id).first()
+    for key in data:
+        setattr(report, key, data[key])
+    db.session.add(report)
+    patient.state = max(
+        [
+            symptom_descriptions[symptom]["max_scale"]
+            if getattr(report, f"{symptom}_state") == 2
+            else getattr(report, f"{symptom}_state")
+            for symptom in symptom_descriptions.keys()
+        ]
+    )
+    db.session.add(patient)
+    db.session.commit()
+    return jsonify({"message": "Report updated."})
+
+
 # delete note
 @current_app.route(
     "/patients/<int:id>/report/<int:report_id>/note/<int:note_id>", methods=["DELETE"]
@@ -250,12 +272,12 @@ def session_end_hook(alexa_user_id):
         except Exception as e:
             print(e)
         # set patient's state to the largest state in report
-        # patient.state = max(
-        #     [
-        #         getattr(report, f"{symptom}_state")
-        #         for symptom in symptom_descriptions.keys()
-        #     ]
-        # )
+        patient.state = max(
+            [
+                getattr(report, f"{symptom}_state")
+                for symptom in symptom_descriptions.keys()
+            ]
+        )
         db.session.add(patient)
         db.session.commit()
         print("session end hook done")

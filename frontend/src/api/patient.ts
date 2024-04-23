@@ -25,6 +25,14 @@ export const updatePatient = async (id: number, data: Partial<Patient>) => {
     });
 }
 
+export const updateReport = async (patient_id: number, report_id: number, data: Partial<Report>) => {
+    return await api({
+        url: `/patients/${patient_id}/report/${report_id}`,
+        method: 'PATCH',
+        data,
+    });
+}
+
 export const getReport = async (patient_id: number, report_id: number, cancelToken?: CancelToken) => {
     return await api({
         url: `/patients/${patient_id}/report/${report_id}`,

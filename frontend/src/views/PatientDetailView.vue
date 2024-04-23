@@ -5,7 +5,7 @@ import Dot from '@/components/Dot.vue'
 import * as config from '@/config'
 import { computed, watch, type Ref, ref } from 'vue'
 import type { Patient, Report } from '@/api/types'
-import { getPatient } from '@/api/patient'
+import { getPatient, updateReport } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
 import { format } from 'date-fns'
 import router from '@/router'
@@ -73,6 +73,13 @@ watch(patient, () => {
     }
   }
 })
+const updateState = (id: number, report_id: number, symptom: string, state: number) => {
+  const report = patient.value!.reports.find((r) => r.id === report_id)
+  if (report) {
+    report[symptom + '_state'] = state
+    updateReport(id, report_id, { [symptom + '_state']: state })
+  }
+}
 </script>
 <template>
   <div class="row">
@@ -159,25 +166,6 @@ watch(patient, () => {
               >
                 <div class="date">{{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}</div>
                 <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                  <dot-symptom
-                    :class="{
-                      selected: current_symptom === symptom && report.id === parseInt(report_id),
-                      disabled: report[symptom + '_state'] === 0
-                    }"
-                    :state="report[symptom + '_state']"
-                    @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
-                    :color="config.symptoms[symptom].color"
-                  />
-                </div>
-              </div>
-              <div
-                :class="{
-                  'table-row': true,
-                  report: true
-                }"
-              >
-                <div class="date"></div>
-                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
                   <n-tooltip trigger="hover" v-if="config.symptoms[symptom].likert">
                     <template #trigger>
                       <circle-progress
@@ -185,15 +173,55 @@ watch(patient, () => {
                         :color="config.symptoms[symptom].color"
                         :id="symptom"
                         style="width: 50px"
-                      />
+                      >
+                        <dot-symptom
+                          @update:state="updateState(patient.id, report.id, symptom, $event)"
+                          :editable="
+                            (current_symptom === symptom && report.id === parseInt(report_id)) ||
+                            report[symptom + '_state'] === 0
+                          "
+                          :class="{
+                            selected:
+                              current_symptom === symptom && report.id === parseInt(report_id),
+                            disabled: report[symptom + '_state'] === 0
+                          }"
+                          :state="report[symptom + '_state']"
+                          @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                          :color="config.symptoms[symptom].color"
+                        />
+                      </circle-progress>
                     </template>
                     <div>
                       {{ config.symptoms[symptom].display_name }}: {{ report[symptom + '_scale'] }}
                     </div>
                   </n-tooltip>
+                  <circle-progress
+                    :percent="report[symptom + '_scale'] * 10"
+                    :color="config.symptoms[symptom].color"
+                    :id="symptom"
+                    style="width: 50px"
+                    v-else
+                    :visible="false"
+                  >
+                    <dot-symptom
+                      @update:state="updateState(patient.id, report.id, symptom, $event)"
+                      :editable="
+                        (current_symptom === symptom && report.id === parseInt(report_id)) ||
+                        report[symptom + '_state'] === 0
+                      "
+                      :class="{
+                        selected: current_symptom === symptom && report.id === parseInt(report_id),
+                        disabled: report[symptom + '_state'] === 0
+                      }"
+                      :state="report[symptom + '_state']"
+                      @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                      :color="config.symptoms[symptom].color"
+                    />
+                  </circle-progress>
                 </div>
               </div>
             </div>
+            D
           </div>
           <template #loading>
             <div class="reports-table">
@@ -212,28 +240,15 @@ watch(patient, () => {
                     v-for="symptom of Object.keys(config.symptoms)"
                     :key="symptom"
                   >
-                    <Dot loading />
-                  </div>
-                </div>
-                <div
-                  :class="{
-                    'table-row': true,
-                    report: true
-                  }"
-                >
-                  <div class="date"></div>
-                  <div
-                    class="symptom"
-                    v-for="symptom of Object.keys(config.symptoms)"
-                    :key="symptom"
-                  >
                     <circle-progress
-                      v-if="config.symptoms[symptom].likert"
                       :percent="0"
-                      color="black"
+                      :color="config.symptoms[symptom].color"
                       :id="symptom"
                       style="width: 50px"
-                    />
+                      :visible="config.symptoms[symptom].likert"
+                    >
+                      <Dot loading />
+                    </circle-progress>
                   </div>
                 </div>
               </template>

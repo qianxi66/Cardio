@@ -45,7 +45,7 @@ watch(
     report.value = null
     loading.value = true
     conversationRefs.value = {}
-    report.value = await getReport(patient_id.value, report_id.value, cancelToken.value.token)
+    report.value = await getReport(patient_id.value!, report_id.value, cancelToken.value.token)
     loading.value = false
     nextTick(scroll)
   },
