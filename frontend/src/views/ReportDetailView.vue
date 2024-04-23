@@ -263,6 +263,7 @@ watch(select_log_ids, scroll)
   }
 }
 .message {
+  scroll-margin-top: 8px;
   display: flex;
   margin-bottom: 8px;
   border-radius: 2px;

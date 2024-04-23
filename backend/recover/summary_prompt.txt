@@ -16,11 +16,11 @@ Example of Summary Format:
     {
         "category": "Summary",
         "conversation_log_ids": "[1698, 1699]",
-        "content": "In-depth discussion about patient's inability to tolerate food or drink, marked as a warning with a severity state of 2."
+        "content": "In-depth discussion about patient's inability to tolerate food or drink."
     },
     {
         "category": "Summary",
         "conversation_log_ids": "[1690, 1691, 1692, 1693, 1696, 1697]",
-        "content": "Urgent conversations addressing severe pain requiring immediate attention, rated severity 3."
+        "content": "Urgent conversations addressing severe pain requiring immediate attention."
     }
 ]

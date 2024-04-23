@@ -221,7 +221,6 @@ const updateState = (id: number, report_id: number, symptom: string, state: numb
                 </div>
               </div>
             </div>
-            D
           </div>
           <template #loading>
             <div class="reports-table">
