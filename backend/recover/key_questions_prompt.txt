@@ -20,7 +20,7 @@ For each symptom listed above, perform the following tasks:
 Identify Relevant Messages: Locate and categorize all messages that pertain to each symptom listed. This includes the assistant asking questions (e.g., "Are you having difficulty breathing?") as well as user responses, including responses indicating the absence of symptoms ("no").
 EACH SYMPTOM SHOULD HAVE AT LEAST TWO MESSAGE (QUESTION AND RESPOND).
 
-Assess state: determine whether the patient reported to this symptom. should be a boolean value of true/false.
+Assess state: determine whether the patient reported to this symptom. if the patient didn't talked about the symptom, echo 0. If the patient mentioned that they have the symptom, write 2. otherwise write 1.
 Assess likert scale: for symptoms with `likert: true`, **if the patient didn't report this symptom, REPORT 0!!!** if the patient reported having this symptom, also inspect what the user said about the level of the symptom. should be a interger between 1 and 10. if the symptom have `likert: false`, don't output this value.
 
 Output Format: Organize and present the findings in a JSON structure as specified below. Ensure the symptom keys in the output JSON match exactly with those from the provided list:

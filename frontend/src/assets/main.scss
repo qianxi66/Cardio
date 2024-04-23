@@ -102,7 +102,6 @@ html {
     align-items: center;
     height: 48px;
     font-size: 12px;
-    border-radius: 4px;
 
     &.header {
       font-weight: 700;
@@ -122,11 +121,6 @@ html {
       .n-icon {
         margin-left: 4px;
       }
-    }
-
-    &.selected {
-      // outline: 2px solid #a1a1a1;
-      background-color: #f8f8f8;
     }
 
     .dot:not(.selected):not(.disabled):hover {
@@ -156,4 +150,16 @@ html {
       }
     }
   }
+}
+
+.table-row-block {
+    border-radius: 4px;
+  &.selected {
+      outline: 2px solid #a1a1a1;
+      // background-color: #f8f8f8;
+    }
+
+    &.odd {
+      background-color: #f0f0f0;
+    }
 }

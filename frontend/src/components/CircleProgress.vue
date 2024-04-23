@@ -1,11 +1,10 @@
 <script setup lang="tsx">
 import { computed, type CSSProperties, type VNode } from 'vue'
-import { stateColors } from '@/config'
-import { get } from 'node_modules/axios/index.cjs'
 const props = withDefaults(
   defineProps<{
     percent: number
     color: string
+    id: string
   }>(),
   {
     percent: 0
@@ -37,7 +36,7 @@ function getPath(
     transform: offsetDegree ? `rotate(${offsetDegree}deg)` : undefined
   }
   if (strokeColor === undefined) {
-    pathStyle.stroke = `url(#header-shape-gradient)`
+    pathStyle.stroke = `url(#${props.id}-header-shape-gradient)`
   }
   return (
     <g>
@@ -87,7 +86,7 @@ const Circle = computed(() => {
     <svg viewBox={`0 0 ${radius * 2 + strokeWidth} ${radius * 2 + strokeWidth}`}>
       <defs>
         <linearGradient
-          id="header-shape-gradient"
+          id={`${props.id}-header-shape-gradient`}
           style={{
             '--color-1': `color-mix(in srgb, ${props.color}, white 80%)`,
             '--color-2': `color-mix(in srgb, ${props.color}, white 70%)`,
@@ -103,9 +102,9 @@ const Circle = computed(() => {
           <stop offset="100%" stop-color="var(--color-5)" />
         </linearGradient>
       </defs>
-      {getPath(100, radius * 2, strokeWidth, '#f0f0f0')}
-      {getPath(props.percent, radius * 2, strokeWidth)}
-      {getArrow(strokeWidth)}
+      {getPath(100, radius * 2, strokeWidth, '#e0e0e0')}
+      {props.percent != 0 && getPath(props.percent, radius * 2, strokeWidth)}
+      {props.percent != 0 && getArrow(strokeWidth)}
     </svg>
   )
 })

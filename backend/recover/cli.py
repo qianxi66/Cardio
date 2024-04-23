@@ -18,13 +18,29 @@ def initialize_reports():
                 # random state, read false, empty logs
                 symptom_kwargs = [
                     {
-                        f"{symptom}_state": random.randint(0, 3),
+                        f"{symptom}_state": random.randint(1, 2),
                         f"{symptom}_logs": "",
                     }
                     for symptom in symptom_descriptions.keys()
                 ]
+                symptom_kwargs_ = dict(
+                    [(k, v) for d in symptom_kwargs for k, v in d.items()]
+                )
+
+                likerts = [
+                    (
+                        f"{symptom}_scale",
+                        random.randint(1, 10)
+                        if symptom_kwargs_[f"{symptom}_state"] == 2
+                        else 0,
+                    )
+                    for symptom, description in symptom_descriptions.items()
+                    if description["likert"]
+                ]
+                print(symptom_kwargs_)
+                print(likerts)
                 symptom_kwargs = dict(
-                    (k, v) for d in symptom_kwargs for k, v in d.items()
+                    [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
                 )
                 report = Report(
                     patient_id=patient.id,
@@ -34,7 +50,7 @@ def initialize_reports():
             # update created_at
             reports = Report.query.filter_by(patient_id=patient.id).all()
             for i, report in enumerate(reports):
-                report.created_at = datetime.utcnow() - timedelta(days=i)
+                report.created_at = datetime.now() - timedelta(days=i)
                 db.session.add(report)
 
         db.session.commit()
@@ -145,21 +161,21 @@ def generate_notes_cmd():
 def generate_patients():
     with app.app_context():
         with db.engine.connect() as connection:
-            sql = """INSERT INTO patient VALUES(1,25,'male','E01-01',NULL,'no information','no information','T001');
-    INSERT INTO patient VALUES(2,26,'female','E01-02',NULL,'no information','no information','T002');
-    INSERT INTO patient VALUES(3,27,'male','E01-03',NULL,'no information','no information','T003');
-    INSERT INTO patient VALUES(4,28,'female','E01-04',NULL,'no information','no information','T004');
-    INSERT INTO patient VALUES(5,29,'male','E01-05',NULL,'no information','no information','T005');
-    INSERT INTO patient VALUES(6,30,'female','E01-06',NULL,'no information','no information','T006');
-    INSERT INTO patient VALUES(7,31,'male','E01-07',NULL,'no information','no information','T007');
-    INSERT INTO patient VALUES(8,32,'female','E01-08',NULL,'no information','no information','T008');
-    INSERT INTO patient VALUES(9,33,'male','E01-09',NULL,'no information','no information','T009');
-    INSERT INTO patient VALUES(10,34,'female','E01-10',NULL,'no information','no information','T010');
-    INSERT INTO patient VALUES(11,35,'male','E01-11',NULL,'no information','no information','T011');
-    INSERT INTO patient VALUES(12,36,'female','E01-12',NULL,'no information','no information','T012');
-    INSERT INTO patient VALUES(13,37,'male','E01-13',NULL,'no information','no information','T013');
-    INSERT INTO patient VALUES(14,38,'female','E01-14',NULL,'no information','no information','T014');
-    INSERT INTO patient VALUES(15,39,'male','E01-15',NULL,'no information','no information','T015');"""
+            sql = """INSERT INTO patient VALUES(1,25,'male','E01-01',NULL,'no information','no information','T001', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(2,26,'female','E01-02',NULL,'no information','no information','T002', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(3,27,'male','E01-03',NULL,'no information','no information','T003', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(4,28,'female','E01-04',NULL,'no information','no information','T004', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(5,29,'male','E01-05',NULL,'no information','no information','T005', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(6,30,'female','E01-06',NULL,'no information','no information','T006', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(7,31,'male','E01-07',NULL,'no information','no information','T007', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(8,32,'female','E01-08',NULL,'no information','no information','T008', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(9,33,'male','E01-09',NULL,'no information','no information','T009', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(10,34,'female','E01-10',NULL,'no information','no information','T010', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(11,35,'male','E01-11',NULL,'no information','no information','T011', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(12,36,'female','E01-12',NULL,'no information','no information','T012', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(13,37,'male','E01-13',NULL,'no information','no information','T013', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(14,38,'female','E01-14',NULL,'no information','no information','T014', '1970-01-01', false, 0);
+    INSERT INTO patient VALUES(15,39,'male','E01-15',NULL,'no information','no information','T015', '1970-01-01', false, 0);"""
             for statement in sql.split(";"):
                 connection.execute(text(statement))
             connection.execute(text("COMMIT;"))

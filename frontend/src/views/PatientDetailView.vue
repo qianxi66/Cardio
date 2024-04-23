@@ -36,11 +36,6 @@ watch(
     patient.value = null
     loading.value = true
     patient.value = await getPatient(parseInt(patient_id.value as string), cancelToken.value.token)
-    for (const report of patient.value.reports) {
-      for (const symptom of Object.keys(config.symptoms)) {
-        report[symptom + '_likert'] = Math.floor(Math.random() * 10)
-      }
-    }
     loading.value = false
   },
   { immediate: true }
@@ -83,12 +78,6 @@ watch(patient, () => {
   <div class="row">
     <div class="col" style="flex: 5 1 400px">
       <ColoredCard class="information">
-        <div class="row">
-          <CircleProgress :percent="0" style="width: 100px" color="red"> </CircleProgress>
-          <CircleProgress :percent="50" style="width: 100px" color="red"> </CircleProgress>
-          <CircleProgress :percent="80" style="width: 100px" color="#eb4c44"> </CircleProgress>
-          <CircleProgress :percent="100" style="width: 100px" color="red"> </CircleProgress>
-        </div>
         <Loading :loading="loading" :has-data="!!patient">
           <div class="participant-id">Patient {{ patient!.participant_id }}</div>
           <div class="row demographic">
@@ -153,26 +142,56 @@ watch(patient, () => {
           <div class="reports-table">
             <ReportTableHeader></ReportTableHeader>
             <div
-              :class="{
-                'table-row': true,
-                report: true,
-                selected: report.id === parseInt(report_id)
-              }"
-              v-for="report in patient!.reports"
+              v-for="(report, index) in patient!.reports"
               :key="report.id"
-            >
-              <div class="date">{{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}</div>
-              <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                <Dot
-                  :class="{
-                    selected: current_symptom === symptom && report.id === parseInt(report_id),
-                    disabled: report[symptom + '_state'] === 0
-                  }"
-                  :state="report[symptom + '_state']"
-                  @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
-                />
+              :class="{
+                'table-row-block': true,
+                selected: report.id === parseInt(report_id),
 
-                <!-- <CircleProgress v-else :percent="60" style="width: 50px"> 6 </CircleProgress> -->
+                odd: index % 2 === 0
+              }"
+            >
+              <div
+                :class="{
+                  'table-row': true,
+                  report: true
+                }"
+              >
+                <div class="date">{{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}</div>
+                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
+                  <dot-symptom
+                    :class="{
+                      selected: current_symptom === symptom && report.id === parseInt(report_id),
+                      disabled: report[symptom + '_state'] === 0
+                    }"
+                    :state="report[symptom + '_state']"
+                    @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                    :color="config.symptoms[symptom].color"
+                  />
+                </div>
+              </div>
+              <div
+                :class="{
+                  'table-row': true,
+                  report: true
+                }"
+              >
+                <div class="date"></div>
+                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
+                  <n-tooltip trigger="hover" v-if="config.symptoms[symptom].likert">
+                    <template #trigger>
+                      <circle-progress
+                        :percent="report[symptom + '_scale'] * 10"
+                        :color="config.symptoms[symptom].color"
+                        :id="symptom"
+                        style="width: 50px"
+                      />
+                    </template>
+                    <div>
+                      {{ config.symptoms[symptom].display_name }}: {{ report[symptom + '_scale'] }}
+                    </div>
+                  </n-tooltip>
+                </div>
               </div>
             </div>
           </div>
@@ -180,19 +199,44 @@ watch(patient, () => {
             <div class="reports-table">
               <ReportTableHeader></ReportTableHeader>
 
-              <div
-                :class="{
-                  'table-row': true,
-                  report: true
-                }"
-                v-for="i in 10"
-                :key="i"
-              >
-                <n-skeleton text class="date" style="height: 19.2px; width: 130px"> </n-skeleton>
-                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                  <Dot loading />
+              <template v-for="i in 10" :key="i">
+                <div
+                  :class="{
+                    'table-row': true,
+                    report: true
+                  }"
+                >
+                  <n-skeleton text class="date" style="height: 19.2px; width: 130px"> </n-skeleton>
+                  <div
+                    class="symptom"
+                    v-for="symptom of Object.keys(config.symptoms)"
+                    :key="symptom"
+                  >
+                    <Dot loading />
+                  </div>
                 </div>
-              </div>
+                <div
+                  :class="{
+                    'table-row': true,
+                    report: true
+                  }"
+                >
+                  <div class="date"></div>
+                  <div
+                    class="symptom"
+                    v-for="symptom of Object.keys(config.symptoms)"
+                    :key="symptom"
+                  >
+                    <circle-progress
+                      v-if="config.symptoms[symptom].likert"
+                      :percent="0"
+                      color="black"
+                      :id="symptom"
+                      style="width: 50px"
+                    />
+                  </div>
+                </div>
+              </template>
             </div>
           </template>
         </loading>
