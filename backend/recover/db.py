@@ -109,6 +109,15 @@ class Report(db.Model):
     mood_state: int = db.Column(db.Integer)
     mood_logs: str = db.Column(db.String)
 
+    misc_state: int = db.Column(db.Integer)
+    misc_logs: str = db.Column(db.String)
+
+    breathing_scale: int = db.Column(db.Integer)
+    pain_scale: int = db.Column(db.Integer)
+    conscious_scale: int = db.Column(db.Integer)
+    constipation_scale: int = db.Column(db.Integer)
+    eating_scale: int = db.Column(db.Integer)
+
 
 @dataclass
 class ReportNote(db.Model):

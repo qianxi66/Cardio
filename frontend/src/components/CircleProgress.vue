@@ -5,11 +5,10 @@ import { get } from 'node_modules/axios/index.cjs'
 const props = withDefaults(
   defineProps<{
     percent: number
-    limits?: number[]
+    color: string
   }>(),
   {
-    percent: 0,
-    limits: () => [0, 0, 50, 60]
+    percent: 0
   }
 )
 function getPath(
@@ -37,6 +36,9 @@ function getPath(
     transformOrigin: offsetDegree ? 'center' : undefined,
     transform: offsetDegree ? `rotate(${offsetDegree}deg)` : undefined
   }
+  if (strokeColor === undefined) {
+    pathStyle.stroke = `url(#header-shape-gradient)`
+  }
   return (
     <g>
       <path
@@ -49,22 +51,61 @@ function getPath(
     </g>
   )
 }
+const getArrow = (strokeWidth: number) => {
+  const angle = -Math.PI
+  const length = radius // Length of the arrow from the center of the circle
+  const arrowLength = 40 // Actual length of the arrowhead
+  const arrowWidth = 6 // Width of the base of the triangle arrowhead
+
+  // Coordinates for the tip of the arrow
+  const tipX = radius + strokeWidth / 2 + length * Math.cos(angle)
+  const tipY = radius + strokeWidth / 2 + length * Math.sin(angle)
+
+  // Coordinates for the base of the arrow, adjusting for the width
+  const leftX = radius + strokeWidth / 2 + arrowWidth * Math.cos(angle + Math.PI / 2)
+  const leftY = radius + strokeWidth / 2 + arrowWidth * Math.sin(angle + Math.PI / 2)
+  const rightX = radius + strokeWidth / 2 + arrowWidth * Math.cos(angle - Math.PI / 2)
+  const rightY = radius + strokeWidth / 2 + arrowWidth * Math.sin(angle - Math.PI / 2)
+
+  return (
+    <polygon
+      angle={angle}
+      points={`${tipX},${tipY} ${leftX},${leftY} ${rightX},${rightY}`}
+      fill="black"
+      style={{
+        transformOrigin: `${radius + strokeWidth / 2}px ${radius + strokeWidth / 2}px`,
+        transform: `rotate(${(props.percent / 100) * 180}deg)`
+      }}
+    />
+  )
+}
+
 const strokeWidth = 20
-const viewBoxSize = 50
+const radius = 50
 const Circle = computed(() => {
   return (
-    <svg viewBox={`0 0 ${viewBoxSize * 2 + strokeWidth} ${viewBoxSize + strokeWidth}`}>
-      {getPath(100, viewBoxSize * 2, strokeWidth, '#f0f0f0')}
-      {[1, 2, 3]
-        .map((state) => {
-          if (props.percent > props.limits[state]) {
-            return getPath(props.percent, viewBoxSize * 2, strokeWidth, stateColors[state])
-          } else {
-            return false
-          }
-        })
-        .filter((x) => x)
-        .slice(-1)}
+    <svg viewBox={`0 0 ${radius * 2 + strokeWidth} ${radius * 2 + strokeWidth}`}>
+      <defs>
+        <linearGradient
+          id="header-shape-gradient"
+          style={{
+            '--color-1': `color-mix(in srgb, ${props.color}, white 80%)`,
+            '--color-2': `color-mix(in srgb, ${props.color}, white 70%)`,
+            '--color-3': `color-mix(in srgb, ${props.color}, white 50%)`,
+            '--color-4': `color-mix(in srgb, ${props.color}, white 10%)`,
+            '--color-5': props.color
+          }}
+        >
+          <stop offset="0%" stop-color="var(--color-1)" />
+          <stop offset="15%" stop-color="var(--color-2)" />
+          <stop offset="50%" stop-color="var(--color-3)" />
+          <stop offset="85%" stop-color="var(--color-4)" />
+          <stop offset="100%" stop-color="var(--color-5)" />
+        </linearGradient>
+      </defs>
+      {getPath(100, radius * 2, strokeWidth, '#f0f0f0')}
+      {getPath(props.percent, radius * 2, strokeWidth)}
+      {getArrow(strokeWidth)}
     </svg>
   )
 })

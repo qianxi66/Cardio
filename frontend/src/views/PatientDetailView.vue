@@ -83,6 +83,12 @@ watch(patient, () => {
   <div class="row">
     <div class="col" style="flex: 5 1 400px">
       <ColoredCard class="information">
+        <div class="row">
+          <CircleProgress :percent="0" style="width: 100px" color="red"> </CircleProgress>
+          <CircleProgress :percent="50" style="width: 100px" color="red"> </CircleProgress>
+          <CircleProgress :percent="80" style="width: 100px" color="#eb4c44"> </CircleProgress>
+          <CircleProgress :percent="100" style="width: 100px" color="red"> </CircleProgress>
+        </div>
         <Loading :loading="loading" :has-data="!!patient">
           <div class="participant-id">Patient {{ patient!.participant_id }}</div>
           <div class="row demographic">
@@ -164,10 +170,9 @@ watch(patient, () => {
                   }"
                   :state="report[symptom + '_state']"
                   @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
-                  v-if="config.symptoms[symptom].scale === 'state'"
                 />
 
-                <CircleProgress v-else :percent="60" style="width: 50px"> 6 </CircleProgress>
+                <!-- <CircleProgress v-else :percent="60" style="width: 50px"> 6 </CircleProgress> -->
               </div>
             </div>
           </div>

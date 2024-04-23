@@ -1,35 +1,36 @@
-For each symptom listed below, perform the following tasks:
+
+Symptom Keys and Descriptions:
+
+breathing: "Difficulty Breathing", likert: true
+fever: "Fever", likert: false
+stools: "Black, Tar-like Stools", likert: false
+pain: "Pain Increase or Unbearable", likert: true
+drainage: "Wound Drainage Problems", likert: false
+activity: "Decrease in Daily Activities", likert: false
+conscious: "Decrease in Level of Consciousness", likert: true
+constipation: "Persistent Constipation, Nausea, or Vomiting", likert: true
+diarrhea: "Persistent Diarrhea", likert: false
+eating: "Inability to Tolerate Food or Drink", likert: true
+swelling: "Pain or swelling in legs", likert: false
+mood: "Feeling Down or Depressed", likert: false
+misc: "Other Symptoms", likert: false
+
+For each symptom listed above, perform the following tasks:
 
 Identify Relevant Messages: Locate and categorize all messages that pertain to each symptom listed. This includes the assistant asking questions (e.g., "Are you having difficulty breathing?") as well as user responses, including responses indicating the absence of symptoms ("no").
 EACH SYMPTOM SHOULD HAVE AT LEAST TWO MESSAGE (QUESTION AND RESPOND).
 
-Assess Severity: Evaluate the severity of each symptom using the following scale:
-0: No information available.
-1: The symptom is normal or presents no concern.
-2: The symptom serves as a warning sign and may need monitoring.
-3: The symptom requires immediate medical attention due to severe implications.
-For example, if the patients report 5 out of 10, then the symptom should be 2. If the patient report 8 out of 10, then the symptom should be 3.
+Assess state: determine whether the patient reported to this symptom. should be a boolean value of true/false.
+Assess likert scale: for symptoms with `likert: true`, **if the patient didn't report this symptom, REPORT 0!!!** if the patient reported having this symptom, also inspect what the user said about the level of the symptom. should be a interger between 1 and 10. if the symptom have `likert: false`, don't output this value.
 
 Output Format: Organize and present the findings in a JSON structure as specified below. Ensure the symptom keys in the output JSON match exactly with those from the provided list:
 {
     "<symptom_key>": {
         "logs": [<list_of_relevant_log_ids>],
-        "state": <severity_grade>
+        "state": <whether the patient have this symptom>,
+        "scale": <likert scale>
     }
 }
-Symptom Keys and Descriptions:
 
-breathing: "Difficulty Breathing"
-fever: "Fever"
-stools: "Black, Tar-like Stools"
-pain: "Pain Increase or Unbearable"
-drainage: "Wound Drainage Problems"
-activity: "Decrease in Daily Activities"
-conscious: "Decrease in Level of Consciousness"
-constipation: "Persistent Constipation, Nausea, or Vomiting"
-diarrhea: "Persistent Diarrhea"
-eating: "Inability to Tolerate Food or Drink"
-swelling: "Pain or swelling in legs"
-mood: "Feeling Down or Depressed"
 
 RETURN ONLY THE JSON AND NOTHING ELSE. DONT ENCLOSE IT IN ```.

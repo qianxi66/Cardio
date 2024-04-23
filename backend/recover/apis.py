@@ -2,14 +2,14 @@ import json
 import time
 from dataclasses import asdict
 from datetime import datetime, timedelta
+from threading import Thread
 
-import pytz
 from flask import current_app, jsonify, request
+
 from .app import app
 from .config import symptom_descriptions
 from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
 from .openai import conversation, key_questions, summary
-from threading import Thread
 
 
 # get patients, return all patients
@@ -33,8 +33,12 @@ def get_patients():
             patient["state"] = 0
         if patient["state"] is None:
             patient["state"] = 0
-            patient['read'] = True
-    patients = sorted(patients, key=lambda x: -1 if x['reviewed'] else (x["state"] if x["state"] else 0), reverse=True)
+            patient["read"] = True
+    patients = sorted(
+        patients,
+        key=lambda x: -1 if x["reviewed"] else (x["state"] if x["state"] else 0),
+        reverse=True,
+    )
     return jsonify(patients)
 
 
@@ -199,24 +203,37 @@ mood: not discussed
     db.session.commit()
     return jsonify(log)
 
+
 def session_end_hook(alexa_user_id):
     with app.app_context():
         patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+        print(patient)
         report = get_or_create_report(patient.id)
+        print(report)
         messages = ConversationLog.query.filter_by(report_id=report.id).all()
         messages = [asdict(message) for message in messages]
         messages = [
-            {"id": message["id"], "content": message["content"], "role": message["role"]}
+            {
+                "id": message["id"],
+                "content": message["content"],
+                "role": message["role"],
+            }
             for message in messages
         ]
+        print(messages)
         try:
-            response = json.loads(key_questions(json.dumps(messages)))
-        except Exception as e:
+            response = key_questions(json.dumps(messages))
+            print(response)
+            response = json.loads(response)
+        except Exception:
             response = {}
         print(response)
         for key in response:
-            setattr(report, f'{key}_state', response[key]['state'])
-            setattr(report, f'{key}_logs', json.dumps(response[key]['logs']))
+            setattr(report, f"{key}_state", response[key]["state"])
+            setattr(report, f"{key}_logs", json.dumps(response[key]["logs"]))
+            if "scale" in response[key]:
+                if hasattr(report, f"{key}_scale"):
+                    setattr(report, f"{key}_scale", response[key]["scale"])
 
         db.session.add(report)
         summaries = summary(json.dumps(messages), json.dumps(response))
@@ -226,23 +243,27 @@ def session_end_hook(alexa_user_id):
             ReportSummary.query.filter_by(report_id=report.id).delete()
             for summaryi in summaries:
                 report_summary = ReportSummary(
-                    report_id=report.id,
-                    highlight_keywords = "",
-                    **summaryi
+                    report_id=report.id, highlight_keywords="", **summaryi
                 )
                 db.session.add(report_summary)
             db.session.commit()
         except Exception as e:
             print(e)
         # set patient's state to the largest state in report
-        patient.state = max([getattr(report, f"{symptom}_state") for symptom in symptom_descriptions.keys()])
+        # patient.state = max(
+        #     [
+        #         getattr(report, f"{symptom}_state")
+        #         for symptom in symptom_descriptions.keys()
+        #     ]
+        # )
         db.session.add(patient)
         db.session.commit()
         print("session end hook done")
+
 
 # summarize key questions
 @current_app.route("/alexa_user/<alexa_user_id>/session_end", methods=["POST"])
 def session_end(alexa_user_id):
     Thread(target=session_end_hook, args=(alexa_user_id,)).start()
-    
+
     return jsonify({"message": "success"})
