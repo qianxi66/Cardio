@@ -7,6 +7,7 @@ import { ref, watch } from 'vue'
 import { useRouteParams } from '@vueuse/router'
 import { type Patient } from '@/api/types'
 import router from '@/router'
+import { provide, inject } from 'vue'
 const patients = ref<Patient[] | null>(null)
 const loading = ref(true)
 
@@ -23,6 +24,7 @@ const loadPatient = () =>
     }
   })
 loadPatient()
+provide('refreshPatients', loadPatient)
 watch(patient_id, () => {
   console.log('patient_id changed', patient_id.value)
   if (patient_id.value === undefined) {
@@ -38,7 +40,7 @@ watch(patient_id, () => {
     if (patients.value?.find((p) => p.id == patient_id.value)) {
       patients.value!.find((p) => p.id == patient_id.value)!.read = true
     }
-    setTimeout(loadPatient, 100)
+    // setTimeout(loadPatient, 100)
   }
 })
 const updateState = (id: number, state: number) => {
@@ -108,7 +110,7 @@ const updateState = (id: number, state: number) => {
   margin: 0 8px 8px 8px;
 }
 .patient-list {
-  flex-basis: 200px;
+  flex-basis: 230px;
   flex-grow: 0;
   flex-shrink: 0;
   min-height: 100%;

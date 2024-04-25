@@ -59,7 +59,7 @@ def update_patient(id):
 def get_patient(id):
     # also get reports
     patient = db.get(Patient, id)
-    patient.last_read_at = datetime.now()
+    patient.last_read_at = datetime.utcnow()
     db.session.add(patient)
     db.session.commit()
     reports = (
@@ -71,7 +71,7 @@ def get_patient(id):
         for symptom in symptom_descriptions.keys():
             r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
     patient["reports"] = reports
-    time.sleep(1)
+    # time.sleep(1)
     return jsonify(patient)
 
 
@@ -85,7 +85,7 @@ def get_patient_reports(id, report_id):
     notes = ReportNote.query.filter_by(report_id=report_id).all()
     reports["summary"] = summary
     reports["notes"] = notes
-    time.sleep(1)
+    # time.sleep(1)
     return jsonify(reports)
 
 
@@ -177,7 +177,7 @@ def create_conversation_log(alexa_user_id):
         report_id=report.id,
         role="user",
         content=data,
-        created_at=datetime.now(),
+        created_at=datetime.utcnow(),
     )
     db.session.add(log)
     db.session.commit()
@@ -271,10 +271,11 @@ def session_end_hook(alexa_user_id):
             db.session.commit()
         except Exception as e:
             print(e)
-        # set patient's state to the largest state in report
         patient.state = max(
             [
-                getattr(report, f"{symptom}_state")
+                symptom_descriptions[symptom]["max_scale"]
+                if getattr(report, f"{symptom}_state") == 2
+                else getattr(report, f"{symptom}_state")
                 for symptom in symptom_descriptions.keys()
             ]
         )

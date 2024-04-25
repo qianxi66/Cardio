@@ -59,7 +59,7 @@ const popoverEl = ref<HTMLElement | null>(null)
       <n-button-group vertical>
         <n-button
           :theme-overrides="buttonThemeOverrides"
-          v-for="state in [0, 1, 2, 3]"
+          v-for="state in [0, 1, 2, 3, 4]"
           :key="state"
           ghost
           :type="props.state === state ? 'info' : 'default'"

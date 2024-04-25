@@ -29,6 +29,20 @@ const loading = ref(true)
 const editingNote = ref('')
 const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({})
 
+const refresh = async () => {
+  if (cancelToken.value) {
+    cancelToken.value.cancel()
+  }
+  cancelToken.value = axios.CancelToken.source()
+  report.value = null
+  loading.value = true
+  conversationRefs.value = {}
+  report.value = await getReport(patient_id.value!, report_id.value!, cancelToken.value.token)
+  loading.value = false
+}
+
+defineExpose({ refresh })
+
 watch(
   report_id,
   async () => {
@@ -38,15 +52,7 @@ watch(
       return
     }
     console.log('fetching report', report_id.value)
-    if (cancelToken.value) {
-      cancelToken.value.cancel()
-    }
-    cancelToken.value = axios.CancelToken.source()
-    report.value = null
-    loading.value = true
-    conversationRefs.value = {}
-    report.value = await getReport(patient_id.value!, report_id.value, cancelToken.value.token)
-    loading.value = false
+    await refresh()
     nextTick(scroll)
   },
   { immediate: true }

@@ -3,9 +3,9 @@ import { useRouteParams, useRouteQuery } from '@vueuse/router'
 import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
 import * as config from '@/config'
-import { computed, watch, type Ref, ref } from 'vue'
+import { computed, watch, type Ref, ref, inject } from 'vue'
 import type { Patient, Report } from '@/api/types'
-import { getPatient, updateReport } from '@/api/patient'
+import { getPatient, updateReport, createNote } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
 import { format } from 'date-fns'
 import router from '@/router'
@@ -14,6 +14,7 @@ import ReportTableHeader from '@/components/ReportTableHeader.vue'
 import axios from 'axios'
 import CircleProgress from '@/components/CircleProgress.vue'
 
+const refreshPatients = inject('refreshPatients')
 const patient_id = useRouteParams('patient_id')
 const report_id = useRouteParams('report_id')
 const current_symptom = useRouteQuery('symptom')
@@ -48,7 +49,10 @@ const jumpToReport = (report: Report, symptom: string | undefined) => {
       ? {
           symptom: symptom,
           logs: report[(symptom + '_logs') as keyof Report] as unknown as number[],
-          state: report[(symptom + '_state') as keyof Report]
+          state:
+            report[symptom + '_state'] == 2
+              ? config.symptoms[symptom].max_scale
+              : report[symptom + '_state']
         }
       : {}
   })
@@ -73,17 +77,26 @@ watch(patient, () => {
     }
   }
 })
-const updateState = (id: number, report_id: number, symptom: string, state: number) => {
+const right = ref<Component | null>(null)
+const updateState = async (id: number, report_id: number, symptom: string, state: number) => {
   const report = patient.value!.reports.find((r) => r.id === report_id)
   if (report) {
+    const date = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+    await createNote(
+      id,
+      report_id,
+      `Severity of ${symptom} changed from ${config.stateMessages[report[symptom + '_state']]} to ${config.stateMessages[state]} at ${date}`
+    )
     report[symptom + '_state'] = state
-    updateReport(id, report_id, { [symptom + '_state']: state })
+    await updateReport(id, report_id, { [symptom + '_state']: state })
+    right.value.refresh()
+    refreshPatients()
   }
 }
 </script>
 <template>
   <div class="row">
-    <div class="col" style="flex: 5 1 400px">
+    <div class="col" style="flex: 5 1 450px">
       <ColoredCard class="information">
         <Loading :loading="loading" :has-data="!!patient">
           <div class="participant-id">Patient {{ patient!.participant_id }}</div>
@@ -256,8 +269,10 @@ const updateState = (id: number, report_id: number, symptom: string, state: numb
         </loading>
       </ColoredCard>
     </div>
-    <div class="col" style="flex: 1 1 300px">
-      <router-view></router-view>
+    <div class="col" style="flex: 1 1 250px">
+      <router-view v-slot="{ Component }">
+        <component :is="Component" ref="right" />
+      </router-view>
     </div>
   </div>
 </template>
