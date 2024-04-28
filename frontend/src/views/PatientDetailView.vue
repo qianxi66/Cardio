@@ -85,7 +85,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
     await createNote(
       id,
       report_id,
-      `Severity of ${symptom} changed from ${config.stateMessages[report[symptom + '_state']]} to ${config.stateMessages[state]} at ${date}`
+      `Severity of ${symptom} changed from ${['No Information', 'Normal', config.stateMessages[config.symptoms[symptom].max_scale]][report[symptom + '_state']]} to ${config.stateMessages[state]} at ${date}`
     )
     report[symptom + '_state'] = state
     await updateReport(id, report_id, { [symptom + '_state']: state })
@@ -201,6 +201,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                           :state="report[symptom + '_state']"
                           @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
                           :color="config.symptoms[symptom].color"
+                          :symptom="symptom"
                         />
                       </circle-progress>
                     </template>
@@ -229,6 +230,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                       :state="report[symptom + '_state']"
                       @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
                       :color="config.symptoms[symptom].color"
+                      :symptom="symptom"
                     />
                   </circle-progress>
                 </div>

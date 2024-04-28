@@ -190,3 +190,25 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
             connection.execute(text("COMMIT;"))
         db.session.commit()
         print("Patients generated.")
+
+@app.cli.command("remove-conversation-summaries")
+def remove_conversation_summaries():
+    with app.app_context():
+        patient_ids = [6,7,8,10,11,12,13,14,15]
+        for pid in patient_ids:
+            reports = Report.query.filter_by(patient_id=pid).all()
+            for report in reports:
+                summaries = ReportSummary.query.filter_by(report_id=report.id).all()
+                for summary in summaries:
+                    db.session.delete(summary)
+                conversations = ConversationLog.query.filter_by(report_id=report.id).all()
+                for conversation in conversations:
+                    db.session.delete(conversation)
+                notes = ReportNote.query.filter_by(report_id=report.id).all()
+                for note in notes:
+                    db.session.delete(note)
+        db.session.commit()
+
+# INSERT INTO patient VALUES(16, 71, 'male', 'TTTT', NULL, 'no information', 'no information', 'TEST dakuo', '1970-01-01', false, 0);
+# INSERT INTO patient VALUES(17, 71, 'male', 'TTTT', NULL, 'no information', 'no information', 'TEST yuxuan', '1970-01-01', false, 0);
+# INSERT INTO patient VALUES(16, 71, 'male', 'TTTT', NULL, 'no information', 'no information', 'TEST dakuo', '1970-01-01', false, 0);

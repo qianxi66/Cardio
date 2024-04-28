@@ -1,11 +1,17 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup lang="ts">
-import { stateColors, stateMessages } from '@/config'
+import { stateColors, stateMessages, symptoms } from '@/config'
 import { type ButtonProps } from 'naive-ui'
 import { ref } from 'vue'
 type ButtonThemeOverrides = NonNullable<ButtonProps['themeOverrides']>
 const props = withDefaults(
-  defineProps<{ loading?: boolean; state?: number; color: string; editable?: boolean }>(),
+  defineProps<{
+    loading?: boolean
+    state?: number
+    color: string
+    editable?: boolean
+    symptom: keyof typeof symptoms
+  }>(),
   {
     loading: false,
     state: 0,
@@ -65,7 +71,7 @@ const popoverEl = ref<HTMLElement | null>(null)
           <template #icon>
             <dot-symptom :color="color" :state="state"></dot-symptom>
           </template>
-          {{ stateMessages[state] }}
+          {{ ['No Information', 'Normal', stateMessages[symptoms[symptom].max_scale]][state] }}
         </n-button>
       </n-button-group>
     </n-popover>

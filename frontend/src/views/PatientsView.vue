@@ -40,7 +40,6 @@ watch(patient_id, () => {
     if (patients.value?.find((p) => p.id == patient_id.value)) {
       patients.value!.find((p) => p.id == patient_id.value)!.read = true
     }
-    // setTimeout(loadPatient, 100)
   }
 })
 const updateState = (id: number, state: number) => {
@@ -52,6 +51,7 @@ const updateState = (id: number, state: number) => {
     patients.value!.find((p) => p.id == id)!.reviewed = true
     updatePatient(id, { reviewed: true })
   }
+  setTimeout(loadPatient, 100)
 }
 </script>
 <template>
@@ -135,6 +135,7 @@ const updateState = (id: number, state: number) => {
   justify-content: space-between;
   align-items: center;
   border-top: 1px solid #e6e6e6;
+  border-radius: 4px;
   &:not(.read) {
     font-weight: 800;
     .name {
@@ -156,7 +157,8 @@ a {
   text-decoration: none;
 }
 .selected {
-  background-color: #f0f0f0;
+  // border: 2px solid #a1a1a1;
+  box-shadow: inset 0px 0px 0px 2px #a1a1a1;
   cursor: default;
 }
 </style>
