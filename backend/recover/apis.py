@@ -98,18 +98,26 @@ def update_report(id, report_id):
     for key in data:
         setattr(report, key, data[key])
     db.session.add(report)
-    patient.state = max(
-        [
-            symptom_descriptions[symptom]["max_scale"]
-            if getattr(report, f"{symptom}_state") == 2
-            else getattr(report, f"{symptom}_state")
-            for symptom in symptom_descriptions.keys()
-        ]
-    )
-    db.session.add(patient)
+    # if report is latest
+    if (
+        report.id
+        == Report.query.filter_by(patient_id=id)
+        .order_by(Report.created_at.desc())
+        .first()
+        .id
+    ):
+        print("is latest")
+        patient.state = max(
+            [
+                symptom_descriptions[symptom]["max_scale"]
+                if getattr(report, f"{symptom}_state") == 2
+                else getattr(report, f"{symptom}_state")
+                for symptom in symptom_descriptions.keys()
+            ]
+        )
+        db.session.add(patient)
     db.session.commit()
     return jsonify({"message": "Report updated."})
-
 
 # delete note
 @current_app.route(

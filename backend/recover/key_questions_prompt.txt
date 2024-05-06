@@ -1,4 +1,3 @@
-
 Symptom Keys and Descriptions:
 
 breathing: "Difficulty Breathing", likert: true
