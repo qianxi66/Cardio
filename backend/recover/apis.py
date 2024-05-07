@@ -1,19 +1,37 @@
 import json
-import time
 from dataclasses import asdict
 from datetime import datetime, timedelta
+from functools import wraps
 from threading import Thread
 
-from flask import current_app, jsonify, request
+from flask import abort, current_app, jsonify, request
 
 from .app import app
-from .config import symptom_descriptions
+from .config import VALID_API_KEYS, symptom_descriptions
 from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
 from .openai import conversation, key_questions, summary
 
 
+# a decorator to valid the 'authentication' header for an api key
+def api_key_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            abort(401)  # Unauthorized
+
+        api_key = auth_header.split(" ")[1]
+        if api_key not in VALID_API_KEYS:
+            abort(401)  # Unauthorized
+
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
 # get patients, return all patients
 @current_app.route("/patients", methods=["GET"])
+@api_key_required
 def get_patients():
     # sort by patient state
     patients = Patient.query.all()
@@ -43,6 +61,7 @@ def get_patients():
 
 
 @current_app.route("/patients/<int:id>", methods=["PATCH"])
+@api_key_required
 def update_patient(id):
     data = request.get_json()
     print(data)
@@ -56,6 +75,7 @@ def update_patient(id):
 
 
 @current_app.route("/patients/<int:id>", methods=["GET"])
+@api_key_required
 def get_patient(id):
     # also get reports
     patient = db.get(Patient, id)
@@ -76,6 +96,7 @@ def get_patient(id):
 
 
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["GET"])
+@api_key_required
 def get_patient_reports(id, report_id):
     reports = Report.query.filter_by(patient_id=id, id=report_id).all()
     conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
@@ -91,6 +112,7 @@ def get_patient_reports(id, report_id):
 
 # update report
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["PATCH"])
+@api_key_required
 def update_report(id, report_id):
     patient = Patient.query.get(id)
     data = request.get_json()
@@ -119,10 +141,12 @@ def update_report(id, report_id):
     db.session.commit()
     return jsonify({"message": "Report updated."})
 
+
 # delete note
 @current_app.route(
     "/patients/<int:id>/report/<int:report_id>/note/<int:note_id>", methods=["DELETE"]
 )
+@api_key_required
 def delete_report_note(id, report_id, note_id):
     note = ReportNote.query.filter_by(id=note_id).first()
     db.session.delete(note)
@@ -132,6 +156,7 @@ def delete_report_note(id, report_id, note_id):
 
 # create note
 @current_app.route("/patients/<int:id>/report/<int:report_id>/note", methods=["POST"])
+@api_key_required
 def create_report_note(id, report_id):
     data = request.get_json()
     note = ReportNote(
@@ -175,9 +200,12 @@ def get_or_create_report(patient_id):
 
 # conversation
 @current_app.route("/alexa_user/<alexa_user_id>/conversation", methods=["POST"])
+@api_key_required
 def create_conversation_log(alexa_user_id):
     # get patient with alexa_user_id
     patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    if patient is None:
+        return jsonify({"message": "Patient not found."}, 404)
     report = get_or_create_report(patient.id)
     data = request.get_json()["content"]
     log = ConversationLog(
@@ -294,7 +322,11 @@ def session_end_hook(alexa_user_id):
 
 # summarize key questions
 @current_app.route("/alexa_user/<alexa_user_id>/session_end", methods=["POST"])
+@api_key_required
 def session_end(alexa_user_id):
+    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    if patient is None:
+        return jsonify({"message": "Patient not found."}), 404
     Thread(target=session_end_hook, args=(alexa_user_id,)).start()
 
     return jsonify({"message": "success"})

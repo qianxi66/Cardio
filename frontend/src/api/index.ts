@@ -1,5 +1,5 @@
 import axios, { type AxiosRequestConfig } from 'axios';
-import {apiBasePath} from '@/config';
+import {API_KEY, apiBasePath} from '@/config';
 
 const request = axios.create({
   baseURL: apiBasePath,
@@ -25,6 +25,10 @@ const errorHandler = (error: any) => {
 request.interceptors.response.use((response) => response.data, errorHandler);
 
 const api = (req: AxiosRequestConfig<unknown>) => new Promise((resolve, reject) => {
+  if(!req.headers){
+    req.headers = {};
+  }
+  req.headers['Authorization'] = 'Bearer ' + API_KEY;
   request(req).then((resp) => {
     resolve(resp);
   }).catch((err) => {
