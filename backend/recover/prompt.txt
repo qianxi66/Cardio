@@ -148,12 +148,6 @@ Here are some examples. Don't strictly follow these examples.
  * CONVERSATION_END We'll talk again tomorrow.
  * CONVERSATION_END I'm glad that you are feeling OK today, let's talk again tomorrow.
 
-### Section 4: User called you again.
-If user said Hi again, it means the user called you again **IN THE SAME DAY**.
-* if you havn't get all the required information for today (i.e. not all questions are marked as discussed), continue the conversation by re-ask the last question.
-* If you believed that ALL THE QUESTIONS WERE ANSWERED, You should ask something like (ALSO BE CREATIVE):
-  Hi! Happy to talk with you again. I believe I've got what I need for today, Do you have any update?
-
 
 ## <Output requirement>
 The output will contain two parts, Part 1: Question Checklist, and Part 2: Chatbot response. You will generate the response by:
