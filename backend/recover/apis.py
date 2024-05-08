@@ -205,7 +205,7 @@ def create_conversation_log(alexa_user_id):
     # get patient with alexa_user_id
     patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
     if patient is None:
-        return jsonify({"message": "Patient not found."}, 404)
+        return jsonify({"message": "Patient not found."}), 404
     report = get_or_create_report(patient.id)
     data = request.get_json()["content"]
     log = ConversationLog(

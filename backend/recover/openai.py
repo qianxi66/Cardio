@@ -3,11 +3,10 @@ from pathlib import Path
 
 import openai
 
+from .config import openai_config, symptom_descriptions
 
-from .config import openai_key, symptom_descriptions
-
-# client = openai.AzureOpenAI(**openai_config)
-client = openai.OpenAI(api_key=openai_key)
+client = openai.AzureOpenAI(**openai_config, max_retries=0)
+# client = openai.OpenAI(api_key=openai_key)
 
 
 prompt_path = Path(__file__).with_name("prompt.txt")
