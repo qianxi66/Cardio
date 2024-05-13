@@ -330,3 +330,19 @@ def session_end(alexa_user_id):
     Thread(target=session_end_hook, args=(alexa_user_id,)).start()
 
     return jsonify({"message": "success"})
+
+
+# get today last message
+@current_app.route("/alexa_user/<alexa_user_id>/last_message", methods=["GET"])
+@api_key_required
+def get_last_message(alexa_user_id):
+    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    if patient is None:
+        return jsonify({"message": "Patient not found."}), 404
+    report = get_or_create_report(patient.id)
+    messages = ConversationLog.query.filter_by(report_id=report.id).all()
+    if len(messages) == 0:
+        return jsonify({"message": "No messages."})
+    messages = [asdict(message) for message in messages]
+    messages = [i for i in messages if i["role"] == "assistant"]
+    return jsonify({"message": "success", "last_message": messages[-1]})
