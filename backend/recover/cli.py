@@ -195,7 +195,6 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
         }
         for key in ids:
             patient = Patient(
-                amazon_id=ids[key],
                 age=25,
                 gender="male",
                 EHR_id=f"TEST-{key}",
