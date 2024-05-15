@@ -52,6 +52,7 @@ const popoverEl = ref<HTMLElement | null>(null)
           :state="props.state"
           :color="props.color"
           :loading="props.loading"
+          :symptom="props.symptom"
         ></dot-symptom>
       </template>
       <n-button-group vertical>
@@ -69,7 +70,7 @@ const popoverEl = ref<HTMLElement | null>(null)
           "
         >
           <template #icon>
-            <dot-symptom :color="color" :state="state"></dot-symptom>
+            <dot-symptom :color="color" :state="state" :symptom="props.symptom"></dot-symptom>
           </template>
           {{ ['No Information', 'Normal', stateMessages[symptoms[symptom].max_scale]][state] }}
         </n-button>

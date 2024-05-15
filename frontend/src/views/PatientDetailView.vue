@@ -7,7 +7,7 @@ import { computed, watch, type Ref, ref, inject } from 'vue'
 import type { Patient, Report } from '@/api/types'
 import { getPatient, updateReport, createNote } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
-import { format } from 'date-fns'
+import { format, formatDistance } from 'date-fns'
 import router from '@/router'
 import type { CancelTokenSource } from 'axios'
 import ReportTableHeader from '@/components/ReportTableHeader.vue'
@@ -177,7 +177,9 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                   report: true
                 }"
               >
-                <div class="date">{{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}</div>
+                <div class="date">
+                  {{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}
+                </div>
                 <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
                   <n-tooltip trigger="hover" v-if="config.symptoms[symptom].likert">
                     <template #trigger>

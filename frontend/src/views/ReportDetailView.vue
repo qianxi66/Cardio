@@ -21,6 +21,7 @@ const select_log_ids = computed(() => {
 })
 const state = useRouteQuery<number>('state')
 import { stateColors } from '@/config'
+import { format, formatDistance } from 'date-fns'
 
 const cancelToken = ref<CancelTokenSource | null>(null)
 
@@ -149,7 +150,12 @@ watch(select_log_ids, scroll)
         <div class="title">Notes</div>
         <div class="notes-list">
           <div v-for="note in report!.notes" :key="note.id" class="note">
-            {{ note.content }}
+            <div class="note-left">
+              <div>{{ note.content }}</div>
+              <div class="note-time" :title="format(note.created_at, 'yyyy-MM-dd HH:mm:ss')">
+                {{ formatDistance(note.created_at, new Date(), { addSuffix: true }) }}
+              </div>
+            </div>
             <div class="space"></div>
             <n-button size="tiny" circle @click="deleteNote(note.id)" quaternary>
               <template #icon>
@@ -215,6 +221,9 @@ watch(select_log_ids, scroll)
       >
         <div class="role">
           {{ message.role }}
+          <div class="time" :title="format(message.created_at, 'yyyy-MM-dd HH:mm:ss')">
+            {{ formatDistance(message.created_at, new Date(), { addSuffix: true }) }}
+          </div>
         </div>
         <div class="content">
           {{ message.content }}
@@ -280,6 +289,10 @@ watch(select_log_ids, scroll)
     width: 80px;
     font-size: 14px;
     font-weight: 700;
+    .time {
+      font-size: 0.6em;
+      color: #666;
+    }
   }
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
   padding: 8px;
@@ -291,5 +304,9 @@ watch(select_log_ids, scroll)
   }
   &.user {
   }
+}
+.note-time {
+  font-size: 0.6em;
+  color: #666;
 }
 </style>
