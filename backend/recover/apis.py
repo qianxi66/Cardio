@@ -348,6 +348,7 @@ def get_last_message(alexa_user_id):
             patient_id=patient.id,
             report_id=report.id,
             role="assistant",
+            chain_of_thoughts="",
             content=msg,
         )
         db.session.add(message)

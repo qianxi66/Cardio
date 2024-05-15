@@ -50,7 +50,7 @@ def initialize_reports():
             # update created_at
             reports = Report.query.filter_by(patient_id=patient.id).all()
             for i, report in enumerate(reports):
-                report.created_at = datetime.utcnow() - timedelta(days=(i+1))
+                report.created_at = datetime.utcnow() - timedelta(days=(i + 1))
                 db.session.add(report)
             patient.state = max(
                 [
@@ -189,26 +189,48 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
                 connection.execute(text(statement))
             connection.execute(text("COMMIT;"))
         db.session.commit()
+        ids = {
+            "Yuxuan": "amzn1.ask.account.AMAUHCXHP5MDPU5NLIJ5RHL4B34PTBWUQSSGBUAK2RASAITVGFUI3BAZLBNAXCE6PYH7GLGDJF5NASF7XGM3QRZK3YGXOB5RBDUP5W2ZWGSBFQ5HSCFO7PSVKF5SKM4RGDYIBCOHPCOBDWHF6XUJ2OFBVCXSJECSDC7NTUQWKK3SCM52XCIIXOPSGHN4XV6GLWD3XQCOOQJFOKO6PRYYRHAV3DZJD7NBTRENFR5R3M",
+            "Dakuo": "amzn1.ask.account.AMAWXW5L73FFN6BCC27OKNAGHXKBC6THXK6FLAB4DM6NV3YTMHQMH3TKQJO7XGAG2THUFA4P4DELNR46L2AJBBOI7GWDCK3HKTIIVEDTHVQHUDYLSVSTWZJD2RWHNAZH7ZPN5GBYTTMPUOSPDCEORHFWJQP3JTGKDRFMVMBLHPLITWIHOEA6MS7K6RLXAKNXM46GQIAPQPOI6XC6QJVX34CMLKJUUIDTYT7XHSGJOCIA",
+        }
+        for key in ids:
+            patient = Patient(
+                amazon_id=ids[key],
+                age=25,
+                gender="male",
+                EHR_id=f"TEST-{key}",
+                alexa_user_id=ids[key],
+                medical_history="no information",
+                medication="no information",
+                reviewed=False,
+                state=0,
+                last_read_at=datetime(1970, 1, 1),
+            )
+            db.session.add(patient)
+        db.session.commit()
         print("Patients generated.")
+
 
 @app.cli.command("remove-conversation-summaries")
 def remove_conversation_summaries():
     with app.app_context():
-        patient_ids = [6,7,8,10,11,12,13,14,15]
+        patient_ids = [6, 7, 8, 10, 11, 12, 13, 14, 15]
         for pid in patient_ids:
             reports = Report.query.filter_by(patient_id=pid).all()
             for report in reports:
                 summaries = ReportSummary.query.filter_by(report_id=report.id).all()
                 for summary in summaries:
                     db.session.delete(summary)
-                conversations = ConversationLog.query.filter_by(report_id=report.id).all()
+                conversations = ConversationLog.query.filter_by(
+                    report_id=report.id
+                ).all()
                 for conversation in conversations:
                     db.session.delete(conversation)
                 notes = ReportNote.query.filter_by(report_id=report.id).all()
                 for note in notes:
                     db.session.delete(note)
         db.session.commit()
-    report_ids = [151, 152, 158, 153, 154,155, 156, 157]
+    report_ids = [151, 152, 158, 153, 154, 155, 156, 157]
     with app.app_context():
         reports = Report.query.filter(Report.id.not_in(report_ids)).all()
         for report in reports:
@@ -222,6 +244,7 @@ def remove_conversation_summaries():
             for note in notes:
                 db.session.delete(note)
         db.session.commit()
+
 
 # INSERT INTO patient VALUES(16, 71, 'male', 'TTTT', NULL, 'no information', 'no information', 'TEST dakuo', '1970-01-01', false, 0);
 # INSERT INTO patient VALUES(17, 71, 'male', 'TTTT', NULL, 'no information', 'no information', 'TEST yuxuan', '1970-01-01', false, 0);
