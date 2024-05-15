@@ -204,6 +204,7 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
                 reviewed=False,
                 state=0,
                 last_read_at=datetime(1970, 1, 1),
+                participant_id=f"TEST-{key}",
             )
             db.session.add(patient)
         db.session.commit()
