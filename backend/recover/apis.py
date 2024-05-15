@@ -342,7 +342,17 @@ def get_last_message(alexa_user_id):
     report = get_or_create_report(patient.id)
     messages = ConversationLog.query.filter_by(report_id=report.id).all()
     if len(messages) == 0:
-        return jsonify({"message": "No messages."})
+        # create a new assistant message
+        msg = "Hello, this is the RECOVER research study chatbot assistant. Are you ready to start today's questions?"
+        message = ConversationLog(
+            patient_id=patient.id,
+            report_id=report.id,
+            role="assistant",
+            content=msg,
+        )
+        db.session.add(message)
+        db.session.commit()
+        return jsonify({"message": "success", "last_message": asdict(message)})
     messages = [asdict(message) for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     return jsonify({"message": "success", "last_message": messages[-1]})
