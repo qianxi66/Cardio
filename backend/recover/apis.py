@@ -263,6 +263,7 @@ mood: not discussed
 
 
 def session_end_hook(alexa_user_id):
+    print("session_end_hook")
     with app.app_context():
         patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
         print(patient)
@@ -325,6 +326,7 @@ def session_end_hook(alexa_user_id):
 @api_key_required
 def session_end(alexa_user_id):
     patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    print(patient)
     if patient is None:
         return jsonify({"message": "Patient not found."}), 404
     Thread(target=session_end_hook, args=(alexa_user_id,)).start()
