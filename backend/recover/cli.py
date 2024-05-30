@@ -151,8 +151,8 @@ def generate_notes():
 @app.cli.command("generate-reports")
 def generate_reports():
     initialize_reports()
-    generate_conversation_logs()
-    update_reports()
+    # generate_conversation_logs()
+    # update_reports()
 
 
 @app.cli.command("generate-summaries")
