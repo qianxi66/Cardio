@@ -12,15 +12,17 @@ conversation_log_ids: A string listing the log IDs (e.g., "[1698, 1699]").
 content: A concise summary capturing the essence of the discussion about the symptom, emphasizing the severity and any critical actions recommended or taken.
 Example of Summary Format:
 
-[
-    {
-        "category": "Summary",
-        "conversation_log_ids": "[1698, 1699]",
-        "content": "In-depth discussion about patient's inability to tolerate food or drink."
-    },
-    {
-        "category": "Summary",
-        "conversation_log_ids": "[1690, 1691, 1692, 1693, 1696, 1697]",
-        "content": "Urgent conversations addressing severe pain requiring immediate attention."
-    }
-]
+{
+    "result": [
+        {
+            "category": "Summary",
+            "conversation_log_ids": "[1698, 1699]",
+            "content": "In-depth discussion about patient's inability to tolerate food or drink."
+        },
+        {
+            "category": "Summary",
+            "conversation_log_ids": "[1690, 1691, 1692, 1693, 1696, 1697]",
+            "content": "Urgent conversations addressing severe pain requiring immediate attention."
+        }
+    ]
+}

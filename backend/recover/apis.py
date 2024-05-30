@@ -298,7 +298,7 @@ def session_end_hook(alexa_user_id):
         summaries = summary(json.dumps(messages), json.dumps(response))
         print(summaries)
         try:
-            summaries = json.loads(summaries)
+            summaries = json.loads(summaries)["result"]
             # firstly delete all old summaries
             ReportSummary.query.filter_by(report_id=report.id).delete()
             for summaryi in summaries:

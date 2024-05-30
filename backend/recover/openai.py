@@ -57,4 +57,5 @@ def summary(messages, key_questions):
             {"role": "user", "content": "symptoms: " + key_questions},
         ],
         model="gpt-4o",
+        response_format={"type": "json_object"},
     )
