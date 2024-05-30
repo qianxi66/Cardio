@@ -17,12 +17,9 @@ summary_prompt_path = Path(__file__).with_name("summary_prompt.txt")
 summary_prompt = open(summary_prompt_path, "r").read(10000000)
 
 
-def gpt_inference(client: openai.OpenAI, messages, stop=None, model="gpt-4o"):
+def gpt_inference(client: openai.OpenAI, messages, stop=None, model="gpt-4o", **argv):
     response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=128,
-        stop=stop,
+        model=model, messages=messages, max_tokens=512, stop=stop, **argv
     )
     return response.choices[0].message.content
 
@@ -41,7 +38,8 @@ def key_questions(messages):
             {"role": "system", "content": key_questions_prompt},
             {"role": "user", "content": messages},
         ],
-        model="gpt-4",
+        model="gpt-4o",
+        response_format={"type": "json_object"},
     )
 
 
@@ -58,5 +56,6 @@ def summary(messages, key_questions):
             {"role": "user", "content": "messages: " + messages},
             {"role": "user", "content": "symptoms: " + key_questions},
         ],
-        model="gpt-4",
+        model="gpt-4o",
+        response_format={"type": "json_object"},
     )
