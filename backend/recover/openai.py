@@ -3,7 +3,7 @@ from pathlib import Path
 
 import openai
 
-from .config import openai_key, openai_config, symptom_descriptions
+from .config import openai_key, symptom_descriptions
 
 # client = openai.AzureOpenAI(**openai_config, max_retries=0)
 client = openai.OpenAI(api_key=openai_key)
@@ -17,9 +17,9 @@ summary_prompt_path = Path(__file__).with_name("summary_prompt.txt")
 summary_prompt = open(summary_prompt_path, "r").read(10000000)
 
 
-def gpt_inference(client: openai.OpenAI, messages, stop=None):
+def gpt_inference(client: openai.OpenAI, messages, stop=None, model="gpt-4o"):
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=model,
         messages=messages,
         max_tokens=128,
         stop=stop,
@@ -41,6 +41,7 @@ def key_questions(messages):
             {"role": "system", "content": key_questions_prompt},
             {"role": "user", "content": messages},
         ],
+        model="gpt-4",
     )
 
 
@@ -57,4 +58,5 @@ def summary(messages, key_questions):
             {"role": "user", "content": "messages: " + messages},
             {"role": "user", "content": "symptoms: " + key_questions},
         ],
+        model="gpt-4",
     )
