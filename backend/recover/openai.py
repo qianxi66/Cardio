@@ -19,7 +19,7 @@ summary_prompt = open(summary_prompt_path, "r").read(10000000)
 
 def gpt_inference(client: openai.OpenAI, messages, stop=None):
     response = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-4o",
         messages=messages,
         max_tokens=128,
         stop=stop,
