@@ -259,7 +259,7 @@ def set_patient_id():
         "amzn1.ask.account.AMATWPD6ITYBAHD7BLNVHRI66NJWVIOSUBBITTI2MWA7HZRULW3IGJZQCDQVK6IQK7O7AMTMP4YUJVUTG6T77AZDKWCT4POSEFLU7MFDM4G6IHSIWI6PFWFOR2AOCEYQSZZ2SBFVTFTTI3JY5KTUZZOTYBOCJ62CUY4NOSAJ3UZFKEVWPRMUVY5XHVJ3I7U2FUNG3QHML5Q7D5KYDSHUURE2S4RMPSLA5COHPSNTNM",
     ]
     for index, alexa_id in enumerate(account_ids):
-        p = Patient.query.filter_by(id=index).first()
+        p = Patient.query.filter_by(id=index + 1).first()
         p.alexa_user_id = alexa_id
         db.session.add(p)
     db.session.commit()
