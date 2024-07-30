@@ -225,16 +225,16 @@ def generate_patients():
     with app.app_context():
         with db.engine.connect() as connection:
             sql = """
-INSERT INTO patient VALUES(1, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(2, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(3, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(4, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(5, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(6, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(7, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(8, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(9, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(10, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(1, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_1', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(2, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_2', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(3, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_3', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(4, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_4', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(5, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_5', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(6, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_6', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(7, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_7', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(8, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_8', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(9, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_9', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(10, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NOT_USED_10', '1970-01-01', false, 0);
 """
             for statement in sql.split(";"):
                 connection.execute(text(statement))
