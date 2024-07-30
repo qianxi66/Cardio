@@ -163,7 +163,7 @@ def generate_empty_reports():
                 symptom_kwargs = [
                     {
                         f"{symptom}_state": 0,
-                        f"{symptom}_logs": "",
+                        f"{symptom}_logs": "[]",
                     }
                     for symptom in symptom_descriptions.keys()
                 ]
@@ -191,7 +191,7 @@ def generate_empty_reports():
                     **symptom_kwargs,
                 )
                 db.session.add(report)
-            # update created_at
+            # update created_atx
             reports = Report.query.filter_by(patient_id=patient.id).all()
             for i, report in enumerate(reports):
                 report.created_at = datetime.utcnow() - timedelta(days=(10))
