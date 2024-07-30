@@ -151,6 +151,61 @@ def generate_notes():
 @app.cli.command("generate-reports")
 def generate_reports():
     initialize_reports()
+
+
+@app.cli.command("generate-empty-reports")
+def generate_empty_reports():
+    with app.app_context():
+        patients = Patient.query.all()
+        for patient in patients:
+            for i in range(1):
+                # random state, read false, empty logs
+                symptom_kwargs = [
+                    {
+                        f"{symptom}_state": 0,
+                        f"{symptom}_logs": "",
+                    }
+                    for symptom in symptom_descriptions.keys()
+                ]
+                symptom_kwargs_ = dict(
+                    [(k, v) for d in symptom_kwargs for k, v in d.items()]
+                )
+
+                likerts = [
+                    (
+                        f"{symptom}_scale",
+                        random.randint(1, 10)
+                        if symptom_kwargs_[f"{symptom}_state"] == 2
+                        else 0,
+                    )
+                    for symptom, description in symptom_descriptions.items()
+                    if description["likert"]
+                ]
+                print(symptom_kwargs_)
+                print(likerts)
+                symptom_kwargs = dict(
+                    [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
+                )
+                report = Report(
+                    patient_id=patient.id,
+                    **symptom_kwargs,
+                )
+                db.session.add(report)
+            # update created_at
+            reports = Report.query.filter_by(patient_id=patient.id).all()
+            for i, report in enumerate(reports):
+                report.created_at = datetime.utcnow() - timedelta(days=(10))
+                db.session.add(report)
+            patient.state = max(
+                [
+                    symptom_descriptions[symptom]["max_scale"]
+                    if getattr(reports[0], f"{symptom}_state") == 2
+                    else getattr(reports[0], f"{symptom}_state")
+                    for symptom in symptom_descriptions.keys()
+                ]
+            )
+            db.session.add(patient)
+        db.session.commit()
     # generate_conversation_logs()
     # update_reports()
 
@@ -170,16 +225,16 @@ def generate_patients():
     with app.app_context():
         with db.engine.connect() as connection:
             sql = """
-INSERT INTO patient VALUES(1, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(2, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(3, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(4, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(5, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(6, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(7, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(8, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(9, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(10, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'PATIENTID_UNDEFINED', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(1, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(2, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(3, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(4, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(5, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(6, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(7, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(8, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(9, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(10, 0, 'male', 'N00-00', NULL, 'no information', 'no information', 'NO_ID', '1970-01-01', false, 0);
 """
             for statement in sql.split(";"):
                 connection.execute(text(statement))
