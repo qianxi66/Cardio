@@ -353,7 +353,7 @@ def create_patient(patient_id, participant_id, ehr_id, alexa_note_id):
         )
         db.session.add(patient)
         db.session.commit()
-        db.session.add(create_report_for_patient(patient))
+        create_report_for_patient(patient)
         db.session.commit()
 
 
