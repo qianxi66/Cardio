@@ -137,6 +137,19 @@ class ReportNote(db.Model):
 
 
 @dataclass
+class AlexaIDNote(db.Model):
+    id: int
+    alexa_user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    id = db.Column(db.Integer, primary_key=True)
+    alexa_user_id = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+
+@dataclass
 class ReportSummary(db.Model):
     id: int
     report_id: int
