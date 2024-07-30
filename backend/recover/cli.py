@@ -3,11 +3,20 @@ import json
 import random
 from datetime import datetime, timedelta
 
+import click
 from sqlalchemy import text
 
 from .app import app
 from .config import symptom_descriptions
-from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
+from .db import (
+    AlexaIDNote,
+    ConversationLog,
+    Patient,
+    Report,
+    ReportNote,
+    ReportSummary,
+    db,
+)
 
 
 def initialize_reports():
@@ -153,58 +162,57 @@ def generate_reports():
     initialize_reports()
 
 
+def create_report_for_patient(patient):
+    # random state, read false, empty logs
+    symptom_kwargs = [
+        {
+            f"{symptom}_state": 0,
+            f"{symptom}_logs": "[]",
+        }
+        for symptom in symptom_descriptions.keys()
+    ]
+    symptom_kwargs_ = dict([(k, v) for d in symptom_kwargs for k, v in d.items()])
+
+    likerts = [
+        (
+            f"{symptom}_scale",
+            random.randint(1, 10) if symptom_kwargs_[f"{symptom}_state"] == 2 else 0,
+        )
+        for symptom, description in symptom_descriptions.items()
+        if description["likert"]
+    ]
+    print(symptom_kwargs_)
+    print(likerts)
+    symptom_kwargs = dict(
+        [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
+    )
+    report = Report(
+        patient_id=patient.id,
+        **symptom_kwargs,
+    )
+    db.session.add(report)
+    # update created_atx
+    reports = Report.query.filter_by(patient_id=patient.id).all()
+    for i, report in enumerate(reports):
+        report.created_at = datetime.utcnow() - timedelta(days=(10))
+        db.session.add(report)
+    patient.state = max(
+        [
+            symptom_descriptions[symptom]["max_scale"]
+            if getattr(reports[0], f"{symptom}_state") == 2
+            else getattr(reports[0], f"{symptom}_state")
+            for symptom in symptom_descriptions.keys()
+        ]
+    )
+    db.session.add(patient)
+
+
 @app.cli.command("generate-empty-reports")
 def generate_empty_reports():
     with app.app_context():
         patients = Patient.query.all()
         for patient in patients:
-            for i in range(1):
-                # random state, read false, empty logs
-                symptom_kwargs = [
-                    {
-                        f"{symptom}_state": 0,
-                        f"{symptom}_logs": "[]",
-                    }
-                    for symptom in symptom_descriptions.keys()
-                ]
-                symptom_kwargs_ = dict(
-                    [(k, v) for d in symptom_kwargs for k, v in d.items()]
-                )
-
-                likerts = [
-                    (
-                        f"{symptom}_scale",
-                        random.randint(1, 10)
-                        if symptom_kwargs_[f"{symptom}_state"] == 2
-                        else 0,
-                    )
-                    for symptom, description in symptom_descriptions.items()
-                    if description["likert"]
-                ]
-                print(symptom_kwargs_)
-                print(likerts)
-                symptom_kwargs = dict(
-                    [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
-                )
-                report = Report(
-                    patient_id=patient.id,
-                    **symptom_kwargs,
-                )
-                db.session.add(report)
-            # update created_atx
-            reports = Report.query.filter_by(patient_id=patient.id).all()
-            for i, report in enumerate(reports):
-                report.created_at = datetime.utcnow() - timedelta(days=(10))
-                db.session.add(report)
-            patient.state = max(
-                [
-                    symptom_descriptions[symptom]["max_scale"]
-                    if getattr(reports[0], f"{symptom}_state") == 2
-                    else getattr(reports[0], f"{symptom}_state")
-                    for symptom in symptom_descriptions.keys()
-                ]
-            )
-            db.session.add(patient)
+            create_report_for_patient(patient)
         db.session.commit()
     # generate_conversation_logs()
     # update_reports()
@@ -299,25 +307,54 @@ def remove_conversation_summaries():
         db.session.commit()
 
 
-@app.cli.command("set-patient-id")
-def set_patient_id():
-    account_ids = [
-        "amzn1.ask.account.AMAYRBA5RJEIJNALKNF4JC5HVSRA2NKLF6RUBGQAHR2VKXSSZPUQXLQ6N4ZIXWX2AZBMNEBXBZQMJTPBYY7NCQR6NCBYFYPZ3KY7QLU7ET6GYISGXOIEBH54CGS74SCKUJVET2VP7LX73GCGP42NA6ELFDCSSLAYQCM6ADHHC6VGXODIWDNQNI7HIIY6ICBWZQ6TV7PTX7ZSQVKGJVAWTXDBFGGRK27PTI6BFDO4QA",
-        "amzn1.ask.account.AMAQQME4URE43VNXWUEJ5CK36E57UGW63X4D32BH3WZMQMTW6G3OZAOC62WUNLMWPSBJTZJU4IQWVXQZOW2A4VXFTABYBXV3WUPFEY3C57LLKHTDB4VNMA2QWIPWUY3TGQFKOIFJ5ZFQT7LAXKOKNZK4EEHOITSDSDPFEOCEXJAIAS4FANOUZGROFNDL4OL37EGKWHCFKHF7IHOACUXLFOXBACXV25IENDTL4T4ALFAQ",
-        "amzn1.ask.account.AMA2DDUN6C3YB5WX6SZLZBUIPFDHC4KDBY3XSRMU6SCGVT5M5ZNG23U7FORP3BV6Z3E3B5QLU6YYRMQHQEHBLQCWDY2ORCTLRX4XTK6QCUZCOBXEMWW7BAN77ZNKFUEG6FZRGEFCFDQG3XUS6INYVKE5LPUL2N4ISIUWSCETK3MBCFXBENRMQB5BY7YIFED7MZ3LOX3GO6SCDYWGJ4AADDG4BJPI6ONTNBDXQ5VO4U2A",
-        "amzn1.ask.account.AMAVVR372OBNIG6TAGPOSHHBGQC2K7RLGXOEHD2L4DZPI655Q5C7RHVFC2WTVSVDBNNVW4WBCE63G43VJKOZRGRVRV436ZC247AZU6BU56SKMXYHFL7AXD4SIFCNGN3I4G54YLQII427OITNSBZFCOMDMLRPMALHY43RZYJBO4NTWFYOKTTIWFUUROUZYYVTPLCI7WLD5AVIH6WXNATIEFIJJ6IQR4PQZQ7NRFMIK5XQ",
-        "amzn1.ask.account.AMAZAREWLW5WD22BE4ZUWBRSDYKNGUGZOVOXR7CEZBL67H7QY5QAGP7NYK3K7DVEVGQYHGZPWPTN2BFUIDVNKWIWIW7E3QLFVNNWFHXXZ6LO6HMUNJTEKF7CO75CXSIJVVFMXUMNLFEZZ7YY6RUNOHWE2AJSFH6WTIX2DZUUVML5VYOXZ263XTDGWTAIXQMEMKJGPKDSYRVCVTURRAXV4XP2ZMDO6LEA7C7WTKRYHU",
-        "amzn1.ask.account.AMAR6NF6TEPSXBAKJOQTQFQZEK3KYZKPOSIY5HQOR2D55GVQRQHXUTOT635J4BJRKEPAEJL5FCOPYQ6PZRIHBREKISBHE6J6VP7QFO36CWLWB2CS3J5C6YUIAWUSBRVKR3J5HJN2POUQYYO3IEJOR7ACD52BLIQ5PODD4MHIKCHVRFZUW7UMFRFBHRSD66DAYRYQR4DRZLMRRSURI35N3ZIGD2UTRMP4PUVWSYPAPLIA",
-        "amzn1.ask.account.AMAUP2GXJYGJOR6BTIBFUSFZX6SAE3BGZWV4F7UXECNPMFGQEIH7CR7USL6S4YWOZRXTUUFYPXEDF3SG3IOIZIBWEHSKGZ7DEDSKKAT3IHTXOU567FLUUJFQIHT2WFQYZ2KXCIOOYFBCHP6MU6IQTD3G7RW2JCFSXEPTBG4VDRNMYEKS3QA6URZO3RFFJA32FLKBPNVIF6UORTVAB36XCRHU7YB2RH6Z2BGMX7Y4IY",
-        "amzn1.ask.account.AMA3MWDGGDILZPVSTPPDZOVSSJZVOJNIA3M35QDOOWH5BTQOJCDXKWIMB3HQBPMVZZUUHI6VLZD3VFZQKKE3ZCIDDCNYUSG4XTQJXOWL2PFK7HHKCZINI6KQU7V2P2CWTA66TDRMPSSNU6RRAJREBEQNKOAQR6RJADEP5YNQIXUHHF2A63NKJAKPOMFZVHONZJUC4MX4Q3BRDF5UAXQNUSZUJ6KK3ZVGXRXLWCEENCQA",
-        "amzn1.ask.account.AMA4W5NPQQBTVQVP2OZIOKKZVZMSJ4Q55T4I6ILBVWAGAM3MULBFZSLFHRULBDTAC7KVVXGU6KVX2WAMEEVNOWKTCNFFRZ7HBJ3T3RH2MPOWCHJ5MBZASKXV3K3LUBANUZ5V23CE7557KAVUTTOJKCQ6MMIX3OUONNNG4NRD4DKI55EJD3HIDQQY32SHRM4Z6ZJAJN7WVT4UHFMM2C4JKIWMVNR53BJJAQ5AN3DXYRBQ",
-        "amzn1.ask.account.AMATWPD6ITYBAHD7BLNVHRI66NJWVIOSUBBITTI2MWA7HZRULW3IGJZQCDQVK6IQK7O7AMTMP4YUJVUTG6T77AZDKWCT4POSEFLU7MFDM4G6IHSIWI6PFWFOR2AOCEYQSZZ2SBFVTFTTI3JY5KTUZZOTYBOCJ62CUY4NOSAJ3UZFKEVWPRMUVY5XHVJ3I7U2FUNG3QHML5Q7D5KYDSHUURE2S4RMPSLA5COHPSNTNM",
-    ]
-    for index, alexa_id in enumerate(account_ids):
-        p = Patient.query.filter_by(id=index + 1).first()
-        p.alexa_user_id = alexa_id
-        db.session.add(p)
-    db.session.commit()
+# @app.cli.command("set-patient-id")
+# def set_patient_id():
+#     account_ids = [
+#         "amzn1.ask.account.AMAYRBA5RJEIJNALKNF4JC5HVSRA2NKLF6RUBGQAHR2VKXSSZPUQXLQ6N4ZIXWX2AZBMNEBXBZQMJTPBYY7NCQR6NCBYFYPZ3KY7QLU7ET6GYISGXOIEBH54CGS74SCKUJVET2VP7LX73GCGP42NA6ELFDCSSLAYQCM6ADHHC6VGXODIWDNQNI7HIIY6ICBWZQ6TV7PTX7ZSQVKGJVAWTXDBFGGRK27PTI6BFDO4QA",
+#         "amzn1.ask.account.AMAQQME4URE43VNXWUEJ5CK36E57UGW63X4D32BH3WZMQMTW6G3OZAOC62WUNLMWPSBJTZJU4IQWVXQZOW2A4VXFTABYBXV3WUPFEY3C57LLKHTDB4VNMA2QWIPWUY3TGQFKOIFJ5ZFQT7LAXKOKNZK4EEHOITSDSDPFEOCEXJAIAS4FANOUZGROFNDL4OL37EGKWHCFKHF7IHOACUXLFOXBACXV25IENDTL4T4ALFAQ",
+#         "amzn1.ask.account.AMA2DDUN6C3YB5WX6SZLZBUIPFDHC4KDBY3XSRMU6SCGVT5M5ZNG23U7FORP3BV6Z3E3B5QLU6YYRMQHQEHBLQCWDY2ORCTLRX4XTK6QCUZCOBXEMWW7BAN77ZNKFUEG6FZRGEFCFDQG3XUS6INYVKE5LPUL2N4ISIUWSCETK3MBCFXBENRMQB5BY7YIFED7MZ3LOX3GO6SCDYWGJ4AADDG4BJPI6ONTNBDXQ5VO4U2A",
+#         "amzn1.ask.account.AMAVVR372OBNIG6TAGPOSHHBGQC2K7RLGXOEHD2L4DZPI655Q5C7RHVFC2WTVSVDBNNVW4WBCE63G43VJKOZRGRVRV436ZC247AZU6BU56SKMXYHFL7AXD4SIFCNGN3I4G54YLQII427OITNSBZFCOMDMLRPMALHY43RZYJBO4NTWFYOKTTIWFUUROUZYYVTPLCI7WLD5AVIH6WXNATIEFIJJ6IQR4PQZQ7NRFMIK5XQ",
+#         "amzn1.ask.account.AMAZAREWLW5WD22BE4ZUWBRSDYKNGUGZOVOXR7CEZBL67H7QY5QAGP7NYK3K7DVEVGQYHGZPWPTN2BFUIDVNKWIWIW7E3QLFVNNWFHXXZ6LO6HMUNJTEKF7CO75CXSIJVVFMXUMNLFEZZ7YY6RUNOHWE2AJSFH6WTIX2DZUUVML5VYOXZ263XTDGWTAIXQMEMKJGPKDSYRVCVTURRAXV4XP2ZMDO6LEA7C7WTKRYHU",
+#         "amzn1.ask.account.AMAR6NF6TEPSXBAKJOQTQFQZEK3KYZKPOSIY5HQOR2D55GVQRQHXUTOT635J4BJRKEPAEJL5FCOPYQ6PZRIHBREKISBHE6J6VP7QFO36CWLWB2CS3J5C6YUIAWUSBRVKR3J5HJN2POUQYYO3IEJOR7ACD52BLIQ5PODD4MHIKCHVRFZUW7UMFRFBHRSD66DAYRYQR4DRZLMRRSURI35N3ZIGD2UTRMP4PUVWSYPAPLIA",
+#         "amzn1.ask.account.AMAUP2GXJYGJOR6BTIBFUSFZX6SAE3BGZWV4F7UXECNPMFGQEIH7CR7USL6S4YWOZRXTUUFYPXEDF3SG3IOIZIBWEHSKGZ7DEDSKKAT3IHTXOU567FLUUJFQIHT2WFQYZ2KXCIOOYFBCHP6MU6IQTD3G7RW2JCFSXEPTBG4VDRNMYEKS3QA6URZO3RFFJA32FLKBPNVIF6UORTVAB36XCRHU7YB2RH6Z2BGMX7Y4IY",
+#         "amzn1.ask.account.AMA3MWDGGDILZPVSTPPDZOVSSJZVOJNIA3M35QDOOWH5BTQOJCDXKWIMB3HQBPMVZZUUHI6VLZD3VFZQKKE3ZCIDDCNYUSG4XTQJXOWL2PFK7HHKCZINI6KQU7V2P2CWTA66TDRMPSSNU6RRAJREBEQNKOAQR6RJADEP5YNQIXUHHF2A63NKJAKPOMFZVHONZJUC4MX4Q3BRDF5UAXQNUSZUJ6KK3ZVGXRXLWCEENCQA",
+#         "amzn1.ask.account.AMA4W5NPQQBTVQVP2OZIOKKZVZMSJ4Q55T4I6ILBVWAGAM3MULBFZSLFHRULBDTAC7KVVXGU6KVX2WAMEEVNOWKTCNFFRZ7HBJ3T3RH2MPOWCHJ5MBZASKXV3K3LUBANUZ5V23CE7557KAVUTTOJKCQ6MMIX3OUONNNG4NRD4DKI55EJD3HIDQQY32SHRM4Z6ZJAJN7WVT4UHFMM2C4JKIWMVNR53BJJAQ5AN3DXYRBQ",
+#         "amzn1.ask.account.AMATWPD6ITYBAHD7BLNVHRI66NJWVIOSUBBITTI2MWA7HZRULW3IGJZQCDQVK6IQK7O7AMTMP4YUJVUTG6T77AZDKWCT4POSEFLU7MFDM4G6IHSIWI6PFWFOR2AOCEYQSZZ2SBFVTFTTI3JY5KTUZZOTYBOCJ62CUY4NOSAJ3UZFKEVWPRMUVY5XHVJ3I7U2FUNG3QHML5Q7D5KYDSHUURE2S4RMPSLA5COHPSNTNM",
+#     ]
+#     for index, alexa_id in enumerate(account_ids):
+#         p = Patient.query.filter_by(id=index + 1).first()
+#         p.alexa_user_id = alexa_id
+#         db.session.add(p)
+#     db.session.commit()
+@app.cli.command("create-patient")
+@click.option("--patient-id", required=True, type=int)
+@click.option("--participant-id", required=True, type=str)
+@click.option("--EHR-id", required=True, type=str)
+@click.option("--alexa-note-id", type=int)
+def create_patient(patient_id, participant_id, ehr_id, alexa_note_id):
+    with app.app_context():
+        print(f"Creating patient with id {patient_id}")
+        alexa_user_id = ""
+        if alexa_note_id:
+            note = AlexaIDNote.query.filter_by(id=alexa_note_id).first()
+            alexa_user_id = note.alexa_user_id
+        patient = Patient(
+            id=patient_id,
+            age=0,
+            gender="male",
+            EHR_id=ehr_id,
+            alexa_user_id=alexa_user_id,
+            medical_history="no information",
+            medication="no information",
+            participant_id=participant_id,
+            last_read_at=datetime(1970, 1, 1),
+            reviewed=False,
+            state=0,
+        )
+        db.session.add(patient)
+        db.session.commit()
+        db.session.add(create_report_for_patient(patient))
+        db.session.commit()
 
 
 # INSERT INTO patient VALUES(16, 71, 'male', 'TTTT', NULL, 'no information', 'no information', 'TEST dakuo', '1970-01-01', false, 0);
