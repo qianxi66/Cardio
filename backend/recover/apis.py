@@ -9,7 +9,7 @@ from flask import abort, current_app, jsonify, request
 from .app import app
 from .config import VALID_API_KEYS, symptom_descriptions
 from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
-from .openai import conversation, key_questions, summary
+from .openai_utils import conversation, key_questions, summary
 
 
 # a decorator to valid the 'authentication' header for an api key
