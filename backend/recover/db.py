@@ -64,6 +64,24 @@ class User(db.Model):
 
 
 @dataclass
+class Token(db.Model):
+    id: int
+    token: str
+    userid: int
+    # user: User
+    rememberme: bool
+    created_at: datetime = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: datetime = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(255))
+    userid = db.Column(db.ForeignKey("user.id"), nullable=False)
+    #  user = db.relationship('User')
+    rememberme = db.Column(db.Boolean, default=False)
+
+
+@dataclass
 class Report(db.Model):
     id: int = db.Column(db.Integer, primary_key=True)
     patient_id: int = db.Column(db.Integer, db.ForeignKey("patient.id"))

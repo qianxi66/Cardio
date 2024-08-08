@@ -2,12 +2,14 @@
 import json
 import random
 from datetime import datetime, timedelta
+import bcrypt
+import click
 
 from sqlalchemy import text
 
 from .app import app
 from .config import symptom_descriptions
-from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
+from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, User, db
 
 
 def initialize_reports():
@@ -211,6 +213,46 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
             db.session.add(patient)
         db.session.commit()
         print("Patients generated.")
+
+
+# @app.cli.command("generate-users")
+# def generate_users():
+#     with app.app_context():
+#         with db.engine.connect() as connection:
+#             sql = """INSERT INTO user VALUES(1,'sunbo','123','test@gmail.com','sunbo');
+#             INSERT INTO user VALUES(2,'abab','456','test2@gmail.com','abab');"""
+#             for statement in sql.split(";"):
+#                 connection.execute(text(statement))
+#             connection.execute(text("COMMIT;"))
+#         db.session.commit()
+#         print("users generated.")
+
+
+@app.cli.command("create-user")
+@click.option("--username", required=True, type=str, help="Username for the new user")
+@click.option("--password", required=True, type=str, help="Password for the new user")
+@click.option("--email", required=True, type=str, help="Email for the new user")
+@click.option("--name", required=True, type=str, help="Real name for the new user")
+def create_user(username, password, email, name):
+    with app.app_context():
+        print(f"Creating user with username {username}")
+
+        # Check if the username or email already exists
+        existing_user = User.query.filter(
+            (User.username == username) | (User.email == email)
+        ).first()
+        if existing_user:
+            print(f"User with username '{username}' or email '{email}' already exists.")
+            return
+
+        hashed_password = bcrypt.hashpw(
+            password.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
+        user = User(username=username, password=hashed_password, email=email, name=name)
+        db.session.add(user)
+        db.session.commit()
+
+        print(f"User '{username}' created successfully.")
 
 
 @app.cli.command("remove-conversation-summaries")

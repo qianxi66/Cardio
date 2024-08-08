@@ -5,7 +5,12 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/patient'
+      redirect: '/login'
+    },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue'),
     },
     {
       path: '/patient',
@@ -43,5 +48,4 @@ const router = createRouter({
     }
   ]
 })
-
 export default router
