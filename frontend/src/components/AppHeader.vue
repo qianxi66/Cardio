@@ -2,6 +2,9 @@
 import { computed } from 'vue'
 
 import { useDialog, useMessage } from 'naive-ui'
+window.$message = useMessage();
+console.log(window.$message);
+console.log(123);
 </script>
 
 <template>
@@ -16,6 +19,7 @@ import { useDialog, useMessage } from 'naive-ui'
         Recover Dashboard
       </a>
       <div class="space"></div>
+      <div style="margin-right: 20px"><n-button text color="#fff">123</n-button></div>
     </div>
   </header>
 </template>

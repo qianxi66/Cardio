@@ -2,14 +2,72 @@ import json
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from functools import wraps
+import secrets
+import string
 from threading import Thread
-
-from flask import abort, current_app, jsonify, request
+import bcrypt
+from flask import abort, current_app, jsonify, request, g
 
 from .app import app
-from .config import VALID_API_KEYS, symptom_descriptions
-from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
+from .config import symptom_descriptions
+from .db import (
+    ConversationLog,
+    Patient,
+    Report,
+    ReportNote,
+    ReportSummary,
+    User,
+    db,
+    Token,
+)
 from .openai_utils import conversation, key_questions, summary
+
+
+def generate_random_string(length=32):
+    characters = string.ascii_letters + string.digits
+    return "".join(secrets.choice(characters) for _ in range(length))
+
+
+def verify_password(input_password, stored_hashed_password):
+    input_password_encoded = input_password.encode("utf-8")
+    stored_hashed_password_encoded = stored_hashed_password.encode("utf-8")
+
+    return bcrypt.checkpw(input_password_encoded, stored_hashed_password_encoded)
+
+
+# api for user to login
+
+
+@current_app.route("/login", methods=["POST"])
+def login():
+    auth = request.json
+    if not auth or not auth.get("username") or not auth.get("password"):
+        return jsonify({"message": "Could not verify"}), 401
+
+    username = auth.get("username")
+    password = auth.get("password")
+    rememberme = auth.get("rememberme")
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"message": "WRONG USERNAME"}), 401
+
+    if user and verify_password(password, user.password):
+        token_string = generate_random_string()
+        token = Token(token=token_string, userid=user.id, rememberme=rememberme)
+        db.session.add(token)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "token": token,
+            }
+        )
+
+    return jsonify({"message": "WRONG PASSWORD"}), 401
+
+
+TOKEN_EXPIRATION_HOURS = 24
 
 
 # a decorator to valid the 'authentication' header for an api key
@@ -20,9 +78,27 @@ def api_key_required(f):
         if not auth_header or not auth_header.startswith("Bearer "):
             abort(401)  # Unauthorized
 
-        api_key = auth_header.split(" ")[1]
-        if api_key not in VALID_API_KEYS:
-            abort(401)  # Unauthorized
+        # get Token
+        token_string = auth_header.split(" ")[1]
+
+        # dearch token in db
+        token = Token.query.filter_by(token=token_string).first()
+
+        if not token:
+            abort(401)
+
+        if not token.rememberme and datetime.utcnow() - token.created_at > timedelta(
+            hours=TOKEN_EXPIRATION_HOURS
+        ):
+            abort(401)
+
+        # get user
+        user = User.query.filter_by(id=token.userid).first()
+        if user:
+            g.current_user = user
+        else:
+            g.current_user = None
+            abort(401)
 
         return f(*args, **kwargs)
 
@@ -33,9 +109,13 @@ def api_key_required(f):
 @current_app.route("/patients", methods=["GET"])
 @api_key_required
 def get_patients():
-    # sort by patient state
-    patients = Patient.query.all()
+    userid = g.current_user.id
+
+    # select patients by userid
+    patients = Patient.query.filter_by(user_id=userid).all()
+
     patients = [asdict(patient) for patient in patients]
+
     for patient in patients:
         latest_report = (
             Report.query.filter_by(patient_id=patient["id"])

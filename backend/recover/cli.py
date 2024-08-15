@@ -171,21 +171,21 @@ def generate_notes_cmd():
 def generate_patients():
     with app.app_context():
         with db.engine.connect() as connection:
-            sql = """INSERT INTO patient VALUES(1, 25, 'male', 'E01-01', NULL, 'no information', 'no information', 'T001 Alex', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(2, 26, 'female', 'E01-02', NULL, 'no information', 'no information', 'T002 Bella', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(3, 27, 'male', 'E01-03', NULL, 'no information', 'no information', 'T003 Charlie', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(4, 28, 'female', 'E01-04', NULL, 'no information', 'no information', 'T004 Dana', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(5, 29, 'male', 'E01-05', NULL, 'no information', 'no information', 'T005 Ethan', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(6, 30, 'female', 'E01-06', NULL, 'no information', 'no information', 'T006 Fiona', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(7, 31, 'male', 'E01-07', NULL, 'no information', 'no information', 'T007 George', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(8, 32, 'female', 'E01-08', NULL, 'no information', 'no information', 'T008 Hannah', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(9, 33, 'male', 'E01-09', NULL, 'no information', 'no information', 'T009 Ian', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(10, 34, 'female', 'E01-10', NULL, 'no information', 'no information', 'T010 Jenna', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(11, 35, 'male', 'E01-11', NULL, 'no information', 'no information', 'T011 Kyle', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(12, 36, 'female', 'E01-12', NULL, 'no information', 'no information', 'T012 Lily', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(13, 37, 'male', 'E01-13', NULL, 'no information', 'no information', 'T013 Max', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(14, 38, 'female', 'E01-14', NULL, 'no information', 'no information', 'T014 Nora', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no information', 'T015 Oliver', '1970-01-01', false, 0);
+            sql = """INSERT INTO patient VALUES(1, 25, 1, 'male', 'E01-01', NULL, 'no information', 'no information', 'T001 Alex', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(2, 26, 1, 'female', 'E01-02', NULL, 'no information', 'no information', 'T002 Bella', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(3, 27, 1, 'male', 'E01-03', NULL, 'no information', 'no information', 'T003 Charlie', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(4, 28, 1, 'female', 'E01-04', NULL, 'no information', 'no information', 'T004 Dana', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(5, 29, 1,'male', 'E01-05', NULL, 'no information', 'no information', 'T005 Ethan', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(6, 30, 1, 'female', 'E01-06', NULL, 'no information', 'no information', 'T006 Fiona', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(7, 31, 1, 'male', 'E01-07', NULL, 'no information', 'no information', 'T007 George', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(8, 32, 1,'female', 'E01-08', NULL, 'no information', 'no information', 'T008 Hannah', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(9, 33, 1, 'male', 'E01-09', NULL, 'no information', 'no information', 'T009 Ian', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(10, 34, 1,'female', 'E01-10', NULL, 'no information', 'no information', 'T010 Jenna', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(11, 35, 1, 'male', 'E01-11', NULL, 'no information', 'no information', 'T011 Kyle', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(12, 36, 1,'female', 'E01-12', NULL, 'no information', 'no information', 'T012 Lily', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(13, 37, 1, 'male', 'E01-13', NULL, 'no information', 'no information', 'T013 Max', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(14, 38, 1 ,'female', 'E01-14', NULL, 'no information', 'no information', 'T014 Nora', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(15, 39, 1,'male', 'E01-15', NULL, 'no information', 'no information', 'T015 Oliver', '1970-01-01', false, 0);
 """
             for statement in sql.split(";"):
                 connection.execute(text(statement))
@@ -201,6 +201,7 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
             patient = Patient(
                 age=25,
                 gender="male",
+                user_id=1,
                 EHR_id=f"TEST-{key}",
                 alexa_user_id=ids[key],
                 medical_history="no information",

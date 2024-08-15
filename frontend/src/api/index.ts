@@ -1,5 +1,5 @@
 import axios, { type AxiosRequestConfig } from 'axios';
-import {API_KEY, apiBasePath} from '@/config';
+import {apiBasePath} from '@/config';
 
 const request = axios.create({
   baseURL: apiBasePath,
@@ -8,6 +8,7 @@ const request = axios.create({
   }],
 });
 
+const token = localStorage.getItem('token');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorHandler = (error: any) => {
@@ -16,10 +17,7 @@ const errorHandler = (error: any) => {
     const { data } = error.response;
     message += data?.message;
   }
-  window.$dialog.error({
-    title: 'Error Occurred',
-    content: 'Error Occurred' + (message ? ',' + message :  '.'),
-  });
+  window.$message.error('Error Occurred' + (message ? ',' + message :  '.'));
 };
 
 request.interceptors.response.use((response) => response.data, errorHandler);
@@ -28,14 +26,11 @@ const api = (req: AxiosRequestConfig<unknown>) => new Promise((resolve, reject) 
   if(!req.headers){
     req.headers = {};
   }
-  req.headers['Authorization'] = 'Bearer ' + API_KEY;
+  req.headers['Authorization'] = 'Bearer ' + token;
   request(req).then((resp) => {
     resolve(resp);
   }).catch((err) => {
-    window.$dialog.error({
-      title: 'Error Occurred',
-      content: 'Error Occurred' + (err.message ? ',' + err.message :  '.'),
-    });
+    window.$message.error('Error Occurred' + (err ? ',' + err :  '.'));
     reject(err);
   });
 });

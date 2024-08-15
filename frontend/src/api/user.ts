@@ -9,5 +9,6 @@ export const login = async (username:string,password:string,rememberme:boolean) 
         url:'/login',
         method:'POST',
         data:{username,password,rememberme},
+        validateStatus: () => true,
     }) as LoginResponse;
 }

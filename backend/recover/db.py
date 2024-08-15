@@ -26,6 +26,7 @@ class Patient(db.Model):
     id: int
     age: int
     gender: str
+    user_id: int
     EHR_id: str
     alexa_user_id: str
     medical_history: str
@@ -38,6 +39,7 @@ class Patient(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     age = db.Column(db.Integer)
     gender = db.Column(db.String(10))
+    user_id = db.Column(db.Integer)
     EHR_id = db.Column(db.String(50))
     alexa_user_id = db.Column(db.String(50), nullable=True)
     medical_history = db.Column(db.Text)
