@@ -145,13 +145,17 @@ def get_patients():
 def update_patient(id):
     data = request.get_json()
     print(data)
+    userid = g.current_user.id
     patient = db.get(Patient, id)
-    for key in data:
-        setattr(patient, key, data[key])
-    db.session.add(patient)
-    db.session.commit()
-    # time.sleep(10)
-    return jsonify({"message": "Patient state updated."})
+    if patient.userid != userid:
+        return jsonify({"message": "Unauthorized"}), 401
+    else:
+        for key in data:
+            setattr(patient, key, data[key])
+        db.session.add(patient)
+        db.session.commit()
+        # time.sleep(10)
+        return jsonify({"message": "Patient state updated."})
 
 
 @current_app.route("/patients/<int:id>", methods=["GET"])

@@ -1,10 +1,41 @@
 <script setup lang="tsx">
-import { computed } from 'vue'
+import { computed } from 'vue';
+import { useDialog, useMessage } from 'naive-ui';
+import { useRouter, useRoute } from 'vue-router';
 
-import { useDialog, useMessage } from 'naive-ui'
-window.$message = useMessage();
-console.log(window.$message);
-console.log(123);
+const router = useRouter();
+const route = useRoute();
+
+const dialog = useDialog();
+const message = useMessage();
+
+function hasToken() {
+  return localStorage.getItem('token') !== null;
+}
+
+const showLogoutButton = computed(() => {
+  return hasToken() && route.path !== '/login';
+});
+
+const handleLogout = () => {
+  dialog.warning({
+    title: 'Confirm Logout',
+    content: 'Are you sure you want to log out?',
+    positiveText: 'Confirm',
+    negativeText: 'Cancel',
+    onPositiveClick: () => {
+      // Remove the token from localStorage
+      localStorage.removeItem('token');
+      // Redirect to the login page
+      router.push('/login');
+      message.success('You have been logged out.');
+    },
+    onNegativeClick: () => {
+      message.info('Logout canceled.');
+    }
+  });
+};
+
 </script>
 
 <template>
@@ -19,7 +50,9 @@ console.log(123);
         Recover Dashboard
       </a>
       <div class="space"></div>
-      <div style="margin-right: 20px"><n-button text color="#fff">123</n-button></div>
+      <div v-if="showLogoutButton" style="margin-right: 20px">
+        <n-button text color="#fff" @click="handleLogout">logout</n-button>
+      </div>
     </div>
   </header>
 </template>
