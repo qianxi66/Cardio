@@ -9,12 +9,10 @@ const route = useRoute();
 const dialog = useDialog();
 const message = useMessage();
 
-function hasToken() {
-  return localStorage.getItem('token') !== null;
-}
+const token = computed(() => localStorage.getItem('token'));
 
 const showLogoutButton = computed(() => {
-  return hasToken() && route.path !== '/login';
+  return token.value !== null && route.path !== '/login';
 });
 
 const handleLogout = () => {
@@ -24,9 +22,7 @@ const handleLogout = () => {
     positiveText: 'Confirm',
     negativeText: 'Cancel',
     onPositiveClick: () => {
-      // Remove the token from localStorage
       localStorage.removeItem('token');
-      // Redirect to the login page
       router.push('/login');
       message.success('You have been logged out.');
     },
@@ -35,7 +31,6 @@ const handleLogout = () => {
     }
   });
 };
-
 </script>
 
 <template>

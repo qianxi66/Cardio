@@ -197,11 +197,12 @@ INSERT INTO patient VALUES(15, 39, 1,'male', 'E01-15', NULL, 'no information', '
             "Jiachen": "amzn1.ask.account.AMA7ZSZ6R5XT6YD23IAFJGTQGW2D6EYQHN22XU5ITEV6ICBAQGRL22U6GHSDILAUOH5VAPZ5CA33BFAVV4ARH3TVJPP53BPINGGJVLMB63TKFQL7DRNJGQOA6X3325Q5RWDRB2SFTUWRJMRQD3LWIMKVDFH4H77V5UQDVPQISFICTJS6RT2SDWDSO2PSLLPDRPIHO5BHRQKLXD5NWZY46KAY7Y4OUEN4RF3CI4LYKSRQ",
             "Ziqi": "amzn1.ask.account.AMATTDONXW34ZAJ6S3VHVVETE3BQ4ZIDZMO4WSV3VW63ADZUZX4Q3LLO4A4M3N2OOTUDS4EOY4E54N6HEBN4FWZAIQURU6UNI4XW2OWEH7VDIYGGY5DKJZINWCFW7SHKE4QNCTXM7XNMXZY5NKA5W75OVRM2K4FQXPTB45SEBFP5OFZJCQAIQPJIQQDUFTPSIPRW7MAK3GZKLIWA25LGCR6H5G5XN7G4OMIHIZYIAHPA",
         }
+        i = 1
         for key in ids:
             patient = Patient(
                 age=25,
                 gender="male",
-                user_id=1,
+                user_id=i,
                 EHR_id=f"TEST-{key}",
                 alexa_user_id=ids[key],
                 medical_history="no information",
@@ -212,6 +213,7 @@ INSERT INTO patient VALUES(15, 39, 1,'male', 'E01-15', NULL, 'no information', '
                 participant_id=f"TEST-{key}",
             )
             db.session.add(patient)
+            i += 1
         db.session.commit()
         print("Patients generated.")
 

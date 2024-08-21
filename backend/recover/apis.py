@@ -68,6 +68,7 @@ def login():
 
 
 TOKEN_EXPIRATION_HOURS = 24
+REMEMBERME_EXPIRATION_HOURS = 72
 
 
 # a decorator to valid the 'authentication' header for an api key
@@ -86,9 +87,14 @@ def api_key_required(f):
 
         if not token:
             abort(401)
-
+        # token expired
         if not token.rememberme and datetime.utcnow() - token.created_at > timedelta(
             hours=TOKEN_EXPIRATION_HOURS
+        ):
+            abort(401)
+        # rememberme expired
+        if token.rememberme and datetime.utcnow() - token.created_at > timedelta(
+            hours=REMEMBERME_EXPIRATION_HOURS
         ):
             abort(401)
 
@@ -147,8 +153,8 @@ def update_patient(id):
     print(data)
     userid = g.current_user.id
     patient = db.get(Patient, id)
-    if patient.userid != userid:
-        return jsonify({"message": "Unauthorized"}), 401
+    if patient.user_id != userid:
+        return jsonify({"message": "permission denied"}), 401
     else:
         for key in data:
             setattr(patient, key, data[key])
@@ -162,7 +168,10 @@ def update_patient(id):
 @api_key_required
 def get_patient(id):
     # also get reports
+    userid = g.current_user.id
     patient = db.get(Patient, id)
+    if patient.user_id != userid:
+        return jsonify({"message": "permission denied"}), 401
     patient.last_read_at = datetime.utcnow()
     db.session.add(patient)
     db.session.commit()

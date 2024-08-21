@@ -1,5 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
-
+const require_login = (to, from,next) => {
+  if (localStorage.token) {
+    next(); }
+  else {
+    next('/login'); }
+}
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -26,57 +31,32 @@ const router = createRouter({
           path: '',
           name: 'patient',
           component: () => import('../views/PatientDetailView.vue'),
-          beforeEnter: (to, from,next) => {
-            if (localStorage.token) {
-              next(); }
-            else {
-              next('/login'); }
-          },
+          beforeEnter: require_login,
           children: [
             {
               path: '',
               name: 'patient.report.empty',
               component: () => import('../views/ReportDetailView.vue'),
-              beforeEnter: (to, from,next) => {
-                if (localStorage.token) {
-                  next(); }
-                else {
-                  next('/login'); }
-              },
+              beforeEnter: require_login,
             }
         ]
         },
         {
           path: '/patient/:patient_id',
           component: () => import('../views/PatientDetailView.vue'),
-          beforeEnter: (to, from,next) => {
-            if (localStorage.token) {
-              next(); }
-            else {
-              next('/login'); }
-          },
+          beforeEnter: require_login,
           children: [
             {
               path: '/patient/:patient_id',
               name: 'patient.detail',
               component: () => import('../views/ReportDetailView.vue'),
-              beforeEnter: (to, from,next) => {
-                if (localStorage.token) {
-                  next(); }
-                else {
-                  next('/login'); }
-              },
+              beforeEnter: require_login,
             },
             {
               path: 'report/:report_id',
               name: 'patient.report.detail',
               component: () => import('../views/ReportDetailView.vue'),
-              beforeEnter: (to, from,next) => {
-                if (localStorage.token) {
-                  next(); }
-                else {
-                  next('/login'); }
-              },
+              beforeEnter: require_login,
             },
           ]
         }
