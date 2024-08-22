@@ -1,7 +1,7 @@
 <template>
   <n-card class="login-container">
     <n-h2>Login</n-h2>
-    <n-form @submit.prevent="handleLogin">
+    <n-form >
       <n-form-item label="Username">
         <n-input v-model:value="username" placeholder="Enter your username" />
       </n-form-item>
@@ -9,7 +9,7 @@
         <n-input type="password" v-model:value="password" placeholder="Enter your password" />
       </n-form-item>
       <n-checkbox v-model:checked="Rememberme">Remember Me</n-checkbox>
-      <button html-type="submit">Start</button>
+      <n-button type="info" html-type="submit" @click="handleLogin">Start</n-button>
     </n-form>
   </n-card>
 </template>

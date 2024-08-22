@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useDialog, useMessage } from 'naive-ui';
 import { useRouter, useRoute } from 'vue-router';
+import { useStorage } from '@vueuse/core';
 
 const router = useRouter();
 const route = useRoute();
@@ -9,7 +10,7 @@ const route = useRoute();
 const dialog = useDialog();
 const message = useMessage();
 
-const token = computed(() => localStorage.getItem('token'));
+const token = useStorage('token','',sessionStorage);
 
 const showLogoutButton = computed(() => {
   return token.value !== null && route.path !== '/login';

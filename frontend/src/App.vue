@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AppHeader from "@/components/AppHeader.vue";
 import type { GlobalThemeOverrides } from "naive-ui";
-import { NConfigProvider, useMessage } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -11,6 +11,7 @@ const themeOverrides: GlobalThemeOverrides = {
     color: "white",
   },
 };
+
 </script>
 
 <template>
