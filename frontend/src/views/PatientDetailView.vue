@@ -1,98 +1,113 @@
 <script setup lang="tsx">
-import { useRouteParams, useRouteQuery } from '@vueuse/router'
-import ColoredCard from '@/components/ColoredCard.vue'
-import Dot from '@/components/Dot.vue'
-import * as config from '@/config'
-import { computed, watch, type Ref, ref, inject } from 'vue'
-import type { Patient, Report } from '@/api/types'
-import { getPatient, updateReport, createNote } from '@/api/patient'
-import Loading from '@/components/Loading.vue'
-import { format, formatDistance } from 'date-fns'
-import router from '@/router'
-import type { CancelTokenSource } from 'axios'
-import ReportTableHeader from '@/components/ReportTableHeader.vue'
-import axios from 'axios'
-import CircleProgress from '@/components/CircleProgress.vue'
+import { useRouteParams, useRouteQuery } from "@vueuse/router";
+import ColoredCard from "@/components/ColoredCard.vue";
+import Dot from "@/components/Dot.vue";
+import * as config from "@/config";
+import { computed, watch, type Ref, ref, inject } from "vue";
+import type { Patient, Report } from "@/api/types";
+import { getPatient, updateReport, createNote } from "@/api/patient";
+import Loading from "@/components/Loading.vue";
+import { format, formatDistance } from "date-fns";
+import router from "@/router";
+import type { CancelTokenSource } from "axios";
+import ReportTableHeader from "@/components/ReportTableHeader.vue";
+import axios from "axios";
+import CircleProgress from "@/components/CircleProgress.vue";
 
-const refreshPatients = inject('refreshPatients')
-const patient_id = useRouteParams('patient_id')
-const report_id = useRouteParams('report_id')
-const current_symptom = useRouteQuery('symptom')
-const patient = ref<Patient | null>(null)
-const loading = ref(true)
-const cancelToken = ref<CancelTokenSource | null>(null)
+const refreshPatients = inject("refreshPatients");
+const patient_id = useRouteParams("patient_id");
+const report_id = useRouteParams("report_id");
+const current_symptom = useRouteQuery("symptom");
+const patient = ref<Patient | null>(null);
+const loading = ref(true);
+const cancelToken = ref<CancelTokenSource | null>(null);
 watch(
   patient_id,
   async () => {
     if (!patient_id.value) {
-      patient.value = null
-      loading.value = true
-      return
+      patient.value = null;
+      loading.value = true;
+      return;
     }
-    console.log('fetching patient', patient_id.value)
+    console.log("fetching patient", patient_id.value);
     if (cancelToken.value) {
-      cancelToken.value.cancel()
+      cancelToken.value.cancel();
     }
-    cancelToken.value = axios.CancelToken.source()
-    patient.value = null
-    loading.value = true
-    patient.value = await getPatient(parseInt(patient_id.value as string), cancelToken.value.token)
-    loading.value = false
+    cancelToken.value = axios.CancelToken.source();
+    patient.value = null;
+    loading.value = true;
+    patient.value = await getPatient(
+      parseInt(patient_id.value as string),
+      cancelToken.value.token,
+    );
+    loading.value = false;
   },
-  { immediate: true }
-)
+  { immediate: true },
+);
 const jumpToReport = (report: Report, symptom: string | undefined) => {
   router.push({
-    name: 'patient.report.detail',
+    name: "patient.report.detail",
     params: { patient_id: patient_id.value, report_id: report.id },
     query: symptom
       ? {
           symptom: symptom,
-          logs: report[(symptom + '_logs') as keyof Report] as unknown as number[],
+          logs: report[
+            (symptom + "_logs") as keyof Report
+          ] as unknown as number[],
           state:
-            report[symptom + '_state'] == 2
+            report[symptom + "_state"] == 2
               ? config.symptoms[symptom].max_scale
-              : report[symptom + '_state']
+              : report[symptom + "_state"],
         }
-      : {}
-  })
-}
+      : {},
+  });
+};
 watch(patient, () => {
   // get the latest report id
   if (patient.value) {
-    const latestReport = patient.value.reports[0]
+    const latestReport = patient.value.reports[0];
     if (latestReport) {
       const most_severe_symptom = Object.keys(config.symptoms).reduce(
         (acc: { state: number; symptom: string }, symptom: string) => {
-          if ((latestReport[(symptom + '_state') as keyof Report] as number) > acc.state) {
-            acc.state = latestReport[(symptom + '_state') as keyof Report] as number
-            acc.symptom = symptom
+          if (
+            (latestReport[(symptom + "_state") as keyof Report] as number) >
+            acc.state
+          ) {
+            acc.state = latestReport[
+              (symptom + "_state") as keyof Report
+            ] as number;
+            acc.symptom = symptom;
           }
-          return acc
+          return acc;
         },
-        { state: 0, symptom: '' }
-      )
-      console.log(most_severe_symptom)
-      jumpToReport(latestReport, most_severe_symptom.symptom)
+        { state: 0, symptom: "" },
+      );
+      console.log(most_severe_symptom);
+      jumpToReport(latestReport, most_severe_symptom.symptom);
     }
   }
-})
-const right = ref<Component | null>(null)
-const updateState = async (id: number, report_id: number, symptom: string, state: number) => {
-  const report = patient.value!.reports.find((r) => r.id === report_id)
+});
+const right = ref<Component | null>(null);
+const updateState = async (
+  id: number,
+  report_id: number,
+  symptom: string,
+  state: number,
+) => {
+  const report = patient.value!.reports.find((r) => r.id === report_id);
   if (report) {
-    const date = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+    const date = format(new Date(), "yyyy-MM-dd HH:mm:ss");
     await createNote(
       id,
       report_id,
-      `Severity of ${symptom} changed from ${['No Information', 'Normal', config.stateMessages[config.symptoms[symptom].max_scale]][report[symptom + '_state']]} to ${config.stateMessages[state]} at ${date}`
-    )
-    report[symptom + '_state'] = state
-    await updateReport(id, report_id, { [symptom + '_state']: state })
-    right.value.refresh()
-    refreshPatients()
+      `Severity of ${symptom} changed from ${["No Information", "Normal", config.stateMessages[config.symptoms[symptom].max_scale]][report[symptom + "_state"]]} to ${config.stateMessages[state]} at ${date}`,
+    );
+    report[symptom + "_state"] = state;
+    await updateReport(id, report_id, { [symptom + "_state"]: state });
+    right.value.refresh();
+    refreshPatients();
   }
-}
+};
 </script>
 <template>
   <div class="row">
@@ -100,7 +115,9 @@ const updateState = async (id: number, report_id: number, symptom: string, state
       <ColoredCard class="information">
         <Loading :loading="loading" :has-data="!!patient">
           <div class="row">
-            <div class="participant-id">Patient {{ patient!.participant_id }}</div>
+            <div class="participant-id">
+              Patient {{ patient!.participant_id }}
+            </div>
             <div class="space"></div>
             <n-button> edit </n-button>
           </div>
@@ -129,7 +146,10 @@ const updateState = async (id: number, report_id: number, symptom: string, state
             </div>
           </div>
           <template #loading>
-            <n-skeleton class="participant-id" style="height: 25px; width: 100px"></n-skeleton>
+            <n-skeleton
+              class="participant-id"
+              style="height: 25px; width: 100px"
+            ></n-skeleton>
             <div class="row demographic">
               <n-skeleton class="age-sex" style="height: 21px"> </n-skeleton>
               <n-skeleton style="height: 21px; width: 38px"> </n-skeleton>
@@ -140,7 +160,11 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                   <div class="title">Medical History</div>
                   <div class="space"></div>
                   <div>
-                    <n-skeleton text style="display: inline-block; width: 150px"> </n-skeleton>
+                    <n-skeleton
+                      text
+                      style="display: inline-block; width: 150px"
+                    >
+                    </n-skeleton>
                   </div>
                 </div>
                 <n-skeleton text :repeat="2"></n-skeleton>
@@ -172,20 +196,27 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                 'table-row-block': true,
                 selected: report.id === parseInt(report_id),
 
-                odd: index % 2 === 0
+                odd: index % 2 === 0,
               }"
             >
               <div
                 :class="{
                   'table-row': true,
-                  report: true
+                  report: true,
                 }"
               >
                 <div class="date">
-                  {{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}
+                  {{ format(report.created_at, "yyyy-MM-dd HH:mm:ss") }}
                 </div>
-                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                  <n-tooltip trigger="hover" v-if="config.symptoms[symptom].likert">
+                <div
+                  class="symptom"
+                  v-for="symptom of Object.keys(config.symptoms)"
+                  :key="symptom"
+                >
+                  <n-tooltip
+                    trigger="hover"
+                    v-if="config.symptoms[symptom].likert"
+                  >
                     <template #trigger>
                       <circle-progress
                         :percent="report[symptom + '_scale'] * 10"
@@ -194,25 +225,33 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                         style="width: 50px"
                       >
                         <dot-symptom
-                          @update:state="updateState(patient.id, report.id, symptom, $event)"
+                          @update:state="
+                            updateState(patient.id, report.id, symptom, $event)
+                          "
                           :editable="
-                            (current_symptom === symptom && report.id === parseInt(report_id)) ||
+                            (current_symptom === symptom &&
+                              report.id === parseInt(report_id)) ||
                             report[symptom + '_state'] === 0
                           "
                           :class="{
                             selected:
-                              current_symptom === symptom && report.id === parseInt(report_id),
-                            disabled: report[symptom + '_state'] === 0
+                              current_symptom === symptom &&
+                              report.id === parseInt(report_id),
+                            disabled: report[symptom + '_state'] === 0,
                           }"
                           :state="report[symptom + '_state']"
-                          @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                          @click="
+                            report[symptom + '_state'] !== 0 &&
+                              jumpToReport(report, symptom)
+                          "
                           :color="config.symptoms[symptom].color"
                           :symptom="symptom"
                         />
                       </circle-progress>
                     </template>
                     <div>
-                      {{ config.symptoms[symptom].display_name }}: {{ report[symptom + '_scale'] }}
+                      {{ config.symptoms[symptom].display_name }}:
+                      {{ report[symptom + "_scale"] }}
                     </div>
                   </n-tooltip>
                   <circle-progress
@@ -224,17 +263,25 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                     :visible="false"
                   >
                     <dot-symptom
-                      @update:state="updateState(patient.id, report.id, symptom, $event)"
+                      @update:state="
+                        updateState(patient.id, report.id, symptom, $event)
+                      "
                       :editable="
-                        (current_symptom === symptom && report.id === parseInt(report_id)) ||
+                        (current_symptom === symptom &&
+                          report.id === parseInt(report_id)) ||
                         report[symptom + '_state'] === 0
                       "
                       :class="{
-                        selected: current_symptom === symptom && report.id === parseInt(report_id),
-                        disabled: report[symptom + '_state'] === 0
+                        selected:
+                          current_symptom === symptom &&
+                          report.id === parseInt(report_id),
+                        disabled: report[symptom + '_state'] === 0,
                       }"
                       :state="report[symptom + '_state']"
-                      @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                      @click="
+                        report[symptom + '_state'] !== 0 &&
+                          jumpToReport(report, symptom)
+                      "
                       :color="config.symptoms[symptom].color"
                       :symptom="symptom"
                     />
@@ -251,10 +298,15 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                 <div
                   :class="{
                     'table-row': true,
-                    report: true
+                    report: true,
                   }"
                 >
-                  <n-skeleton text class="date" style="height: 19.2px; width: 130px"> </n-skeleton>
+                  <n-skeleton
+                    text
+                    class="date"
+                    style="height: 19.2px; width: 130px"
+                  >
+                  </n-skeleton>
                   <div
                     class="symptom"
                     v-for="symptom of Object.keys(config.symptoms)"

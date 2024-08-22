@@ -1,44 +1,49 @@
-import axios, { type AxiosRequestConfig } from 'axios';
-import {apiBasePath} from '@/config';
+import axios, { type AxiosRequestConfig } from "axios";
+import { apiBasePath } from "@/config";
 
 const request = axios.create({
   baseURL: apiBasePath,
-  transformResponse: [data => {
-    return JSON.parse(data, dateReviver);
-  }],
+  transformResponse: [
+    (data) => {
+      return JSON.parse(data, dateReviver);
+    },
+  ],
 });
 
-const token = localStorage.getItem('token');
+const token = localStorage.getItem("token");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorHandler = (error: any) => {
-  let message = '';
+  let message = "";
   if (error.response) {
     const { data } = error.response;
     message += data?.message;
   }
-  window.$message.error('Error Occurred' + (message ? ',' + message :  '.'));
+  window.$message.error("Error Occurred" + (message ? "," + message : "."));
 };
 
 request.interceptors.response.use((response) => response.data, errorHandler);
 
-const api = (req: AxiosRequestConfig<unknown>) => new Promise((resolve, reject) => {
-  if(!req.headers){
-    req.headers = {};
-  }
-  req.headers['Authorization'] = 'Bearer ' + token;
-  request(req).then((resp) => {
-    resolve(resp);
-  }).catch((err) => {
-    window.$message.error('Error Occurred' + (err ? ',' + err :  '.'));
-    reject(err);
+const api = (req: AxiosRequestConfig<unknown>) =>
+  new Promise((resolve, reject) => {
+    if (!req.headers) {
+      req.headers = {};
+    }
+    req.headers["Authorization"] = "Bearer " + token;
+    request(req)
+      .then((resp) => {
+        resolve(resp);
+      })
+      .catch((err) => {
+        window.$message.error("Error Occurred" + (err ? "," + err : "."));
+        reject(err);
+      });
   });
-});
 
 // Custom reviver function to convert date strings to Date objects
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const dateReviver = (key: string, value: any) => {
-  if (typeof value === 'string' && key.endsWith('_at')) {
+  if (typeof value === "string" && key.endsWith("_at")) {
     const date = new Date(value);
     if (!isNaN(date.getTime()) && Number(value).toString() !== value) {
       return date;

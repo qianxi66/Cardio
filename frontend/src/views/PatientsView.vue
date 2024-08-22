@@ -1,68 +1,66 @@
 <script setup lang="ts">
-import ColoredCard from '@/components/ColoredCard.vue'
-import Dot from '@/components/Dot.vue'
-import { getPatients, updatePatient } from '@/api/patient'
-import Loading from '@/components/Loading.vue'
-import { ref, watch } from 'vue'
-import { useRouteParams } from '@vueuse/router'
-import { type Patient } from '@/api/types'
-import router from '@/router'
-import { provide, inject } from 'vue'
-import PatientForm from '@/components/PatientForm.vue'
+import ColoredCard from "@/components/ColoredCard.vue";
+import Dot from "@/components/Dot.vue";
+import { getPatients, updatePatient } from "@/api/patient";
+import Loading from "@/components/Loading.vue";
+import { ref, watch } from "vue";
+import { useRouteParams } from "@vueuse/router";
+import { type Patient } from "@/api/types";
+import router from "@/router";
+import { provide, inject } from "vue";
+import PatientForm from "@/components/PatientForm.vue";
 
-const patients = ref<Patient[] | null>(null)
-const loading = ref(true)
+const patients = ref<Patient[] | null>(null);
+const loading = ref(true);
 const showForm = ref(false);
 
-const patient_id = useRouteParams<number>('patient_id')
+const patient_id = useRouteParams<number>("patient_id");
 const loadPatient = () =>
   getPatients().then((res) => {
-    patients.value = res
-    loading.value = false
+    patients.value = res;
+    loading.value = false;
     if (!patient_id.value) {
       router.push({
-        name: 'patient.detail',
-        params: { patient_id: res[0].id }
-      })
+        name: "patient.detail",
+        params: { patient_id: res[0].id },
+      });
     }
-  })
-loadPatient()
-provide('refreshPatients', loadPatient)
+  });
+loadPatient();
+provide("refreshPatients", loadPatient);
 watch(patient_id, () => {
-  console.log('patient_id changed', patient_id.value)
+  console.log("patient_id changed", patient_id.value);
   if (patient_id.value === undefined) {
     if (patients.value?.length && patients.value?.length > 0) {
       router.push({
-        name: 'patient.detail',
-        params: { patient_id: patients.value![0].id }
-      })
+        name: "patient.detail",
+        params: { patient_id: patients.value![0].id },
+      });
     } else {
-      loadPatient()
+      loadPatient();
     }
   } else {
     if (patients.value?.find((p) => p.id == patient_id.value)) {
-      patients.value!.find((p) => p.id == patient_id.value)!.read = true
+      patients.value!.find((p) => p.id == patient_id.value)!.read = true;
     }
   }
-})
+});
 const updateState = (id: number, state: number) => {
   if (state >= 0) {
-    patients.value!.find((p) => p.id == id)!.state = state
-    patients.value!.find((p) => p.id == id)!.reviewed = false
-    updatePatient(id, { state, reviewed: false })
+    patients.value!.find((p) => p.id == id)!.state = state;
+    patients.value!.find((p) => p.id == id)!.reviewed = false;
+    updatePatient(id, { state, reviewed: false });
   } else {
-    patients.value!.find((p) => p.id == id)!.reviewed = true
-    updatePatient(id, { reviewed: true })
+    patients.value!.find((p) => p.id == id)!.reviewed = true;
+    updatePatient(id, { reviewed: true });
   }
-  setTimeout(loadPatient, 100)
-}
+  setTimeout(loadPatient, 100);
+};
 const handleClick = () => {
-
   showForm.value = true;
-  console.log('Icon button clicked!');
-  console.log(showForm.value)
-}
-
+  console.log("Icon button clicked!");
+  console.log(showForm.value);
+};
 </script>
 <template>
   <div class="row holder">
@@ -76,15 +74,19 @@ const handleClick = () => {
               />
             </svg>
           </n-icon>
-      </button>
-      <PatientForm v-model:visible="showForm" />
+        </button>
+        <PatientForm v-model:visible="showForm" />
       </div>
-      <loading :loading="loading" :has-data="patients?.length !== 0" class="patient-list">
+      <loading
+        :loading="loading"
+        :has-data="patients?.length !== 0"
+        class="patient-list"
+      >
         <div
           :class="{
             'patient-card': true,
             selected: p.id == patient_id,
-            read: p.read
+            read: p.read,
           }"
           v-for="p in patients"
           :key="p.id"
@@ -101,7 +103,7 @@ const handleClick = () => {
             :is="p.id == patient_id ? 'div' : 'router-link'"
             :to="{
               name: 'patient.detail',
-              params: { patient_id: p.id }
+              params: { patient_id: p.id },
             }"
             class="patient-info"
           >
@@ -115,8 +117,16 @@ const handleClick = () => {
               <Dot loading></Dot>
             </div>
             <div class="patient-info">
-              <n-skeleton class="name" text style="width: 100px; height: 22px" />
-              <n-skeleton class="age-sex" text style="width: 70px; margin-top: 3px" />
+              <n-skeleton
+                class="name"
+                text
+                style="width: 100px; height: 22px"
+              />
+              <n-skeleton
+                class="age-sex"
+                text
+                style="width: 70px; margin-top: 3px"
+              />
             </div>
           </div>
         </template>
@@ -150,7 +160,6 @@ const handleClick = () => {
   display: flex;
   align-items: center;
 }
-
 
 .dot-holder {
   display: flex;

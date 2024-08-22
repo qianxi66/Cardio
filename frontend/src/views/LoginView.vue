@@ -1,55 +1,62 @@
 <template>
   <n-card class="login-container">
     <n-h2>Login</n-h2>
-    <n-form >
+    <n-form>
       <n-form-item label="Username">
         <n-input v-model:value="username" placeholder="Enter your username" />
       </n-form-item>
       <n-form-item label="Password">
-        <n-input type="password" v-model:value="password" placeholder="Enter your password" />
+        <n-input
+          type="password"
+          v-model:value="password"
+          placeholder="Enter your password"
+        />
       </n-form-item>
       <n-checkbox v-model:checked="Rememberme">Remember Me</n-checkbox>
-      <n-button type="info" html-type="submit" @click="handleLogin">Start</n-button>
+      <n-button type="info" html-type="submit" @click="handleLogin"
+        >Start</n-button
+      >
     </n-form>
   </n-card>
 </template>
 
 <script setup lang="tsx">
-import { ref } from 'vue'
-import axios from 'axios'
-import { useRouter } from 'vue-router'
-import { login } from '@/api/user'
-import { useNotification } from 'naive-ui'
+import { ref } from "vue";
+import axios from "axios";
+import { useRouter } from "vue-router";
+import { login } from "@/api/user";
+import { useNotification } from "naive-ui";
 
-const router = useRouter()
-const username = ref('')
-const password = ref('')
-const Rememberme = ref(false)
+const router = useRouter();
+const username = ref("");
+const password = ref("");
+const Rememberme = ref(false);
 
-      const notification = useNotification()
+const notification = useNotification();
 
 const handleLogin = async () => {
   try {
-    const response = await login(username.value, password.value, Rememberme.value);
-    if (response.hasOwnProperty('message')) {
-
+    const response = await login(
+      username.value,
+      password.value,
+      Rememberme.value,
+    );
+    if (response.hasOwnProperty("message")) {
       notification.create({
-        title: response.message})
-    }else{
-
-    const { token, userid } = response.token;
-    localStorage.setItem('token', token);
-    router.push('/patient');
+        title: response.message,
+      });
+    } else {
+      const { token, userid } = response.token;
+      localStorage.setItem("token", token);
+      router.push("/patient");
     }
-
   } catch (error: any) {
     if (error.response) {
-      const errorMessage = error.response.data.message ;
+      const errorMessage = error.response.data.message;
       // message.error( errorMessage);
-      }
+    }
   }
 };
-
 </script>
 
 <style scoped>

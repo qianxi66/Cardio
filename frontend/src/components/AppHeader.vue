@@ -1,8 +1,8 @@
 <script setup lang="tsx">
-import { computed } from 'vue';
-import { useDialog, useMessage } from 'naive-ui';
-import { useRouter, useRoute } from 'vue-router';
-import { useStorage } from '@vueuse/core';
+import { computed } from "vue";
+import { useDialog, useMessage } from "naive-ui";
+import { useRouter, useRoute } from "vue-router";
+import { useStorage } from "@vueuse/core";
 
 const router = useRouter();
 const route = useRoute();
@@ -10,26 +10,26 @@ const route = useRoute();
 const dialog = useDialog();
 const message = useMessage();
 
-const token = useStorage('token','',sessionStorage);
+const token = useStorage("token", "", sessionStorage);
 
 const showLogoutButton = computed(() => {
-  return token.value !== null && route.path !== '/login';
+  return token.value !== null && route.path !== "/login";
 });
 
 const handleLogout = () => {
   dialog.warning({
-    title: 'Confirm Logout',
-    content: 'Are you sure you want to log out?',
-    positiveText: 'Confirm',
-    negativeText: 'Cancel',
+    title: "Confirm Logout",
+    content: "Are you sure you want to log out?",
+    positiveText: "Confirm",
+    negativeText: "Cancel",
     onPositiveClick: () => {
-      localStorage.removeItem('token');
-      router.push('/login');
-      message.success('You have been logged out.');
+      localStorage.removeItem("token");
+      router.push("/login");
+      message.success("You have been logged out.");
     },
     onNegativeClick: () => {
-      message.info('Logout canceled.');
-    }
+      message.info("Logout canceled.");
+    },
   });
 };
 </script>

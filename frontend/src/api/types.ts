@@ -16,20 +16,19 @@ export type Patient = {
 };
 
 // Define the type for the token object
-export type Token  ={
-  created_at: string;   // Date in string format
-  id: number;           // ID as a number
-  rememberme: boolean;  // Remember me flag as a boolean
-  token: string;        // Token as a string
-  updated_at: string;   // Date in string format
-  userid: number;       // User ID as a number
-}
+export type Token = {
+  created_at: string; // Date in string format
+  id: number; // ID as a number
+  rememberme: boolean; // Remember me flag as a boolean
+  token: string; // Token as a string
+  updated_at: string; // Date in string format
+  userid: number; // User ID as a number
+};
 
 // Define the type for the response object
-export type  LoginResponse = {
-  token: Token;         // Token object
-}
-
+export type LoginResponse = {
+  token: Token; // Token object
+};
 
 export type User = {
   id: number;

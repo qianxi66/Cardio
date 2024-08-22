@@ -11,7 +11,6 @@ const themeOverrides: GlobalThemeOverrides = {
     color: "white",
   },
 };
-
 </script>
 
 <template>
@@ -19,9 +18,10 @@ const themeOverrides: GlobalThemeOverrides = {
     <n-message-provider>
       <n-dialog-provider>
         <n-notification-provider>
-        <AppHeader></AppHeader>
-        <RouterView></RouterView>
-        <n-global-style></n-global-style></n-notification-provider>
+          <AppHeader></AppHeader>
+          <RouterView></RouterView>
+          <n-global-style></n-global-style
+        ></n-notification-provider>
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>

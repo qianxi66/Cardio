@@ -1,67 +1,69 @@
-import { createRouter, createWebHistory } from 'vue-router'
-const require_login = (to, from,next) => {
+import { createRouter, createWebHistory } from "vue-router";
+const require_login = (to, from, next) => {
   if (localStorage.token) {
-    next(); }
-  else {
-    next('/login'); }
-}
+    next();
+  } else {
+    next("/login");
+  }
+};
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      path: '/',
-      redirect: '/login'
+      path: "/",
+      redirect: "/login",
     },
     {
-      path: '/login',
-      name: 'login',
-      component: () => import('../views/LoginView.vue'),
+      path: "/login",
+      name: "login",
+      component: () => import("../views/LoginView.vue"),
     },
     {
-      path: '/patient',
-      component: () => import('../views/PatientsView.vue'),
-      beforeEnter: (to, from,next) => {
+      path: "/patient",
+      component: () => import("../views/PatientsView.vue"),
+      beforeEnter: (to, from, next) => {
         if (localStorage.token) {
-          next(); }
-        else {
-          next('/login'); }
+          next();
+        } else {
+          next("/login");
+        }
       },
       children: [
         {
-          path: '',
-          name: 'patient',
-          component: () => import('../views/PatientDetailView.vue'),
+          path: "",
+          name: "patient",
+          component: () => import("../views/PatientDetailView.vue"),
           beforeEnter: require_login,
           children: [
             {
-              path: '',
-              name: 'patient.report.empty',
-              component: () => import('../views/ReportDetailView.vue'),
+              path: "",
+              name: "patient.report.empty",
+              component: () => import("../views/ReportDetailView.vue"),
               beforeEnter: require_login,
-            }
-        ]
+            },
+          ],
         },
         {
-          path: '/patient/:patient_id',
-          component: () => import('../views/PatientDetailView.vue'),
+          path: "/patient/:patient_id",
+          component: () => import("../views/PatientDetailView.vue"),
           beforeEnter: require_login,
           children: [
             {
-              path: '/patient/:patient_id',
-              name: 'patient.detail',
-              component: () => import('../views/ReportDetailView.vue'),
+              path: "/patient/:patient_id",
+              name: "patient.detail",
+              component: () => import("../views/ReportDetailView.vue"),
               beforeEnter: require_login,
             },
             {
-              path: 'report/:report_id',
-              name: 'patient.report.detail',
-              component: () => import('../views/ReportDetailView.vue'),
+              path: "report/:report_id",
+              name: "patient.report.detail",
+              component: () => import("../views/ReportDetailView.vue"),
               beforeEnter: require_login,
             },
-          ]
-        }
-      ]
-    }
-  ]
-})
-export default router
+          ],
+        },
+      ],
+    },
+  ],
+});
+export default router;
