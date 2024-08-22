@@ -13,7 +13,7 @@
         />
       </n-form-item>
       <n-checkbox v-model:checked="Rememberme">Remember Me</n-checkbox>
-      <n-button type="info" html-type="submit" @click="handleLogin"
+      <n-button attr-type="submit" type="info" @click="handleLogin"
         >Start</n-button
       >
     </n-form>

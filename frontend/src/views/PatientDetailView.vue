@@ -118,8 +118,6 @@ const updateState = async (
             <div class="participant-id">
               Patient {{ patient!.participant_id }}
             </div>
-            <div class="space"></div>
-            <n-button> edit </n-button>
           </div>
           <div class="row demographic">
             <span class="age-sex">
