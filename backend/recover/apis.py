@@ -258,15 +258,17 @@ swelling: not discussed
 mood: not discussed
 """
         pass
+    session_end = "CONVERSATION_END" in assistant_message
     log = ConversationLog(
         patient_id=patient.id,
         report_id=report.id,
         role="assistant",
-        content=assistant_message,
+        content=assistant_message.replace("CONVERSATION_END", ""),
         chain_of_thoughts=chain_of_thoughts,
     )
     db.session.add(log)
     db.session.commit()
+    log.content += "CONVERSATION_END" if session_end else ""
     return jsonify(log)
 
 
@@ -354,7 +356,7 @@ def get_last_message(alexa_user_id):
     messages = ConversationLog.query.filter_by(report_id=report.id).all()
     if len(messages) == 0:
         # create a new assistant message
-        msg = "Hello, this is the RECOVER research study chatbot developed by Northeastern University Human-centered AI lab. Are you ready to start today's questions?"
+        msg = "Hello, this is the RECOVER research study chatbot. Are you ready to start today's questions?"
         message = ConversationLog(
             patient_id=patient.id,
             report_id=report.id,
