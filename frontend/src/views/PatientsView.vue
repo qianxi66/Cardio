@@ -11,7 +11,6 @@ import { provide, inject } from "vue";
 
 const patients = ref<Patient[] | null>(null);
 const loading = ref(true);
-const showForm = ref(false);
 
 const patient_id = useRouteParams<number>("patient_id");
 const loadPatient = () =>
@@ -55,18 +54,13 @@ const updateState = (id: number, state: number) => {
   }
   setTimeout(loadPatient, 100);
 };
-const handleClick = () => {
-  showForm.value = true;
-  console.log("Icon button clicked!");
-  console.log(showForm.value);
-};
 </script>
 <template>
   <div class="row holder">
     <n-card class="patient-list" title="Patients List">
       <template #header-extra>
-        <button class="icon-button" @click="handleClick">
-          <n-icon size="40">
+        <button class="icon-button" @click="$router.push('/creat_patient')">
+          <n-icon size="35" quaternary type="primary">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
               <path
                 d="M368.5 240H272v-96.5c0-8.8-7.2-16-16-16s-16 7.2-16 16V240h-96.5c-8.8 0-16 7.2-16 16 0 4.4 1.8 8.4 4.7 11.3 2.9 2.9 6.9 4.7 11.3 4.7H240v96.5c0 4.4 1.8 8.4 4.7 11.3 2.9 2.9 6.9 4.7 11.3 4.7 8.8 0 16-7.2 16-16V272h96.5c8.8 0 16-7.2 16-16s-7.2-16-16-16z"

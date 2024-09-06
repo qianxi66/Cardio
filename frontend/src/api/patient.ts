@@ -25,6 +25,14 @@ export const updatePatient = async (id: number, data: Partial<Patient>) => {
   });
 };
 
+export const createPatient = async (data: Patient) => {
+  return await api({
+    url: `/patients`,
+    method: "POST",
+    data,
+  });
+};
+
 export const updateReport = async (
   patient_id: number,
   report_id: number,

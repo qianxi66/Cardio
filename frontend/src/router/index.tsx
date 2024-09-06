@@ -64,6 +64,18 @@ const router = createRouter({
         },
       ],
     },
+    {
+      path: "/creat_patient",
+      name: "creat_patient",
+      component: () => import("../views/CreatPatient.vue"),
+      beforeEnter: require_login,
+    },
+    {
+      path: "/patient/:patient_id/update",
+      name: "patient.update",
+      component: () => import("../views/UpdatePatient.vue"),
+      beforeEnter: require_login,
+    },
   ],
 });
 export default router;

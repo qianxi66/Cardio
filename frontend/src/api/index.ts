@@ -1,6 +1,14 @@
 import axios, { type AxiosRequestConfig } from "axios";
 import { apiBasePath } from "@/config";
-
+export interface Patient {
+  EHRid: string;
+  medication: string;
+  doctor: string;
+  medicalhistory: string;
+  switchValue: string;
+  gender: string;
+  age: number;
+}
 const request = axios.create({
   baseURL: apiBasePath,
   transformResponse: [

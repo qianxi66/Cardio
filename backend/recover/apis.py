@@ -146,6 +146,41 @@ def get_patients():
     return jsonify(patients)
 
 
+@current_app.route("/patients", methods=["POST"])
+@api_key_required
+def create_patient():
+    data = request.get_json()
+    if not data:
+        return jsonify({"message": "No input data provided"}), 400
+
+    # Ensure necessary fields are provided; modify as per your data model
+    required_fields = ["EHRid", "age", "doctor", "gender"]
+    missing_fields = [field for field in required_fields if field not in data]
+    if missing_fields:
+        return jsonify({"message": f"Missing fields: {', '.join(missing_fields)}"}), 400
+
+    # search userid by username
+    user = User.query.filter_by(username=data["doctor"]).first()
+
+    # Create a new Patient instance
+    patient = Patient(
+        EHR_id=data.get("EHR_id"),
+        age=data.get("age"),
+        gender=data.get("gender"),
+        medical_history=data.get("medicalhistory", ""),
+        medication=data.get("medication", ""),
+        user_id=user.id,  # Associate the patient with the current user
+        last_read_at=datetime.utcnow(),
+    )
+
+    db.session.add(patient)
+    db.session.commit()
+
+    return jsonify(
+        {"message": "Patient created successfully", "patient": asdict(patient)}
+    ), 201
+
+
 @current_app.route("/patients/<int:id>", methods=["PATCH"])
 @api_key_required
 def update_patient(id):

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import types
 import typing as t
 from dataclasses import dataclass
@@ -6,6 +8,15 @@ from datetime import datetime
 from flask import current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
+
+from sqlalchemy.orm import Mapped
+from typing import List
+from sqlalchemy import Column
+from sqlalchemy import Table
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import relationship
 
 from .app import db
 
@@ -21,9 +32,23 @@ class NotFound(Exception):
         return f"{self.table_name}({self.ident}) not found"
 
 
+class Base(DeclarativeBase):
+    pass
+
+
+association_table = Table(
+    "user_patient_table",
+    Base.metadata,
+    Column("patient_id", ForeignKey("patient.id")),
+    Column("user_id", ForeignKey("user.id")),
+)
+
+
 @dataclass
 class Patient(db.Model):
-    id: int
+    __tablename__ = "patient"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    children: Mapped[List[User]] = relationship(secondary=association_table)
     age: int
     gender: str
     user_id: int
@@ -52,7 +77,8 @@ class Patient(db.Model):
 
 @dataclass
 class User(db.Model):
-    id: int
+    __tablename__ = "user"
+    id: Mapped[int] = mapped_column(primary_key=True)
     username: str
     password: str
     email: str
