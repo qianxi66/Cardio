@@ -15,7 +15,6 @@ from sqlalchemy import Column
 from sqlalchemy import Table
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import mapped_column
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 
 from .app import db
@@ -32,13 +31,9 @@ class NotFound(Exception):
         return f"{self.table_name}({self.ident}) not found"
 
 
-class Base(DeclarativeBase):
-    pass
-
-
 association_table = Table(
     "user_patient_table",
-    Base.metadata,
+    db.Model.metadata,
     Column("patient_id", ForeignKey("patient.id")),
     Column("user_id", ForeignKey("user.id")),
 )
