@@ -17,7 +17,7 @@ from .db import (
     ReportSummary,
     db,
 )
-from .openai import conversation, key_questions, summary
+from .openai_utils import conversation, key_questions, summary
 
 
 # a decorator to valid the 'authentication' header for an api key
@@ -97,9 +97,19 @@ def get_patient(id):
     reports = [asdict(report) for report in reports]
     for r in reports:
         for symptom in symptom_descriptions.keys():
-            r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
-    patient["reports"] = reports
-    # time.sleep(1)
+            raw_data = r.get(f"{symptom}_logs", "")
+
+            if raw_data:
+                try:
+                    r[f"{symptom}_logs"] = json.loads(raw_data)
+                except json.JSONDecodeError as e:
+                    print(f"JSON decoding failed for {symptom}_logs: {e}")
+                    r[f"{symptom}_logs"] = []
+            else:
+                r[f"{symptom}_logs"] = []
+
+        patient["reports"] = reports
+        # time.sleep(1)
     return jsonify(patient)
 
 

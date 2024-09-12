@@ -18,6 +18,9 @@ const refreshPatients = inject('refreshPatients')
 const patient_id = useRouteParams('patient_id')
 const report_id = useRouteParams('report_id')
 const current_symptom = useRouteQuery('symptom')
+let showallQuery = useRouteQuery('showall')
+let showall = ref(showallQuery || 'false')
+
 const patient = ref<Patient | null>(null)
 const loading = ref(true)
 const cancelToken = ref<CancelTokenSource | null>(null)
@@ -41,22 +44,31 @@ watch(
   },
   { immediate: true }
 )
+watch(() => showallQuery, (newValue) => {
+  showallQuery = newValue || 'false'
+  showall = ref(showallQuery)
+})
 const jumpToReport = (report: Report, symptom: string | undefined) => {
+
+  console.log(showall.value)
   router.push({
     name: 'patient.report.detail',
     params: { patient_id: patient_id.value, report_id: report.id },
-    query: symptom
-      ? {
-          symptom: symptom,
-          logs: report[(symptom + '_logs') as keyof Report] as unknown as number[],
-          state:
-            report[symptom + '_state'] == 2
-              ? config.symptoms[symptom].max_scale
-              : report[symptom + '_state']
-        }
-      : {}
-  })
-}
+    query: {
+      showall: showall.value,
+      ...(symptom
+        ? {
+            symptom: symptom,
+            logs: report[(symptom + '_logs') as keyof Report] as unknown as number[],
+            state:
+              report[symptom + '_state'] == 2
+                ? config.symptoms[symptom].max_scale
+                : report[symptom + '_state']
+          }
+        : {})
+    }
+  });
+};
 watch(patient, () => {
   // get the latest report id
   if (patient.value) {

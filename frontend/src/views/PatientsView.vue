@@ -3,30 +3,52 @@ import ColoredCard from '@/components/ColoredCard.vue'
 import Dot from '@/components/Dot.vue'
 import { getPatients, updatePatient } from '@/api/patient'
 import Loading from '@/components/Loading.vue'
-import { ref, watch } from 'vue'
-import { useRouteParams } from '@vueuse/router'
+import { ref, watch, computed } from 'vue'
+import { useRouteParams, useRouteQuery } from '@vueuse/router'
 import { type Patient } from '@/api/types'
 import router from '@/router'
-import { provide, inject } from 'vue'
+import { provide } from 'vue'
 const patients = ref<Patient[] | null>(null)
 const loading = ref(true)
-
 const patient_id = useRouteParams<number>('patient_id')
+
+const showall = useRouteQuery('showall') || 'false'
+
+const filteredPatients = computed(() => {
+  if (!patients.value) return []
+
+  console.log('aaa'+showall.value)
+  if( showall.value=='true')
+    {
+      console.log('a')
+      return patients.value}
+  else
+  {
+    console.log('b')
+    return patients.value.filter(p =>
+    !p.participant_id.includes('1')
+  )
+  }
+})
 const loadPatient = () =>
   getPatients().then((res) => {
-    patients.value = res
-    loading.value = false
+    patients.value = res;
+    loading.value = false;
     if (!patient_id.value) {
       router.push({
         name: 'patient.detail',
-        params: { patient_id: res[0].id }
-      })
+        params: { patient_id: res[0].id },
+        query: {
+          showall: showall.value,
+        },
+      });
     }
-  })
-loadPatient()
-provide('refreshPatients', loadPatient)
+  });
+
+loadPatient();
+provide('refreshPatients', loadPatient);
+// 监听 patient_id 的变化
 watch(patient_id, () => {
-  console.log('patient_id changed', patient_id.value)
   if (patient_id.value === undefined) {
     if (patients.value?.length && patients.value?.length > 0) {
       router.push({
@@ -53,18 +75,20 @@ const updateState = (id: number, state: number) => {
   }
   setTimeout(loadPatient, 100)
 }
+
 </script>
+
 <template>
   <div class="row holder">
     <n-card class="patient-list" title="Patients List">
-      <loading :loading="loading" :has-data="patients?.length !== 0" class="patient-list">
+      <loading :loading="loading" :has-data="filteredPatients.length !== 0" class="patient-list">
         <div
           :class="{
             'patient-card': true,
             selected: p.id == patient_id,
             read: p.read
           }"
-          v-for="p in patients"
+          v-for="p in filteredPatients"
           :key="p.id"
         >
           <div class="dot-holder">
@@ -103,6 +127,7 @@ const updateState = (id: number, state: number) => {
     <router-view></router-view>
   </div>
 </template>
+
 <style scoped lang="scss">
 .holder {
   flex: 1;
