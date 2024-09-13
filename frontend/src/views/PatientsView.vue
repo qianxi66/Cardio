@@ -20,13 +20,13 @@ const filteredPatients = computed(() => {
   console.log('aaa'+showall.value)
   if( showall.value=='true')
     {
-      console.log('a')
+      //console.log('a')
       return patients.value}
   else
   {
-    console.log('b')
+    //console.log('b')
     return patients.value.filter(p =>
-    !p.participant_id.includes('1')
+    !p.participant_id.includes('STUDY') && !p.participant_id.includes('DEMO')
   )
   }
 })
@@ -47,7 +47,6 @@ const loadPatient = () =>
 
 loadPatient();
 provide('refreshPatients', loadPatient);
-// 监听 patient_id 的变化
 watch(patient_id, () => {
   if (patient_id.value === undefined) {
     if (patients.value?.length && patients.value?.length > 0) {
