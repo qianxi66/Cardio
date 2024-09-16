@@ -12,41 +12,39 @@ const patients = ref<Patient[] | null>(null)
 const loading = ref(true)
 const patient_id = useRouteParams<number>('patient_id')
 
-const showall = useRouteQuery('showall') || 'false'
+const showall = useRouteQuery('showall', 'false', { transform: (v: string) => v === 'true' })
 
 const filteredPatients = computed(() => {
   if (!patients.value) return []
 
-  console.log('aaa'+showall.value)
-  if( showall.value=='true')
-    {
-      //console.log('a')
-      return patients.value}
-  else
-  {
+  console.log('aaa' + showall.value)
+  if (showall.value) {
+    //console.log('a')
+    return patients.value
+  } else {
     //console.log('b')
-    return patients.value.filter(p =>
-    !p.participant_id.includes('STUDY') && !p.participant_id.includes('DEMO')
-  )
+    return patients.value.filter(
+      (p) => !p.participant_id.includes('STUDY') && !p.participant_id.includes('DEMO')
+    )
   }
 })
 const loadPatient = () =>
   getPatients().then((res) => {
-    patients.value = res;
-    loading.value = false;
+    patients.value = res
+    loading.value = false
     if (!patient_id.value) {
       router.push({
         name: 'patient.detail',
         params: { patient_id: res[0].id },
         query: {
-          showall: showall.value,
-        },
-      });
+          showall: showall.value.toString()
+        }
+      })
     }
-  });
+  })
 
-loadPatient();
-provide('refreshPatients', loadPatient);
+loadPatient()
+provide('refreshPatients', loadPatient)
 watch(patient_id, () => {
   if (patient_id.value === undefined) {
     if (patients.value?.length && patients.value?.length > 0) {
@@ -74,7 +72,6 @@ const updateState = (id: number, state: number) => {
   }
   setTimeout(loadPatient, 100)
 }
-
 </script>
 
 <template>
@@ -102,7 +99,10 @@ const updateState = (id: number, state: number) => {
             :is="p.id == patient_id ? 'div' : 'router-link'"
             :to="{
               name: 'patient.detail',
-              params: { patient_id: p.id }
+              params: { patient_id: p.id },
+              query: {
+                showall: showall.toString()
+              }
             }"
             class="patient-info"
           >
