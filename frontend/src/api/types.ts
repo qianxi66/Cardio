@@ -30,6 +30,10 @@ export type LoginResponse = {
   token: Token; // Token object
 };
 
+export type UserInfoResponse = {
+  id: number; // Token object
+  username: string;
+};
 export type User = {
   id: number;
   username: string;

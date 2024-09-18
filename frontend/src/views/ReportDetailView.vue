@@ -13,6 +13,7 @@ import {
   deleteNote as deleteNoteAPI,
 } from "@/api/patient";
 import axios from "axios";
+import { getUserInfo } from "@/api/user";
 const patient_id = useRouteParams<number | null>("patient_id");
 const report_id = useRouteParams<number | null>("report_id");
 const select_log_ids_ = useRouteQuery<string[]>("logs");
@@ -26,6 +27,7 @@ const select_log_ids = computed(() => {
 const state = useRouteQuery<number>("state");
 import { stateColors } from "@/config";
 import { format, formatDistance } from "date-fns";
+let username = "";
 
 const cancelToken = ref<CancelTokenSource | null>(null);
 
@@ -33,6 +35,23 @@ const report = ref<Report | null>(null);
 const loading = ref(true);
 const editingNote = ref("");
 const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({});
+const fetchUserInfo = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.error("Token not found");
+      return;
+    }
+
+    const userInfoResponse = await getUserInfo(token);
+    if (userInfoResponse.username) username = userInfoResponse.username;
+  } catch (error: any) {
+    console.error("An error occurred while fetching user info:", error);
+  }
+};
+
+// Call this function in a setup lifecycle hook if needed
+fetchUserInfo();
 
 const refresh = async () => {
   if (cancelToken.value) {
@@ -123,6 +142,10 @@ const scroll = () => {
   }
 };
 watch(select_log_ids, scroll);
+
+function asyc() {
+  throw new Error("Function not implemented.");
+}
 </script>
 <template>
   <ColoredCard color="#0094ff" rounded title="Conversation Summary">
@@ -173,19 +196,21 @@ watch(select_log_ids, scroll);
         <div class="title">Notes</div>
         <div class="notes-list">
           <div v-for="note in report!.notes" :key="note.id" class="note">
-            <div class="note-left">
-              <div>{{ note.content }}</div>
-              <div
-                class="note-time"
-                :title="format(note.created_at, 'yyyy-MM-dd HH:mm:ss')"
-              >
-                {{
-                  formatDistance(note.created_at, new Date(), {
-                    addSuffix: true,
-                  })
-                }}
-              </div>
-            </div>
+            <ul>
+              <li class="note-left">
+                <div>{{ note.content }}</div>
+                <div
+                  class="note-time"
+                  :title="format(note.created_at, 'yyyy-MM-dd HH:mm:ss')"
+                >
+                  {{
+                    formatDistance(note.created_at, new Date(), {
+                      addSuffix: true,
+                    })
+                  }}, createdby {{ username }}
+                </div>
+              </li>
+            </ul>
             <div class="space"></div>
             <n-button
               size="tiny"

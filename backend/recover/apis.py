@@ -110,6 +110,30 @@ def api_key_required(f):
     return decorated_function
 
 
+@current_app.route("/get_user_info", methods=["GET"])
+def get_user_info():
+    try:
+        token = request.headers.get("Authorization")
+        if not token:
+            return jsonify({"message": "Token is missing"}), 401
+
+        token = token.split(" ")[1]
+        token_record = Token.query.filter_by(token=token).first()
+
+        if not token_record:
+            return jsonify({"message": "Invalid token"}), 401
+
+        user = User.query.get(token_record.userid)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+
+        return jsonify({"user_id": user.id, "username": user.username})
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
+
+
 def patient_to_dict(patient):
     return {
         "id": patient.id,
