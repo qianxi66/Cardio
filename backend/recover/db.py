@@ -43,10 +43,11 @@ association_table = Table(
 class Patient(db.Model):
     __tablename__ = "patient"
     id: Mapped[int] = mapped_column(primary_key=True)
-    children: Mapped[List[User]] = relationship(secondary=association_table)
+    users: Mapped[List[User]] = relationship(
+        secondary=association_table, back_populates="patients"
+    )
     age: int
     gender: str
-    user_id: int
     EHR_id: str
     alexa_user_id: str
     medical_history: str
@@ -59,7 +60,6 @@ class Patient(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     age = db.Column(db.Integer)
     gender = db.Column(db.String(10))
-    user_id = db.Column(db.Integer)
     EHR_id = db.Column(db.String(50))
     alexa_user_id = db.Column(db.String(50), nullable=True)
     medical_history = db.Column(db.Text)
@@ -74,6 +74,7 @@ class Patient(db.Model):
 class User(db.Model):
     __tablename__ = "user"
     id: Mapped[int] = mapped_column(primary_key=True)
+    patients: Mapped[List[Patient]] = relationship(secondary=association_table)
     username: str
     password: str
     email: str

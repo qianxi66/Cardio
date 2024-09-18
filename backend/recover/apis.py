@@ -6,8 +6,7 @@ import secrets
 import string
 from threading import Thread
 import bcrypt
-from flask import abort, current_app, jsonify, request, g
-
+from flask import abort, current_app, jsonify, logging, request, g
 from .app import app
 from .config import symptom_descriptions
 from .db import (
@@ -111,39 +110,60 @@ def api_key_required(f):
     return decorated_function
 
 
-# get patients, return all patients
+def patient_to_dict(patient):
+    return {
+        "id": patient.id,
+        "age": patient.age,
+        "gender": patient.gender,
+        "EHR_id": patient.EHR_id,
+        "alexa_user_id": patient.alexa_user_id,
+        "medical_history": patient.medical_history,
+        "medication": patient.medication,
+        "participant_id": patient.participant_id,
+        "last_read_at": patient.last_read_at,
+        "reviewed": patient.reviewed,
+        "state": patient.state,
+    }
+
+
 @current_app.route("/patients", methods=["GET"])
 @api_key_required
 def get_patients():
-    userid = g.current_user.id
+    try:
+        patients = g.current_user.patients
 
-    # select patients by userid
-    patients = Patient.query.filter_by(user_id=userid).all()
+        patients_dict = [patient_to_dict(patient) for patient in patients]
 
-    patients = [asdict(patient) for patient in patients]
-
-    for patient in patients:
-        latest_report = (
-            Report.query.filter_by(patient_id=patient["id"])
-            .order_by(Report.created_at.desc())
-            .first()
-        )
-        if latest_report:
-            if patient["last_read_at"]:
-                patient["read"] = patient["last_read_at"] >= latest_report.created_at
+        for patient in patients_dict:
+            latest_report = (
+                Report.query.filter_by(patient_id=patient["id"])
+                .order_by(Report.created_at.desc())
+                .first()
+            )
+            if latest_report:
+                if patient["last_read_at"]:
+                    patient["read"] = (
+                        patient["last_read_at"] >= latest_report.created_at
+                    )
+                else:
+                    patient["read"] = False
             else:
-                patient["read"] = False
-        else:
-            patient["state"] = 0
-        if patient["state"] is None:
-            patient["state"] = 0
-            patient["read"] = True
-    patients = sorted(
-        patients,
-        key=lambda x: -1 if x["reviewed"] else (x["state"] if x["state"] else 0),
-        reverse=True,
-    )
-    return jsonify(patients)
+                patient["state"] = 0
+            if patient["state"] is None:
+                patient["state"] = 0
+                patient["read"] = True
+
+        patients_dict = sorted(
+            patients_dict,
+            key=lambda x: -1 if x["reviewed"] else (x["state"] if x["state"] else 0),
+            reverse=True,
+        )
+
+        return jsonify(patients_dict)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
 @current_app.route("/patients", methods=["POST"])
@@ -202,25 +222,37 @@ def update_patient(id):
 @current_app.route("/patients/<int:id>", methods=["GET"])
 @api_key_required
 def get_patient(id):
-    # also get reports
-    userid = g.current_user.id
-    patient = db.get(Patient, id)
-    if patient.user_id != userid:
-        return jsonify({"message": "permission denied"}), 401
-    patient.last_read_at = datetime.utcnow()
-    db.session.add(patient)
-    db.session.commit()
-    reports = (
-        Report.query.filter_by(patient_id=id).order_by(Report.created_at.desc()).all()
-    )
-    patient = asdict(patient)
-    reports = [asdict(report) for report in reports]
-    for r in reports:
-        for symptom in symptom_descriptions.keys():
-            r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
-    patient["reports"] = reports
-    # time.sleep(1)
-    return jsonify(patient)
+    try:
+        userid = g.current_user.id
+        patient = db.get(Patient, id)
+
+        if not any(user.id == userid for user in patient.users):
+            return jsonify({"message": "permission denied"}), 401
+
+        patient.last_read_at = datetime.utcnow()
+        db.session.add(patient)
+        db.session.commit()
+
+        reports = (
+            Report.query.filter_by(patient_id=id)
+            .order_by(Report.created_at.desc())
+            .all()
+        )
+
+        patient_dict = patient_to_dict(patient)
+        reports_dict = [asdict(report) for report in reports]
+
+        for r in reports_dict:
+            for symptom in symptom_descriptions.keys():
+                r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
+
+        patient_dict["reports"] = reports_dict
+
+        return jsonify(patient_dict)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["GET"])
