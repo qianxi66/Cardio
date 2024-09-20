@@ -8,10 +8,20 @@ import { useRouteParams } from "@vueuse/router";
 import { type Patient } from "@/api/types";
 import router from "@/router";
 import { provide, inject } from "vue";
-
+import { defineComponent, computed } from "vue";
+import { NCard, NInput, NList, NListItem, NSpace } from "naive-ui";
 const patients = ref<Patient[] | null>(null);
 const loading = ref(true);
+const searchTerm = ref("");
 
+const filteredParticipants = computed(() => {
+  const term = searchTerm.value.toLowerCase();
+  return patients.value
+    ? patients.value.filter((p) =>
+        p.participant_id.toLowerCase().includes(term),
+      )
+    : [];
+});
 const patient_id = useRouteParams<number>("patient_id");
 const loadPatient = () =>
   getPatients().then((res) => {
@@ -69,7 +79,15 @@ const updateState = (id: number, state: number) => {
           </n-icon>
         </button>
       </template>
-      <!-- <PatientForm v-model:visible="showForm" /> !-->
+      <div class="filterpart">
+        <n-space vertical>
+          <!-- 筛选输入框 -->
+          <n-input
+            v-model:value="searchTerm"
+            placeholder="secrch by participant-id"
+          />
+        </n-space>
+      </div>
       <loading
         :loading="loading"
         :has-data="patients?.length !== 0"
@@ -154,6 +172,11 @@ const updateState = (id: number, state: number) => {
   align-items: center;
 }
 
+.filterpart {
+  margin-left: 12px;
+  margin-right: 12px;
+  margin-bottom: 12px;
+}
 .dot-holder {
   display: flex;
   justify-content: center;

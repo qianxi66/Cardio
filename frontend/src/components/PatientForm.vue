@@ -19,16 +19,9 @@ const fetchUser = async () => {
 };
 
 export default defineComponent({
-  props: {
-    formData: {
-      type: Object,
-      required: true,
-    },
-  },
-  emits: ["update:formData", "submit"],
-  setup(props, { emit }) {
-    const formRef = ref(null);
-    const message = useMessage();
+  setup() {
+    //const formRef = ref(null);
+    //const message = useMessage();
     const generalOptions = ref<{ label: string; value: number }[]>([]);
 
     const loadGeneralOptions = async () => {
@@ -57,84 +50,83 @@ export default defineComponent({
       loadGeneralOptions();
     });
 
-    const rules = {
-      EHRid: {
-        required: false,
-        message: "please enter EHRid",
-        trigger: ["blur", "input"],
-      },
-      medicalhistory: {
-        required: false,
-        message: "please enter medicalhistory",
-        trigger: ["blur", "input"],
-      },
-      medication: {
-        required: false,
-        message: "please enter medication",
-        trigger: ["blur", "input"],
-      },
-      user: {
-        required: false,
-        message: "please select user",
-        trigger: ["blur", "change"],
-      },
-      gender: {
-        type: "string",
-        required: false,
-        message: "please select gender",
-        trigger: "change",
-      },
-      age: {
-        type: "number",
-        required: false,
-        message: "please enter age",
-        trigger: ["blur", "change"],
-      },
-    };
-
-    const handleSubmit = (e: MouseEvent) => {
-      e.preventDefault();
-      formRef.value?.validate((errors) => {
-        if (!errors) {
-          emit("submit");
-          message.success("success");
-        } else {
-          message.error("failed");
-        }
-      });
-    };
-
-    watch(
-      () => props.formData,
-      (newVal) => {
-        emit("update:formData", newVal);
-      },
-      { deep: true },
-    );
-
     return {
-      formRef,
       generalOptions,
-      rules,
-      handleSubmit,
+
+      rules: {
+        EHRid: {
+          required: false,
+          // message: "please enter EHRid",
+          trigger: ["blur", "input"],
+        },
+        medicalhistory: {
+          required: false,
+          // message: "please enter medicalhistory",
+          trigger: ["blur", "input"],
+        },
+        medication: {
+          required: false,
+          // message: "please enter medication",
+          trigger: ["blur", "input"],
+        },
+        user: {
+          required: false,
+          // message: "please select user",
+          trigger: ["blur", "change"],
+        },
+        gender: {
+          type: "string",
+          required: false,
+          // message: "please select gender",
+          trigger: "change",
+        },
+        age: {
+          type: "number",
+          required: false,
+          // message: "please enter age",
+          trigger: ["blur", "change"],
+        },
+      },
+      model: ref({
+        age: null,
+        gender: null,
+        EHRid: null,
+        user: null,
+        medicalhistory: null,
+        medication: false,
+      }),
     };
+    // const handleSubmit = (e: MouseEvent) => {
+    //   e.preventDefault();
+    //   formRef.value?.validate((errors) => {
+    //     if (!errors) {
+    //       emit("submit");
+    //       message.success("success");
+    //     } else {
+    //       message.error("failed");
+    //     }
+    //   });
+    // };
+
+    // watch(
+    //   () => props.model,
+    //   (newVal) => {
+    //     emit("update:model", newVal);
+    //   },
+    //   { deep: true },
+    // );
   },
 });
 </script>
 <template>
   <n-card class="create-patient">
-    <n-form
-      ref="formRef"
-      :model="formData"
-      :rules="rules"
-      label-placement="top"
-    >
+    <n-form ref="formRef" :model="model" :rules="rules" label-placement="top">
       <n-grid :cols="24" :x-gap="24">
         <n-form-item-gi :span="12" label="Age" path="age">
-          <n-input-number v-model:value="formData.age" />
+          <n-input-number v-model:value="model.age" />
         </n-form-item-gi>
         <n-form-item-gi :span="12" label="Gender" path="gender">
-          <n-checkbox-group v-model:value="formData.gender">
+          <n-checkbox-group v-model:value="model.gender">
             <n-space>
               <n-checkbox value="male">male</n-checkbox>
               <n-checkbox value="female">female</n-checkbox>
@@ -143,14 +135,14 @@ export default defineComponent({
         </n-form-item-gi>
         <n-form-item-gi :span="12" label="Attending user" path="user">
           <n-select
-            v-model:value="formData.user"
+            v-model:value="model.user"
             placeholder="Select"
             :options="generalOptions"
             multiple
           />
         </n-form-item-gi>
         <n-form-item-gi :span="12" label="EHR ID" path="EHRid">
-          <n-input v-model:value="formData.EHRid" placeholder="Input" />
+          <n-input v-model:value="model.EHRid" placeholder="Input" />
         </n-form-item-gi>
         <n-form-item-gi
           :span="12"
@@ -158,23 +150,21 @@ export default defineComponent({
           path="medicalhistory"
         >
           <n-input
-            v-model:value="formData.medicalhistory"
+            v-model:value="model.medicalhistory"
             type="textarea"
             :autosize="{ minRows: 3, maxRows: 5 }"
           />
         </n-form-item-gi>
         <n-form-item-gi :span="12" label="Medication" path="medication">
           <n-input
-            v-model:value="formData.medication"
+            v-model:value="model.medication"
             type="textarea"
             :autosize="{ minRows: 3, maxRows: 5 }"
           />
         </n-form-item-gi>
         <n-gi :span="24">
           <div style="display: flex; justify-content: flex-end">
-            <n-button round type="primary" @click="handleSubmit">
-              submit
-            </n-button>
+            <n-button round type="primary"> submit </n-button>
           </div>
         </n-gi>
       </n-grid>

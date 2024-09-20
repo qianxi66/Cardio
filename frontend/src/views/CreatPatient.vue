@@ -2,7 +2,7 @@
   <div>
     <div class="container">
       <h1>Create New Patient</h1>
-      <PatientForm v-model:formData="formData" @submit="createPatient" />
+      <PatientForm @submit="createPatient" />
     </div>
   </div>
 </template>
@@ -15,14 +15,14 @@ import axios from "axios";
 
 const router = useRouter(); // Initialize router
 
-const formData = ref({
-  EHRid: null,
-  medication: null,
-  user: null, //TODO:use id
-  medicalhistory: null,
-  gender: null,
-  age: null,
-});
+// const formData = ref({
+//   EHRid: null,
+//   medication: null,
+//   user: null, //TODO:use id
+//   medicalhistory: null,
+//   gender: null,
+//   age: null,
+// });
 
 const createPatient = async (formData) => {
   try {
