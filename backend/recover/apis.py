@@ -5,6 +5,8 @@ from functools import wraps
 import secrets
 import string
 from threading import Thread
+
+from sqlalchemy.orm import Session
 import bcrypt
 from flask import abort, current_app, jsonify, logging, request, g
 from .app import app
@@ -190,6 +192,35 @@ def get_patients():
         return jsonify({"error": "An internal error occurred"}), 500
 
 
+@current_app.route("/users", methods=["GET"])
+@api_key_required
+def get_users():
+    try:
+        # Assuming you have access to the database session
+        session: Session = db.session
+        users = session.query(User).all()
+
+        # Convert User objects to dictionary format
+        users_dict = [user_to_dict(user) for user in users]
+
+        return jsonify(users_dict)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
+
+
+def user_to_dict(user):
+    """Helper function to convert User object to dictionary"""
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "name": user.name,
+        # Add more fields as needed
+    }
+
+
 @current_app.route("/patients", methods=["POST"])
 @api_key_required
 def create_patient():
@@ -288,6 +319,11 @@ def get_patient_reports(id, report_id):
     reports["conversation_logs"] = conversation_logs
     summary = ReportSummary.query.filter_by(report_id=report_id).all()
     notes = ReportNote.query.filter_by(report_id=report_id).all()
+    # Print notes for debugging
+    print("Debugging Notes:")
+    for note in notes:
+        print("a")  # Assuming note is a dataclass; otherwise, adjust accordingly
+
     reports["summary"] = summary
     reports["notes"] = notes
     # time.sleep(1)

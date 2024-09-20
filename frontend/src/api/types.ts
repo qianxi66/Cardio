@@ -1,3 +1,5 @@
+import type { UseUrlSearchParamsOptions } from "@vueuse/core";
+
 export type Patient = {
   id: number;
   age: number;
@@ -93,6 +95,7 @@ export type ReportNote = {
   id: number;
   report_id: number;
   user_id: number;
+  user: User;
   content: string;
   created_at: Date;
   updated_at: Date;

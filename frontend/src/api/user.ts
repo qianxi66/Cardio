@@ -24,3 +24,13 @@ export const getUserInfo = async (token: string) => {
     validateStatus: () => true,
   })) as UserInfoResponse;
 };
+export const getUsers = async (token: string) => {
+  return (await api({
+    url: "/users",
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    validateStatus: () => true,
+  })) as UserInfoResponse[];
+};

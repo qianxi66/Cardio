@@ -137,7 +137,7 @@ def generate_notes():
             for i in range(3):
                 note = ReportNote(
                     report_id=r.id,
-                    user_id=0,
+                    user_id=1,
                     content=random.choice(
                         [
                             "should check in with patient tomorrow",
@@ -293,17 +293,17 @@ def remove_conversation_summaries():
 
 
 @app.cli.command("assign-patient")
-@click.option("--doctor-id", required=True, type=int, help="ID of the doctor")
+@click.option("--user-id", required=True, type=int, help="ID of the user")
 @click.option("--patient-id", required=True, type=int, help="ID of the patient")
-def assign_patient(doctor_id, patient_id):
+def assign_patient(user_id, patient_id):
     with app.app_context():
-        print(f"Assigning patient with ID {patient_id} to doctor with ID {doctor_id}")
+        print(f"Assigning patient with ID {patient_id} to user with ID {user_id}")
 
-        doctor = User.query.get(doctor_id)
+        user = User.query.get(user_id)
         patient = Patient.query.get(patient_id)
 
-        if not doctor:
-            print(f"Doctor with ID '{doctor_id}' does not exist.")
+        if not user:
+            print(f"user with ID '{user_id}' does not exist.")
             return
 
         if not patient:
@@ -311,18 +311,18 @@ def assign_patient(doctor_id, patient_id):
             return
 
         # check whether the relation exists
-        if patient in doctor.patients:
+        if patient in user.patients:
             print(
-                f"Doctor with ID '{doctor_id}' already has access to patient with ID '{patient_id}'."
+                f"user with ID '{user_id}' already has access to patient with ID '{patient_id}'."
             )
             return
 
-        doctor.patients.append(patient)
+        user.patients.append(patient)
 
         db.session.commit()
 
         print(
-            f"Patient with ID '{patient_id}' assigned to doctor with ID '{doctor_id}' successfully."
+            f"Patient with ID '{patient_id}' assigned to user with ID '{user_id}' successfully."
         )
 
 

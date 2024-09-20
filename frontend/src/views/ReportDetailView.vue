@@ -190,14 +190,15 @@ function asyc() {
           <li v-for="summary in summaries[category]" :key="summary.id">
             <div class="summary-content">{{ summary.content }}</div>
           </li>
+          <div class="note-time">one day ago, created by AI</div>
         </ul>
       </div>
       <div class="notes">
         <div class="title">Notes</div>
         <div class="notes-list">
-          <div v-for="note in report!.notes" :key="note.id" class="note">
-            <ul>
-              <li class="note-left">
+          <ul v-for="note in report!.notes" :key="note.id" class="note">
+            <li>
+              <div class="note-left">
                 <div>{{ note.content }}</div>
                 <div
                   class="note-time"
@@ -207,10 +208,10 @@ function asyc() {
                     formatDistance(note.created_at, new Date(), {
                       addSuffix: true,
                     })
-                  }}, createdby {{ username }}
+                  }}, created by {{ username }}
                 </div>
-              </li>
-            </ul>
+              </div>
+            </li>
             <div class="space"></div>
             <n-button
               size="tiny"
@@ -233,7 +234,7 @@ function asyc() {
                 </n-icon>
               </template>
             </n-button>
-          </div>
+          </ul>
           <n-input
             v-model:value="editingNote"
             placeholder="Add a note (press enter to submit)"
@@ -312,6 +313,7 @@ function asyc() {
     font-size: 14px;
     font-weight: 700;
     margin-bottom: 8px;
+    margin-left: 12px;
   }
   ul {
     margin: 0;
@@ -320,18 +322,21 @@ function asyc() {
 }
 .notes {
   display: flex;
-  padding: 12px;
+  padding: 0px;
   background-color: #c4f1ff;
   flex-direction: column;
   .title {
     width: 80px;
     font-size: 14px;
     font-weight: 700;
+    margin-left: 12px;
+    margin-top: 12px;
   }
   .notes-list {
     flex: 1 1 0;
     .note {
-      margin-left: 13px;
+      margin-right: 12px;
+      margin-left: 0px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -340,7 +345,8 @@ function asyc() {
       }
     }
     .n-input {
-      margin-top: 8px;
+      margin: 8px;
+      width: 250px;
     }
   }
 }

@@ -5,6 +5,7 @@ import typing as t
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy import String, Text, ForeignKey
 from flask import current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
@@ -13,7 +14,6 @@ from sqlalchemy.orm import Mapped
 from typing import List
 from sqlalchemy import Column
 from sqlalchemy import Table
-from sqlalchemy import ForeignKey
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
@@ -31,7 +31,7 @@ class NotFound(Exception):
         return f"{self.table_name}({self.ident}) not found"
 
 
-association_table = Table(
+user_patient_table = Table(
     "user_patient_table",
     db.Model.metadata,
     Column("patient_id", ForeignKey("patient.id")),
@@ -44,7 +44,7 @@ class Patient(db.Model):
     __tablename__ = "patient"
     id: Mapped[int] = mapped_column(primary_key=True)
     users: Mapped[List[User]] = relationship(
-        secondary=association_table, back_populates="patients"
+        secondary=user_patient_table, back_populates="patients"
     )
     age: int
     gender: str
@@ -71,20 +71,56 @@ class Patient(db.Model):
 
 
 @dataclass
+class ReportNote(db.Model):
+    __tablename__ = "reportnote"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(onupdate=datetime.utcnow)
+
+    # Define the relationship with User
+    user: Mapped["User"] = relationship(
+        "User", back_populates="report_note", uselist=False
+    )
+
+
+@dataclass
 class User(db.Model):
     __tablename__ = "user"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    patients: Mapped[List[Patient]] = relationship(secondary=association_table)
-    username: str
-    password: str
-    email: str
-    name: str
 
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50))
-    password = db.Column(db.String(255))
-    email = db.Column(db.String(100))
-    name = db.Column(db.String(100))
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(50))
+    password: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(100))
+    name: Mapped[str] = mapped_column(String(100))
+
+    # Define the back reference to ReportNote
+    report_note: Mapped["ReportNote"] = relationship(
+        "ReportNote", back_populates="user", uselist=False
+    )
+
+    # Example for handling many-to-many or other specific relationships
+    patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
+
+
+# @dataclass
+# class User(db.Model):
+#     __tablename__ = "user"
+#     id: Mapped[int] = mapped_column(primary_key=True)
+#     patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
+#     username: str
+#     password: str
+#     email: str
+#     name: str
+
+#     id = db.Column(db.Integer, primary_key=True)
+#     username = db.Column(db.String(50))
+#     password = db.Column(db.String(255))
+#     email = db.Column(db.String(100))
+#     name = db.Column(db.String(100))
 
 
 @dataclass
@@ -161,21 +197,21 @@ class Report(db.Model):
     eating_scale: int = db.Column(db.Integer)
 
 
-@dataclass
-class ReportNote(db.Model):
-    id: int
-    report_id: int
-    user_id: int
-    content: str
-    created_at: datetime
-    updated_at: datetime
+# @dataclass
+# class ReportNote(db.Model):
+#     id: int
+#     report_id: int
+#     user_id: int
+#     content: str
+#     created_at: datetime
+#     updated_at: datetime
 
-    id = db.Column(db.Integer, primary_key=True)
-    report_id = db.Column(db.Integer, db.ForeignKey("report.id"))
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
-    content = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+#     id = db.Column(db.Integer, primary_key=True)
+#     report_id = db.Column(db.Integer, db.ForeignKey("report.id"))
+#     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+#     content = db.Column(db.Text)
+#     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+#     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
 
 @dataclass

@@ -16,11 +16,11 @@ import axios from "axios";
 const router = useRouter(); // Initialize router
 
 const formData = ref({
-  EHRid: "",
-  medication: "",
-  doctor: "sunbo", //TODO:use id
-  medicalhistory: "",
-  gender: "",
+  EHRid: null,
+  medication: null,
+  user: null, //TODO:use id
+  medicalhistory: null,
+  gender: null,
   age: null,
 });
 
