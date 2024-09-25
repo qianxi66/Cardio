@@ -8,7 +8,15 @@ from flask import abort, current_app, jsonify, request
 
 from .app import app
 from .config import VALID_API_KEYS, symptom_descriptions
-from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
+from .db import (
+    AlexaIDNote,
+    ConversationLog,
+    Patient,
+    Report,
+    ReportNote,
+    ReportSummary,
+    db,
+)
 from .openai_utils import conversation, key_questions, summary
 
 
@@ -104,8 +112,8 @@ def get_patient_reports(id, report_id):
     reports["conversation_logs"] = conversation_logs
     summary = ReportSummary.query.filter_by(report_id=report_id).all()
     notes = ReportNote.query.filter_by(report_id=report_id).all()
-    reports["summary"] = summary
-    reports["notes"] = notes
+    reports["summary"] = [i.as_dict() for i in summary]
+    reports["notes"] = [i.as_dict() for i in notes]
     # time.sleep(1)
     return jsonify(reports)
 
@@ -259,7 +267,8 @@ mood: not discussed
     )
     db.session.add(log)
     db.session.commit()
-    return jsonify(log)
+    log.content += "CONVERSATION_END" if session_end else ""
+    return jsonify(log.as_dict())
 
 
 def session_end_hook(alexa_user_id):
@@ -360,3 +369,14 @@ def get_last_message(alexa_user_id):
     messages = [asdict(message) for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     return jsonify({"message": "success", "last_message": messages[-1]})
+
+
+@current_app.route("/alexa_user/<alexa_user_id>/create_note", methods=["POST"])
+@api_key_required
+def create_note(alexa_user_id):
+    note = AlexaIDNote(
+        alexa_user_id=alexa_user_id,
+    )
+    db.session.add(note)
+    db.session.commit()
+    return jsonify({"message": "success", "note": note.as_dict()})
