@@ -1,6 +1,6 @@
 import types
 import typing as t
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from flask import current_app
@@ -21,8 +21,9 @@ class NotFound(Exception):
     def __str__(self) -> str:
         return f"{self.table_name}({self.ident}) not found"
 
+db.Model.as_dict = lambda self: {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
-@dataclass
+
 class Patient(db.Model):
     id: int
     age: int
@@ -49,7 +50,7 @@ class Patient(db.Model):
     state = db.Column(db.Integer, default=0)
 
 
-@dataclass
+
 class User(db.Model):
     id: int
     username: str
@@ -65,13 +66,13 @@ class User(db.Model):
 
 
 class Report(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(
+    id: int = db.Column(db.Integer, primary_key=True)
+    patient_id: int = db.Column(db.Integer, db.ForeignKey("patient.id"))
+    created_at: datetime = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: datetime = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-    read = db.Column(db.Boolean, default=False)
+    read: bool = db.Column(db.Boolean, default=False)
 
 
 for symptom_name in symptom_descriptions:
@@ -81,7 +82,6 @@ for symptom_name in symptom_descriptions:
         setattr(Report, symptom_name + "_scale", db.Column(db.Integer))
 
 
-@dataclass
 class ReportNote(db.Model):
     id: int
     report_id: int
@@ -98,7 +98,7 @@ class ReportNote(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
 
-@dataclass
+
 class AlexaIDNote(db.Model):
     id: int
     alexa_user_id: str
@@ -111,7 +111,7 @@ class AlexaIDNote(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
 
-@dataclass
+
 class ReportSummary(db.Model):
     id: int
     report_id: int
@@ -128,7 +128,7 @@ class ReportSummary(db.Model):
     highlight_keywords = db.Column(db.String)
 
 
-@dataclass
+
 class ConversationLog(db.Model):
     id: int
     patient_id: int

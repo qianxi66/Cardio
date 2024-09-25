@@ -1,5 +1,4 @@
 import json
-from dataclasses import asdict
 from datetime import datetime, timedelta
 from functools import wraps
 from threading import Thread
@@ -43,7 +42,7 @@ def api_key_required(f):
 def get_patients():
     # sort by patient state
     patients = Patient.query.all()
-    patients = [asdict(patient) for patient in patients]
+    patients = [patient.as_dict() for patient in patients]
     for patient in patients:
         latest_report = (
             Report.query.filter_by(patient_id=patient["id"])
@@ -93,8 +92,8 @@ def get_patient(id):
     reports = (
         Report.query.filter_by(patient_id=id).order_by(Report.created_at.desc()).all()
     )
-    patient = asdict(patient)
-    reports = [asdict(report) for report in reports]
+    patient = patient.as_dict()
+    reports = [report.as_dict() for report in reports]
     for r in reports:
         for symptom in symptom_descriptions.keys():
             raw_data = r.get(f"{symptom}_logs", "")
@@ -118,8 +117,8 @@ def get_patient(id):
 def get_patient_reports(id, report_id):
     reports = Report.query.filter_by(patient_id=id, id=report_id).all()
     conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
-    reports = asdict(reports[0])
-    reports["conversation_logs"] = conversation_logs
+    reports = reports[0].as_dict()
+    reports["conversation_logs"] = [log.as_dict() for log in conversation_logs]
     summary = ReportSummary.query.filter_by(report_id=report_id).all()
     notes = ReportNote.query.filter_by(report_id=report_id).all()
     reports["summary"] = summary
@@ -237,7 +236,7 @@ def create_conversation_log(alexa_user_id):
     db.session.commit()
     # get all conversation logs for this report
     conversation_logs = ConversationLog.query.filter_by(report_id=report.id).all()
-    conversation_logs = [asdict(log) for log in conversation_logs]
+    conversation_logs = [log.as_dict() for log in conversation_logs]
     conversation_logs = [
         {
             "content": log["content"]
@@ -290,7 +289,7 @@ def session_end_hook(alexa_user_id):
         report = get_or_create_report(patient.id)
         print(report)
         messages = ConversationLog.query.filter_by(report_id=report.id).all()
-        messages = [asdict(message) for message in messages]
+        messages = [message.as_dict() for message in messages]
         messages = [
             {
                 "id": message["id"],
@@ -376,8 +375,8 @@ def get_last_message(alexa_user_id):
         )
         db.session.add(message)
         db.session.commit()
-        return jsonify({"message": "success", "last_message": asdict(message)})
-    messages = [asdict(message) for message in messages]
+        return jsonify({"message": "success", "last_message": message.as_dict()})
+    messages = [message.as_dict() for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     return jsonify({"message": "success", "last_message": messages[-1]})
 
