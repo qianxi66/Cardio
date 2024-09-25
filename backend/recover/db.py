@@ -8,6 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
 
 from .app import db
+from .config import symptom_descriptions
 
 _O = t.TypeVar("_O", bound=object)  # Based on sqlalchemy.orm._typing.py
 
@@ -63,60 +64,21 @@ class User(db.Model):
     name = db.Column(db.String(100))
 
 
-@dataclass
 class Report(db.Model):
-    id: int = db.Column(db.Integer, primary_key=True)
-    patient_id: int = db.Column(db.Integer, db.ForeignKey("patient.id"))
-    created_at: datetime = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at: datetime = db.Column(
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-    read: bool = db.Column(db.Boolean, default=False)
+    read = db.Column(db.Boolean, default=False)
 
-    pain_state: int = db.Column(db.Integer)
-    pain_logs: str = db.Column(db.String)
 
-    breathing_state: int = db.Column(db.Integer)
-    breathing_logs: str = db.Column(db.String)
-
-    fever_state: int = db.Column(db.Integer)
-    fever_logs: str = db.Column(db.String)
-
-    stools_state: int = db.Column(db.Integer)
-    stools_logs: str = db.Column(db.String)
-
-    drainage_state: int = db.Column(db.Integer)
-    drainage_logs: str = db.Column(db.String)
-
-    activity_state: int = db.Column(db.Integer)
-    activity_logs: str = db.Column(db.String)
-
-    conscious_state: int = db.Column(db.Integer)
-    conscious_logs: str = db.Column(db.String)
-
-    constipation_state: int = db.Column(db.Integer)
-    constipation_logs: str = db.Column(db.String)
-
-    diarrhea_state: int = db.Column(db.Integer)
-    diarrhea_logs: str = db.Column(db.String)
-
-    eating_state: int = db.Column(db.Integer)
-    eating_logs: str = db.Column(db.String)
-
-    swelling_state: int = db.Column(db.Integer)
-    swelling_logs: str = db.Column(db.String)
-
-    mood_state: int = db.Column(db.Integer)
-    mood_logs: str = db.Column(db.String)
-
-    misc_state: int = db.Column(db.Integer)
-    misc_logs: str = db.Column(db.String)
-
-    breathing_scale: int = db.Column(db.Integer)
-    pain_scale: int = db.Column(db.Integer)
-    conscious_scale: int = db.Column(db.Integer)
-    constipation_scale: int = db.Column(db.Integer)
-    eating_scale: int = db.Column(db.Integer)
+for symptom_name in symptom_descriptions:
+    setattr(Report, symptom_name + "_state", db.Column(db.Integer))
+    setattr(Report, symptom_name + "_logs", db.Column(db.String))
+    if symptom_descriptions[symptom_name]["likert"]:
+        setattr(Report, symptom_name + "_scale", db.Column(db.Integer))
 
 
 @dataclass

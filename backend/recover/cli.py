@@ -28,7 +28,7 @@ def initialize_reports():
                 symptom_kwargs = [
                     {
                         f"{symptom}_state": 0,
-                        f"{symptom}_logs": "",
+                        f"{symptom}_logs": "[]",
                     }
                     for symptom in symptom_descriptions.keys()
                 ]
