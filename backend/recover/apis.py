@@ -121,8 +121,8 @@ def get_patient_reports(id, report_id):
     reports["conversation_logs"] = [log.as_dict() for log in conversation_logs]
     summary = ReportSummary.query.filter_by(report_id=report_id).all()
     notes = ReportNote.query.filter_by(report_id=report_id).all()
-    reports["summary"] = summary
-    reports["notes"] = notes
+    reports["summary"] = [i.as_dict() for i in summary]
+    reports["notes"] = [i.as_dict() for i in notes]
     # time.sleep(1)
     return jsonify(reports)
 
@@ -278,7 +278,7 @@ mood: not discussed
     db.session.add(log)
     db.session.commit()
     log.content += "CONVERSATION_END" if session_end else ""
-    return jsonify(log)
+    return jsonify(log.as_dict())
 
 
 def session_end_hook(alexa_user_id):
@@ -389,4 +389,4 @@ def create_note(alexa_user_id):
     )
     db.session.add(note)
     db.session.commit()
-    return jsonify({"message": "success", "note": note})
+    return jsonify({"message": "success", "note": note.as_dict()})
