@@ -366,7 +366,7 @@ def get_last_message(alexa_user_id):
     messages = ConversationLog.query.filter_by(report_id=report.id).all()
     if len(messages) == 0:
         # create a new assistant message
-        msg = "Hello, this is the RECOVER research study chatbot. Are you ready to start today's questions?"
+        msg = "Hello, this is the elderly care bot developed by the Northeastern University Human-Centered AI Lab. Do you have anything to share with me?"
         message = ConversationLog(
             patient_id=patient.id,
             report_id=report.id,
