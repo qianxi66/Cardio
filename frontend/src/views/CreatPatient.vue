@@ -2,7 +2,7 @@
   <div>
     <div class="container">
       <h1>Create New Patient</h1>
-      <PatientForm @submit="createPatient" />
+      <PatientForm v-model:model="formData" @submit="handlecreatePatient" />
     </div>
   </div>
 </template>
@@ -10,23 +10,23 @@
 <script setup>
 import { ref } from "vue";
 import PatientForm from "../components/PatientForm.vue";
-import { useRouter } from "vue-router";
-import axios from "axios";
+//import { useRouter } from "vue-router";
+//import axios from "axios";
+import { createPatient } from "@/api/patient";
 
-const router = useRouter(); // Initialize router
+const formData = ref({
+  EHRid: null,
+  medication: null,
+  user: null,
+  medicalhistory: null,
+  gender: null,
+  age: null,
+});
 
-// const formData = ref({
-//   EHRid: null,
-//   medication: null,
-//   user: null, //TODO:use id
-//   medicalhistory: null,
-//   gender: null,
-//   age: null,
-// });
-
-const createPatient = async (formData) => {
+const handlecreatePatient = async (formData) => {
   try {
-    const response = await axios.post("/patients", formData);
+    console.log("ds");
+    const response = await createPatient(formData);
 
     if (response.data.hasOwnProperty("message")) {
       notification.create({
@@ -34,13 +34,13 @@ const createPatient = async (formData) => {
       });
     } else {
       console.log("Patient created successfully:", response.data);
-      router.push("/patient");
+      // router.push("/patient");
     }
   } catch (error) {
     if (error.response) {
       const errorMessage = error.response.data.message;
       // message.error(errorMessage);
-      console.error("Error creating patient:", errorMessage);
+      console.error("Error creating patient:", errorMessage); //
     } else {
       console.error("Network error:", error);
     }

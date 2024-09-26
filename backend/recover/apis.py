@@ -5,7 +5,6 @@ from functools import wraps
 import secrets
 import string
 from threading import Thread
-
 from sqlalchemy.orm import Session
 import bcrypt
 from flask import abort, current_app, jsonify, logging, request, g
@@ -224,36 +223,58 @@ def user_to_dict(user):
 @current_app.route("/patients", methods=["POST"])
 @api_key_required
 def create_patient():
-    data = request.get_json()
-    if not data:
-        return jsonify({"message": "No input data provided"}), 400
+    try:
+        data = request.get_json()
+        print("Received data:", data)  # 输出接收到的数据
+        if not data:
+            return jsonify({"message": "No input data provided"}), 400
 
-    # Ensure necessary fields are provided; modify as per your data model
-    required_fields = ["EHRid", "age", "doctor", "gender"]
-    missing_fields = [field for field in required_fields if field not in data]
-    if missing_fields:
-        return jsonify({"message": f"Missing fields: {', '.join(missing_fields)}"}), 400
+        # 确保提供了必要的字段
+        required_fields = ["user"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            print("Missing fields:", missing_fields)  # 输出缺失的字段
+            return jsonify(
+                {"message": f"Missing fields: {', '.join(missing_fields)}"}
+            ), 400
 
-    # search userid by username
-    user = User.query.filter_by(username=data["doctor"]).first()
+        # 根据 user_ids 检索用户
+        user_ids = data.get("user")  # 假设 user 是用户 ID 的列表
+        users = User.query.filter(User.id.in_(user_ids)).all()
 
-    # Create a new Patient instance
-    patient = Patient(
-        EHR_id=data.get("EHR_id"),
-        age=data.get("age"),
-        gender=data.get("gender"),
-        medical_history=data.get("medicalhistory", ""),
-        medication=data.get("medication", ""),
-        user_id=user.id,  # Associate the patient with the current user
-        last_read_at=datetime.utcnow(),
-    )
+        if not users:
+            return jsonify({"message": "No valid users found"}), 400
 
-    db.session.add(patient)
-    db.session.commit()
+        # 创建新的 Patient 实例
+        patient = Patient(
+            EHR_id=data.get("EHR_id"),
+            age=data.get("age"),
+            gender=data.get("gender"),
+            medical_history=data.get("medicalhistory", ""),
+            medication=data.get("medication", ""),
+            last_read_at=datetime.utcnow(),
+            reviewed=False,  # 默认值
+            state=0,  # 默认值
+        )
 
-    return jsonify(
-        {"message": "Patient created successfully", "patient": asdict(patient)}
-    ), 201
+        # 将患者添加到会话中
+        db.session.add(patient)
+        db.session.flush()  # 确保患者被分配了 ID
+
+        # 将用户与患者关联
+        patient.users.extend(users)
+
+        # 提交会话
+        db.session.commit()
+
+        print("Patient data before saving:", asdict(patient))  # 输出 Patient 实例的数据
+
+        return jsonify(
+            {"message": "Patient created successfully", "patient": asdict(patient)}
+        ), 201  # 返回 201 Created 状态
+    except Exception as e:
+        print(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
 @current_app.route("/patients/<int:id>", methods=["PATCH"])

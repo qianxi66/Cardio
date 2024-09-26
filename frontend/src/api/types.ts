@@ -17,6 +17,14 @@ export type Patient = {
   state: number;
 };
 
+export type creatPatientresp = {
+  EHRid: string;
+  medication: string;
+  user: number[];
+  medicalhistory: string;
+  gender: string;
+  age: number;
+};
 // Define the type for the token object
 export type Token = {
   created_at: string; // Date in string format

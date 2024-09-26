@@ -148,7 +148,12 @@ function asyc() {
 }
 </script>
 <template>
-  <ColoredCard color="#0094ff" rounded title="Conversation Summary">
+  <ColoredCard
+    color="#0094ff"
+    rounded
+    title="Conversation Summary"
+    class="summary-card"
+  >
     <Loading :loading="loading" :has-data="!!report">
       <template #loading>
         <div class="summary" v-for="i in 2" :key="i">
@@ -196,6 +201,9 @@ function asyc() {
       <div class="notes">
         <div class="title">Notes</div>
         <div class="notes-list">
+          <ul class="note">
+            <li>123</li>
+          </ul>
           <ul v-for="note in report!.notes" :key="note.id" class="note">
             <li>
               <div class="note-left">
@@ -318,11 +326,16 @@ function asyc() {
   ul {
     margin: 0;
   }
-  margin-bottom: 8px;
+  padding: 8px;
+}
+.summary-card {
+  :deep(.n-card__content) {
+    padding: 8px 12px;
+  }
 }
 .notes {
   display: flex;
-  padding: 0px;
+  padding: 8px;
   background-color: #c4f1ff;
   flex-direction: column;
   .title {
@@ -344,10 +357,10 @@ function asyc() {
         flex: 1;
       }
     }
-    .n-input {
-      margin: 8px;
-      width: 250px;
-    }
+    // .n-input {
+    //   margin: 12px;
+    //   width: calc(100% - 24px);
+    // }
   }
 }
 .message {

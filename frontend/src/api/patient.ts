@@ -1,6 +1,6 @@
 import type { CancelToken } from "axios";
 import api from ".";
-import { type Patient, type Report } from "./types";
+import { type Patient, type Report, type creatPatientresp } from "./types";
 
 export const getPatients = async () => {
   return (await api({
@@ -25,7 +25,7 @@ export const updatePatient = async (id: number, data: Partial<Patient>) => {
   });
 };
 
-export const createPatient = async (data: Patient) => {
+export const createPatient = async (data: creatPatientresp) => {
   return await api({
     url: `/patients`,
     method: "POST",
