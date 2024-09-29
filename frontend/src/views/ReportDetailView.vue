@@ -177,8 +177,18 @@ function asyc() {
         <ul>
           <li v-for="summary in summaries[category]" :key="summary.id">
             <div class="summary-content">{{ summary.content }}</div>
+
+            <div
+              class="note-time"
+              :title="format(summary.created_at, 'yyyy-MM-dd HH:mm:ss')"
+            >
+              {{
+                formatDistance(summary.created_at, new Date(), {
+                  addSuffix: true,
+                })
+              }}, created by AI
+            </div>
           </li>
-          <div class="note-time">one day ago, created by AI</div>
         </ul>
       </div>
       <div class="notes">

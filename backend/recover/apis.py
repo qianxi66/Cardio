@@ -434,6 +434,7 @@ def get_patient_reports(id, report_id):
     ]
 
     summaries = ReportSummary.query.filter_by(report_id=report_id).all()
+    print(summaries)
     report_dict["summary"] = [report_summary_to_dict(s) for s in summaries]
 
     notes = (

@@ -128,6 +128,8 @@ export type ReportSummary = {
   content: string;
   conversation_log_ids: string;
   highlight_keywords: string;
+
+  created_at: Date;
 };
 
 export type ConversationLog = {

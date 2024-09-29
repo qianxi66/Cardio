@@ -126,6 +126,7 @@ def generate_summaries():
                     conversation_log_ids="",
                     highlight_keywords="",
                 )
+                summary.created_at = datetime.utcnow() - timedelta(days=(i + 1))
                 db.session.add(summary)
         db.session.commit()
 
