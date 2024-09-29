@@ -1,11 +1,9 @@
 <script lang="ts">
-import { defineComponent, ref, onMounted } from "vue";
+import { defineComponent, ref, onMounted, toRefs } from "vue";
 import { useMessage } from "naive-ui";
 import { useRouter } from "vue-router";
 import { getUsers } from "@/api/user";
 
-import { getUserInfo } from "@/api/user";
-import { log } from "console";
 const fetchUser = async () => {
   try {
     const token = localStorage.getItem("token");
@@ -22,6 +20,12 @@ const fetchUser = async () => {
 };
 
 export default defineComponent({
+  props: {
+    model: {
+      type: Object,
+      required: true,
+    },
+  },
   emits: ["update:model", "submit"],
   setup(props, { emit }) {
     const message = useMessage();
@@ -29,41 +33,35 @@ export default defineComponent({
     const formRef = ref();
     const generalOptions = ref<{ label: string; value: number }[]>([]);
 
-    const model = ref({
-      age: null,
-      gender: null,
-      EHRid: null,
-      user: [],
-      medicalhistory: null,
-      medication: null,
-    });
+    const { model } = toRefs(props);
 
     const rules = ref({
-      EHRid: { required: false, trigger: ["blur", "input"] },
-      medicalhistory: { required: false, trigger: ["blur", "input"] },
+      EHR_id: { required: false, trigger: ["blur", "input"] },
+      participant_id: { required: false, trigger: ["blur", "input"] },
+      medical_history: { required: false, trigger: ["blur", "input"] },
       medication: { required: false, trigger: ["blur", "input"] },
       user: { type: "array", required: false, trigger: ["blur", "change"] },
-      gender: { type: "string", required: false, trigger: "change" },
+      gender: { type: "string", required: false, trigger: ["blur", "change"] },
       age: { type: "number", required: false, trigger: ["blur", "change"] },
     });
 
-    const fetchUserInfo = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        if (!token) {
-          console.error("Token not found");
-          return;
-        }
-        const userInfoResponse = await getUserInfo(token);
-        if (userInfoResponse.user_id) {
-          model.value.user = [userInfoResponse.user_id];
-        }
-      } catch (error: any) {
-        console.error("An error occurred while fetching user info:", error);
-      }
-    };
+    // const fetchUserInfo = async () => {
+    //   try {
+    //     const token = localStorage.getItem("token");
+    //     if (!token) {
+    //       console.error("Token not found");
+    //       return;
+    //     }
+    //     const userInfoResponse = await getUserInfo(token);
+    //     if (userInfoResponse.user_id) {
+    //       model.value.user = [userInfoResponse.user_id];
+    //     }
+    //   } catch (error: any) {
+    //     console.error("An error occurred while fetching user info:", error);
+    //   }
+    // };
 
-    fetchUserInfo();
+    //fetchUserInfo();
     const handleSubmit = async (e: MouseEvent) => {
       e.preventDefault();
       const form = formRef.value;
@@ -122,16 +120,21 @@ export default defineComponent({
     <n-form ref="formRef" :model="model" :rules="rules" label-placement="top">
       <n-grid :cols="24" :x-gap="24">
         <n-form-item-gi :span="12" label="Age" path="age">
-          <n-input-number v-model:value="model.age" />
+          <n-input-number v-model:value="model.age" class="number" />
         </n-form-item-gi>
+
         <n-form-item-gi :span="12" label="Gender" path="gender">
-          <n-checkbox-group v-model:value="model.gender">
+          <n-radio-group v-model:value="model.gender" name="radiogroup1">
             <n-space>
-              <n-checkbox value="male">Male</n-checkbox>
-              <n-checkbox value="female">Female</n-checkbox>
+              <div style="display: flex; align-items: center">
+                <n-radio value="male"> male </n-radio>
+                <n-radio value="female"> female </n-radio>
+                <n-radio value="other"> other(please input) </n-radio>
+              </div>
             </n-space>
-          </n-checkbox-group>
+          </n-radio-group>
         </n-form-item-gi>
+
         <n-form-item-gi :span="12" label="Attending User" path="user">
           <n-select
             v-model:value="model.user"
@@ -140,16 +143,19 @@ export default defineComponent({
             multiple
           />
         </n-form-item-gi>
-        <n-form-item-gi :span="12" label="EHR ID" path="EHRid">
-          <n-input v-model:value="model.EHRid" placeholder="Input" />
+        <n-form-item-gi :span="12" label="EHR ID" path="EHR_id">
+          <n-input v-model:value="model.EHR_id" placeholder="Input" />
+        </n-form-item-gi>
+        <n-form-item-gi :span="12" label="Participant ID" path="participant_id">
+          <n-input v-model:value="model.participant_id" placeholder="Input" />
         </n-form-item-gi>
         <n-form-item-gi
           :span="12"
           label="Medical History"
-          path="medicalhistory"
+          path="medical_history"
         >
           <n-input
-            v-model:value="model.medicalhistory"
+            v-model:value="model.medical_history"
             type="textarea"
             :autosize="{ minRows: 3, maxRows: 5 }"
           />
@@ -179,5 +185,8 @@ export default defineComponent({
   flex-grow: 0;
   flex-shrink: 0;
   min-height: 100%;
+}
+.number .n-input-number__controls {
+  display: none !important;
 }
 </style>

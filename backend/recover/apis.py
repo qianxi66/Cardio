@@ -5,6 +5,7 @@ from functools import wraps
 import secrets
 import string
 from threading import Thread
+from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Session
 import bcrypt
 from flask import abort, current_app, jsonify, logging, request, g
@@ -225,55 +226,56 @@ def user_to_dict(user):
 def create_patient():
     try:
         data = request.get_json()
-        print("Received data:", data)  # 输出接收到的数据
+        print("Received data:", data)
         if not data:
             return jsonify({"message": "No input data provided"}), 400
 
-        # 确保提供了必要的字段
         required_fields = ["user"]
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
-            print("Missing fields:", missing_fields)  # 输出缺失的字段
+            print("Missing fields:", missing_fields)
             return jsonify(
                 {"message": f"Missing fields: {', '.join(missing_fields)}"}
             ), 400
+        print("a")
 
-        # 根据 user_ids 检索用户
-        user_ids = data.get("user")  # 假设 user 是用户 ID 的列表
+        user_ids = data.get("user")
         users = User.query.filter(User.id.in_(user_ids)).all()
 
         if not users:
             return jsonify({"message": "No valid users found"}), 400
 
-        # 创建新的 Patient 实例
         patient = Patient(
-            EHR_id=data.get("EHR_id"),
+            EHR_id=data.get("EHRid"),
             age=data.get("age"),
             gender=data.get("gender"),
+            participant_id=data.get("participantid"),
             medical_history=data.get("medicalhistory", ""),
             medication=data.get("medication", ""),
             last_read_at=datetime.utcnow(),
-            reviewed=False,  # 默认值
-            state=0,  # 默认值
+            reviewed=False,
+            state=0,
         )
+        print("b")
 
-        # 将患者添加到会话中
         db.session.add(patient)
-        db.session.flush()  # 确保患者被分配了 ID
+        db.session.flush()
 
-        # 将用户与患者关联
         patient.users.extend(users)
 
-        # 提交会话
         db.session.commit()
 
-        print("Patient data before saving:", asdict(patient))  # 输出 Patient 实例的数据
+        print("Patient data before saving:", patient_to_dict(patient))
+        print("c")
 
         return jsonify(
-            {"message": "Patient created successfully", "patient": asdict(patient)}
-        ), 201  # 返回 201 Created 状态
-    except Exception as e:
-        print(f"An error occurred: {e}", exc_info=True)
+            {
+                "message": "Patient created successfully",
+                "patient": patient_to_dict(patient),
+            }
+        ), 201
+    except Exception:
+        # logging.error("An error occurred: %s", e, exc_info=True)
         return jsonify({"error": "An internal error occurred"}), 500
 
 
@@ -282,17 +284,15 @@ def create_patient():
 def update_patient(id):
     data = request.get_json()
     print(data)
-    userid = g.current_user.id
+    # userid = g.current_user.id
     patient = db.get(Patient, id)
-    if patient.user_id != userid:
-        return jsonify({"message": "permission denied"}), 401
-    else:
-        for key in data:
-            setattr(patient, key, data[key])
-        db.session.add(patient)
-        db.session.commit()
-        # time.sleep(10)
-        return jsonify({"message": "Patient state updated."})
+    # todo :check permission?
+    for key in data:
+        setattr(patient, key, data[key])
+    db.session.add(patient)
+    db.session.commit()
+    # time.sleep(10)
+    return jsonify({"message": "Patient state updated."})
 
 
 @current_app.route("/patients/<int:id>", methods=["GET"])
@@ -322,6 +322,9 @@ def get_patient(id):
             for symptom in symptom_descriptions.keys():
                 r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
 
+        patient_dict["users"] = [
+            {"id": user.id, "name": user.name} for user in patient.users
+        ]  # add userid and user name
         patient_dict["reports"] = reports_dict
 
         return jsonify(patient_dict)
@@ -331,24 +334,116 @@ def get_patient(id):
         return jsonify({"error": "An internal error occurred"}), 500
 
 
+def report_note_to_dict(note: ReportNote) -> dict:
+    return {
+        "id": note.id,
+        "user_id": note.user_id,
+        "report_id": note.report_id,
+        "content": note.content,
+        "created_at": note.created_at.isoformat(),
+        "updated_at": note.updated_at.isoformat() if note.updated_at else None,
+        "user": {
+            "id": note.user.id,
+            "username": note.user.username,
+            "name": note.user.name,
+        }
+        if note.user
+        else None,  # ensure user not none.
+    }
+
+
+def report_to_dict(report: Report) -> dict:
+    return {
+        "id": report.id,
+        "patient_id": report.patient_id,
+        "created_at": report.created_at.isoformat(),
+        "updated_at": report.updated_at.isoformat(),
+        "read": report.read,
+        "pain_state": report.pain_state,
+        "pain_logs": report.pain_logs,
+        "breathing_state": report.breathing_state,
+        "breathing_logs": report.breathing_logs,
+        "fever_state": report.fever_state,
+        "fever_logs": report.fever_logs,
+        "stools_state": report.stools_state,
+        "stools_logs": report.stools_logs,
+        "drainage_state": report.drainage_state,
+        "drainage_logs": report.drainage_logs,
+        "activity_state": report.activity_state,
+        "activity_logs": report.activity_logs,
+        "conscious_state": report.conscious_state,
+        "conscious_logs": report.conscious_logs,
+        "constipation_state": report.constipation_state,
+        "constipation_logs": report.constipation_logs,
+        "diarrhea_state": report.diarrhea_state,
+        "diarrhea_logs": report.diarrhea_logs,
+        "eating_state": report.eating_state,
+        "eating_logs": report.eating_logs,
+        "swelling_state": report.swelling_state,
+        "swelling_logs": report.swelling_logs,
+        "mood_state": report.mood_state,
+        "mood_logs": report.mood_logs,
+        "misc_state": report.misc_state,
+        "misc_logs": report.misc_logs,
+        "breathing_scale": report.breathing_scale,
+        "pain_scale": report.pain_scale,
+        "conscious_scale": report.conscious_scale,
+        "constipation_scale": report.constipation_scale,
+        "eating_scale": report.eating_scale,
+    }
+
+
+def report_summary_to_dict(summary: ReportSummary) -> dict:
+    return {
+        "id": summary.id,
+        "report_id": summary.report_id,
+        "category": summary.category,
+        "content": summary.content,
+        "conversation_log_ids": summary.conversation_log_ids,
+        "highlight_keywords": summary.highlight_keywords,
+        "created_at": summary.created_at.isoformat() if summary.created_at else None,
+        "updated_at": summary.updated_at.isoformat() if summary.updated_at else None,
+    }
+
+
+def conversation_log_to_dict(log: ConversationLog) -> dict:
+    return {
+        "id": log.id,
+        "patient_id": log.patient_id,
+        "report_id": log.report_id,
+        "role": log.role,
+        "content": log.content,
+        "chain_of_thoughts": log.chain_of_thoughts,
+        "created_at": log.created_at.isoformat(),
+    }
+
+
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["GET"])
 @api_key_required
 def get_patient_reports(id, report_id):
-    reports = Report.query.filter_by(patient_id=id, id=report_id).all()
-    conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
-    reports = asdict(reports[0])
-    reports["conversation_logs"] = conversation_logs
-    summary = ReportSummary.query.filter_by(report_id=report_id).all()
-    notes = ReportNote.query.filter_by(report_id=report_id).all()
-    # Print notes for debugging
-    print("Debugging Notes:")
-    for note in notes:
-        print("a")  # Assuming note is a dataclass; otherwise, adjust accordingly
+    report = Report.query.filter_by(patient_id=id, id=report_id).first()
 
-    reports["summary"] = summary
-    reports["notes"] = notes
-    # time.sleep(1)
-    return jsonify(reports)
+    if report is None:
+        return jsonify({"error": "Report not found"}), 404
+
+    report_dict = report_to_dict(report)
+
+    conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
+    report_dict["conversation_logs"] = [
+        conversation_log_to_dict(log) for log in conversation_logs
+    ]
+
+    summaries = ReportSummary.query.filter_by(report_id=report_id).all()
+    report_dict["summary"] = [report_summary_to_dict(s) for s in summaries]
+
+    notes = (
+        ReportNote.query.options(joinedload(ReportNote.user))
+        .filter_by(report_id=report_id)
+        .all()
+    )
+    report_dict["notes"] = [report_note_to_dict(note) for note in notes]
+
+    return jsonify(report_dict)
 
 
 # update report

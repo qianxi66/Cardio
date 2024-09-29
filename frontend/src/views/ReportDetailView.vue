@@ -35,23 +35,6 @@ const report = ref<Report | null>(null);
 const loading = ref(true);
 const editingNote = ref("");
 const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({});
-const fetchUserInfo = async () => {
-  try {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      console.error("Token not found");
-      return;
-    }
-
-    const userInfoResponse = await getUserInfo(token);
-    if (userInfoResponse.username) username = userInfoResponse.username;
-  } catch (error: any) {
-    console.error("An error occurred while fetching user info:", error);
-  }
-};
-
-// Call this function in a setup lifecycle hook if needed
-fetchUserInfo();
 
 const refresh = async () => {
   if (cancelToken.value) {
@@ -201,9 +184,6 @@ function asyc() {
       <div class="notes">
         <div class="title">Notes</div>
         <div class="notes-list">
-          <ul class="note">
-            <li>123</li>
-          </ul>
           <ul v-for="note in report!.notes" :key="note.id" class="note">
             <li>
               <div class="note-left">
@@ -216,7 +196,7 @@ function asyc() {
                     formatDistance(note.created_at, new Date(), {
                       addSuffix: true,
                     })
-                  }}, created by {{ username }}
+                  }}, created by {{ note.user.username }}
                 </div>
               </div>
             </li>
@@ -310,16 +290,19 @@ function asyc() {
 </template>
 <style scoped lang="scss">
 .n-card {
+  padding: 10px;
   flex: 1;
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;
+    margin-top: 22px;
   }
 }
 .summary {
   .title {
     font-size: 14px;
     font-weight: 700;
+    //margin-top:22px;
     margin-bottom: 8px;
     margin-left: 12px;
   }

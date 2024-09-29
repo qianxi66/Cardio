@@ -4,6 +4,7 @@ export type Patient = {
   id: number;
   age: number;
   gender: string;
+  users: User[];
   EHR_id: string;
   alexa_user_id?: string;
   medical_history: string;
@@ -17,11 +18,22 @@ export type Patient = {
   state: number;
 };
 
+export type updatePatientresp = {
+  EHRid: string;
+  medication: string;
+  user: number[];
+  medicalhistory: string;
+  participantid: string;
+  gender: string;
+  age: number;
+};
+
 export type creatPatientresp = {
   EHRid: string;
   medication: string;
   user: number[];
   medicalhistory: string;
+  participantid: string;
   gender: string;
   age: number;
 };

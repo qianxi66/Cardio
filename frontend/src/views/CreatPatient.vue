@@ -14,15 +14,32 @@ import PatientForm from "../components/PatientForm.vue";
 //import axios from "axios";
 import { createPatient } from "@/api/patient";
 
+import { getUserInfo } from "@/api/user";
 const formData = ref({
-  EHRid: null,
+  EHR_id: null,
   medication: null,
   user: null,
-  medicalhistory: null,
+  medical_history: null,
+  participant_id: null,
   gender: null,
   age: null,
 });
-
+const fetchUserInfo = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.error("Token not found");
+      return;
+    }
+    const userInfoResponse = await getUserInfo(token);
+    if (userInfoResponse.user_id) {
+      formData.value.user = [userInfoResponse.user_id];
+    }
+  } catch (error) {
+    console.error("An error occurred while fetching user info:", error);
+  }
+};
+fetchUserInfo();
 const handlecreatePatient = async (formData) => {
   try {
     console.log("ds");

@@ -5,7 +5,7 @@ import typing as t
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import String, Text, ForeignKey
+from sqlalchemy import ForeignKey
 from flask import current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
@@ -70,57 +70,77 @@ class Patient(db.Model):
     state = db.Column(db.Integer, default=0)
 
 
+# @dataclass
+# class ReportNote(db.Model):
+#     __tablename__ = "reportnote"
+
+#     id: Mapped[int] = mapped_column(primary_key=True)
+#     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
+#     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+#     content: Mapped[str] = mapped_column(Text)
+#     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+#     updated_at: Mapped[datetime] = mapped_column(onupdate=datetime.utcnow)
+
+#     # Define the relationship with User
+#     user: Mapped["User"] = relationship(
+#         "User", back_populates="report_note", uselist=False
+#     )
+
+
 @dataclass
 class ReportNote(db.Model):
     __tablename__ = "reportnote"
-
     id: Mapped[int] = mapped_column(primary_key=True)
-    report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
-    content: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(onupdate=datetime.utcnow)
+    user: Mapped["User"] = relationship()
+    report_id: int
+    # user_id: int
+    content: str
+    created_at: datetime
+    updated_at: datetime
 
-    # Define the relationship with User
-    user: Mapped["User"] = relationship(
-        "User", back_populates="report_note", uselist=False
-    )
-
-
-@dataclass
-class User(db.Model):
-    __tablename__ = "user"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(50))
-    password: Mapped[str] = mapped_column(String(255))
-    email: Mapped[str] = mapped_column(String(100))
-    name: Mapped[str] = mapped_column(String(100))
-
-    # Define the back reference to ReportNote
-    report_note: Mapped["ReportNote"] = relationship(
-        "ReportNote", back_populates="user", uselist=False
-    )
-
-    # Example for handling many-to-many or other specific relationships
-    patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
+    id = db.Column(db.Integer, primary_key=True)
+    report_id = db.Column(db.Integer, db.ForeignKey("report.id"))
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    content = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
 
 # @dataclass
 # class User(db.Model):
 #     __tablename__ = "user"
-#     id: Mapped[int] = mapped_column(primary_key=True)
-#     patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
-#     username: str
-#     password: str
-#     email: str
-#     name: str
 
-#     id = db.Column(db.Integer, primary_key=True)
-#     username = db.Column(db.String(50))
-#     password = db.Column(db.String(255))
-#     email = db.Column(db.String(100))
-#     name = db.Column(db.String(100))
+#     id: Mapped[int] = mapped_column(primary_key=True)
+#     username: Mapped[str] = mapped_column(String(50))
+#     password: Mapped[str] = mapped_column(String(255))
+#     email: Mapped[str] = mapped_column(String(100))
+#     name: Mapped[str] = mapped_column(String(100))
+
+#     # Define the back reference to ReportNote
+#     report_note: Mapped["ReportNote"] = relationship(
+#         "ReportNote", back_populates="user", uselist=False
+#     )
+
+#     # Example for handling many-to-many or other specific relationships
+#     patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
+
+
+@dataclass
+class User(db.Model):
+    __tablename__ = "user"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
+    username: str
+    password: str
+    email: str
+    name: str
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50))
+    password = db.Column(db.String(255))
+    email = db.Column(db.String(100))
+    name = db.Column(db.String(100))
 
 
 @dataclass
@@ -222,6 +242,8 @@ class ReportSummary(db.Model):
     content: str
     conversation_log_ids: str
     highlight_keywords: str
+    created_at: datetime
+    updated_at: datetime
 
     id = db.Column(db.Integer, primary_key=True)
     report_id = db.Column(db.Integer, db.ForeignKey("report.id"))
@@ -229,6 +251,9 @@ class ReportSummary(db.Model):
     content = db.Column(db.Text)
     conversation_log_ids = db.Column(db.String)
     highlight_keywords = db.Column(db.String)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
 
 @dataclass

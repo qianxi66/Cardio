@@ -126,7 +126,10 @@ const updateState = (id: number, state: number) => {
             class="patient-info"
           >
             <div class="name">Patient {{ p.participant_id }}</div>
-            <div class="age-sex">{{ p.age }} y.o., {{ p.gender }}</div>
+            <div class="age-sex">
+              <span v-if="p.age">{{ p.age }} y.o.</span>
+              <span v-if="p.gender"> ,{{ p.gender }}</span>
+            </div>
           </component>
         </div>
         <template #loading>
