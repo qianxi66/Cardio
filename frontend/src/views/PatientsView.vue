@@ -76,7 +76,7 @@ const updateState = (id: number, state: number) => {
 
 <template>
   <div class="row holder">
-    <n-card class="patient-list" title="Patients List">
+    <n-card class="patient-list" title="List of Residents">
       <loading :loading="loading" :has-data="filteredPatients.length !== 0" class="patient-list">
         <div
           :class="{
@@ -106,7 +106,7 @@ const updateState = (id: number, state: number) => {
             }"
             class="patient-info"
           >
-            <div class="name">Patient {{ p.participant_id }}</div>
+            <div class="name">Older Adults {{ p.participant_id }}</div>
             <div class="age-sex">{{ p.age }} y.o., {{ p.gender }}</div>
           </component>
         </div>
@@ -160,6 +160,7 @@ const updateState = (id: number, state: number) => {
   align-items: center;
   border-top: 1px solid #e6e6e6;
   border-radius: 4px;
+  padding: 16px;
   &:not(.read) {
     font-weight: 800;
     .name {

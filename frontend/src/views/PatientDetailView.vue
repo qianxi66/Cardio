@@ -99,12 +99,13 @@ const updateState = async (id: number, report_id: number, symptom: string, state
   }
 }
 </script>
+
 <template>
   <div class="row">
     <div class="col" style="flex: 5 1 450px">
       <ColoredCard class="information">
         <Loading :loading="loading" :has-data="!!patient">
-          <div class="participant-id">Patient {{ patient!.participant_id }}</div>
+          <div class="participant-id">Older Adults {{ patient!.participant_id }}</div>
           <div class="row demographic">
             <span class="age-sex">
               <b>{{ patient!.age }} y.o.</b> {{ patient!.gender }}
@@ -116,7 +117,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
           <div class="row patient-details">
             <div class="box">
               <div class="row">
-                <div class="title">Medical History</div>
+                <div class="title">Location</div>
                 <div class="space"></div>
                 <div>Last Visit: No Information</div>
               </div>

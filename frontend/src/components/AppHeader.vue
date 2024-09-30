@@ -13,7 +13,7 @@ import { useDialog, useMessage } from 'naive-ui'
         style="color: inherit; text-decoration: none"
         @click.prevent="$router.push('/')"
       >
-        Recover Dashboard
+        Elderly Care
       </a>
       <div class="space"></div>
     </div>
