@@ -98,11 +98,12 @@ const updateState = async (id: number, report_id: number, symptom: string, state
     refreshPatients()
   }
 }
+
 </script>
 
 <template>
   <div class="row">
-    <div class="col" style="flex: 5 1 450px">
+    <div class="col" style="flex: 5 1 350px">
       <ColoredCard class="information">
         <Loading :loading="loading" :has-data="!!patient">
           <div class="participant-id">Older Adults {{ patient!.participant_id }}</div>
@@ -169,7 +170,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
             <ReportTableHeader></ReportTableHeader>
             <div
               v-for="(report, index) in patient!.reports"
-              :key="report.id"
+              :key="index"
               :class="{
                 'table-row-block': true,
                 selected: report.id === parseInt(report_id),
@@ -286,7 +287,10 @@ const updateState = async (id: number, report_id: number, symptom: string, state
     </div>
   </div>
 </template>
+
 <style scoped lang="scss">
+
+
 .row {
   flex-grow: 1;
   .col {
@@ -299,6 +303,8 @@ const updateState = async (id: number, report_id: number, symptom: string, state
   }
   overflow-x: hidden;
 }
+
+
 .participant-id {
   font-size: 16px;
   line-height: 24px;

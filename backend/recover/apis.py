@@ -253,18 +253,12 @@ def create_conversation_log(alexa_user_id):
         chain_of_thoughts = assistant_message.split("==============")[0]
         assistant_message = assistant_message.split("==============")[1].strip(" \n")
     except IndexError:
-        chain_of_thoughts = """breathing: not discussed
-fever: not discussed
-stools: not discussed
-pain: not discussed
-drainage: not discussed
-activity: not discussed
-conscious: not discussed
-constipation: not discussed
-diarrhea: not discussed
+        chain_of_thoughts = """activity: not discussed
+congnition: not discussed
 eating: not discussed
-swelling: not discussed
 mood: not discussed
+pain: not discussed
+misc: not discussed
 """
         pass
     session_end = "CONVERSATION_END" in assistant_message

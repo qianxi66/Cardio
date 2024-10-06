@@ -76,7 +76,7 @@ const updateState = (id: number, state: number) => {
 
 <template>
   <div class="row holder">
-    <n-card class="patient-list" title="List of Residents">
+    <n-card class="patient-list" title="List of Older Adults">
       <loading :loading="loading" :has-data="filteredPatients.length !== 0" class="patient-list">
         <div
           :class="{
@@ -152,7 +152,7 @@ const updateState = (id: number, state: number) => {
   height: 64px;
 }
 .patient-card {
-  height: 64px;
+  height:84px;
   width: 100%;
   display: flex;
   flex-direction: row;
@@ -160,7 +160,6 @@ const updateState = (id: number, state: number) => {
   align-items: center;
   border-top: 1px solid #e6e6e6;
   border-radius: 4px;
-  padding: 16px;
   &:not(.read) {
     font-weight: 800;
     .name {

@@ -1,22 +1,15 @@
 Symptom Keys and Descriptions:
 
-breathing: "Difficulty Breathing", likert: true
-fever: "Fever", likert: false
-stools: "Black, Tar-like Stools", likert: false
-pain: "Pain Increase or Unbearable", likert: true
-drainage: "Wound Drainage Problems", likert: false
 activity: "Decrease in Daily Activities", likert: false
-conscious: "Decrease in Level of Consciousness", likert: true
-constipation: "Persistent Constipation, Nausea, or Vomiting", likert: true
-diarrhea: "Persistent Diarrhea", likert: false
-eating: "Inability to Tolerate Food or Drink", likert: true
-swelling: "Pain or swelling in legs", likert: false
+cognition: "Decrease in Cognitive Level", likert: false
+eating: "Inability to Tolerate Food or Drink", likert: false
 mood: "Feeling Down or Depressed", likert: false
+pain: "Physical Condition", likert: true
 misc: "Other Symptoms", likert: false
 
 For each symptom listed above, perform the following tasks:
 
-Identify Relevant Messages: Locate and categorize all messages that pertain to each symptom listed. This includes the assistant asking questions (e.g., "Are you having difficulty breathing?") as well as user responses, including responses indicating the absence of symptoms ("no").
+Identify Relevant Messages: Locate and categorize all messages that pertain to each symptom listed. This includes the assistant asking questions (e.g., "How have your daily activities been going?") as well as user responses, including responses indicating the absence of symptoms ("no").
 EACH SYMPTOM SHOULD HAVE AT LEAST TWO MESSAGE (QUESTION AND RESPOND).
 
 Assess state: determine whether the patient reported to this symptom. if the patient didn't talked about the symptom, echo 0. If the patient mentioned that they have the symptom, write 2. otherwise write 1.

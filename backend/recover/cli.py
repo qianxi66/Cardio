@@ -199,9 +199,10 @@ def create_report_for_patient(patient):
     patient.state = max(
         [
             symptom_descriptions[symptom]["max_scale"]
-            if getattr(reports[0], f"{symptom}_state") == 2
-            else getattr(reports[0], f"{symptom}_state")
+            if getattr(reports[-1], f"{symptom}_state") == 2
+            else getattr(reports[-1], f"{symptom}_state")
             for symptom in symptom_descriptions.keys()
+            if getattr(reports[-1], f"{symptom}_state") is not None
         ]
     )
     db.session.add(patient)
