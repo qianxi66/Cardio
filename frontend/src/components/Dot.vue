@@ -2,6 +2,8 @@
 <script setup lang="ts">
 import { stateColors, stateMessages } from '@/config'
 import { type ButtonProps } from 'naive-ui'
+import { ref, computed } from 'vue'
+
 type ButtonThemeOverrides = NonNullable<ButtonProps['themeOverrides']>
 const props = withDefaults(
   defineProps<{ loading?: boolean; state?: number; editable?: boolean; reviewable?: boolean }>(),
@@ -21,6 +23,7 @@ const buttonThemeOverrides: ButtonThemeOverrides = {
 }
 const popoverEl = ref<HTMLElement | null>(null)
 </script>
+
 <template>
   <div v-if="!editable">
     <div
@@ -102,7 +105,6 @@ const popoverEl = ref<HTMLElement | null>(null)
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background-color: var(--color);
   border-color: gray;
   box-sizing: border-box;
   font-size: 24px;

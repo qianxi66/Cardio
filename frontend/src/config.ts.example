@@ -1,9 +1,9 @@
 export const symptoms = {
   activity: { description: "Decrease in Daily Activities", display_name: "Activity", scale: "state" },
   cognition: { description: "Decrease in Cognitive Level", display_name: "Cognition", scale: "state" },
-  eating: { description: "Inability to Tolerate Food or Drink", display_name: "Eating", scale: "likert" },
-  mood: { description: "Feeling Down or Depressed", display_name: "Mood", scale: "state" },
+  eating: { description: "Inability to Tolerate Food or Drink", display_name: "Eating", scale: "state" },
   pain: { description: "Physical Condition", display_name: "Pain", scale: "likert" },
+  mood: { description: "Feeling Down or Depressed", display_name: "Mood", scale: "state" },
 };
 
 export const apiBasePath = "http://recover-backend.hailab.io/";
