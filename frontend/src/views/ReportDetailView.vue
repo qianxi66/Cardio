@@ -28,7 +28,6 @@ const select_log_ids = computed(() => {
 const state = useRouteQuery<number>("state");
 import { stateColors } from "@/config";
 import { format, formatDistance } from "date-fns";
-let username = "";
 
 const cancelToken = ref<CancelTokenSource | null>(null);
 
@@ -37,6 +36,7 @@ const loading = ref(true);
 const editingNote = ref("");
 const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({});
 let user_Id = 0;
+let username = "";
 const refresh = async () => {
   if (cancelToken.value) {
     cancelToken.value.cancel();
@@ -105,6 +105,7 @@ const fetchUserInfo = async () => {
     const userInfoResponse = await getUserInfo(token);
     if (userInfoResponse.user_id) {
       user_Id = userInfoResponse.user_id;
+      username = userInfoResponse.username;
       console.log(user_Id);
     }
   } catch (error: any) {
@@ -114,18 +115,22 @@ const fetchUserInfo = async () => {
 
 fetchUserInfo();
 const createNote = () => {
+  console.log(user_Id);
   if (editingNote.value) {
     report.value!.notes.push({
       id: report.value!.notes.length + 1,
       content: editingNote.value,
       created_at: new Date(),
-      user: {},
+      user: {
+        username: username,
+      },
       updated_at: new Date(),
       user_id: user_Id,
       report_id: report.value!.id,
     });
     createNoteAPI(
       patient_id.value as number,
+      user_Id,
       report_id.value as number,
       editingNote.value,
     );

@@ -54,6 +54,7 @@ export type LoginResponse = {
 
 export type UserInfoResponse = {
   user_id: number;
+  username: string;
 };
 export type User = {
   id: number;

@@ -360,17 +360,54 @@ def create_patient():
 @current_app.route("/patients/<int:id>", methods=["PATCH"])
 @api_key_required
 def update_patient(id):
-    data = request.get_json()
-    print(data)
-    # userid = g.current_user.id
-    patient = db.get(Patient, id)
-    # todo :check permission?
-    for key in data:
-        setattr(patient, key, data[key])
-    db.session.add(patient)
-    db.session.commit()
-    # time.sleep(10)
-    return jsonify({"message": "Patient state updated."})
+    try:
+        data = request.get_json()
+        print("Received data:", data)
+        if not data:
+            return jsonify({"message": "No input data provided"}), 400
+
+        # Retrieve the patient by ID
+        patient = Patient.query.get(id)
+        if not patient:
+            return jsonify({"message": "Patient not found"}), 404
+
+        # Check if 'user' field is present
+        if "user" in data:
+            # Retrieve user IDs from the request
+            new_user_ids = set(data.get("user", []))
+            # Get current user IDs associated with the patient
+            current_user_ids = {user.id for user in patient.users}
+
+            # Determine which users to add and which to remove
+            users_to_add = new_user_ids - current_user_ids
+            users_to_remove = current_user_ids - new_user_ids
+
+            # Query users to add
+            if users_to_add:
+                users_to_add_objs = User.query.filter(User.id.in_(users_to_add)).all()
+                patient.users.extend(users_to_add_objs)
+
+            # Remove users
+            if users_to_remove:
+                users_to_remove_objs = User.query.filter(
+                    User.id.in_(users_to_remove)
+                ).all()
+                for user in users_to_remove_objs:
+                    patient.users.remove(user)
+
+        # Update other patient fields
+        for key in data:
+            if key != "user":  # Skip the 'user' field since it's handled separately
+                setattr(patient, key, data[key])
+
+        db.session.commit()
+
+        return jsonify({"message": "Patient updated successfully."}), 200
+
+    except Exception as e:
+        # Log the error for debugging
+        print(f"An error occurred: {e}")
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
 @current_app.route("/patients/<int:id>", methods=["GET"])

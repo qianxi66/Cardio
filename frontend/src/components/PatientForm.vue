@@ -3,6 +3,8 @@ import { defineComponent, ref, onMounted, toRefs } from "vue";
 import { useMessage } from "naive-ui";
 import { useRouter } from "vue-router";
 import { getUsers } from "@/api/user";
+import { log } from "console";
+import { Console } from "console";
 
 const fetchUser = async () => {
   try {
@@ -34,7 +36,7 @@ export default defineComponent({
     const generalOptions = ref<{ label: string; value: number }[]>([]);
 
     const { model } = toRefs(props);
-    const input = ref("");
+    let input = ref("");
     const rules = ref({
       EHR_id: { required: false, trigger: ["blur", "input"] },
       participant_id: { required: false, trigger: ["blur", "input"] },
@@ -68,30 +70,49 @@ export default defineComponent({
       }
     };
 
-    const loadGeneralOptions = async () => {
-      try {
-        const users = await fetchUser();
-        if (users) {
-          generalOptions.value = users.map((user) => ({
-            label: user.username,
-            value: user.id,
-          }));
-        } else {
-          console.warn("No users found.");
+    const loadGeneralOptions = () => {
+      return new Promise(async (resolve, reject) => {
+        try {
+          const users = await fetchUser();
+          console.log("starting");
+          if (users) {
+            generalOptions.value = users.map((user) => ({
+              label: user.username,
+              value: user.id,
+            }));
+            resolve();
+          } else {
+            console.warn("No users found.");
+            generalOptions.value = [];
+            reject();
+          }
+        } catch (error) {
+          console.error("Error fetching users:", error);
           generalOptions.value = [];
+          reject();
         }
-      } catch (error) {
-        console.error("Error fetching users:", error);
-        generalOptions.value = [];
-      }
+      });
     };
     function handleGenderChange() {
       if (model.value.gender !== "other") {
         input.value = "";
       }
     }
-    onMounted(() => {
-      loadGeneralOptions();
+    onMounted(async () => {
+      await loadGeneralOptions();
+      const loadGender = async () => {
+        if (
+          model.value.gender != "male" &&
+          model.value.gender != "female" &&
+          model.value.gender != null
+        ) {
+          input.value = model.value.gender;
+          model.value.gender = "other";
+        }
+
+        console.log("After loadGender, gender:", model.value.gender);
+      };
+      loadGender();
     });
 
     return {
@@ -190,13 +211,16 @@ export default defineComponent({
   flex-shrink: 0;
   min-height: 100%;
 }
+
 .number .n-input-number__controls {
   display: none !important;
 }
+
 .gender-radio {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
+
   .n-radio {
     height: 34px;
     display: flex;
