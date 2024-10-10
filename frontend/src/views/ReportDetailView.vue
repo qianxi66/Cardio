@@ -119,7 +119,7 @@ const createNote = () => {
       id: report.value!.notes.length + 1,
       content: editingNote.value,
       created_at: new Date(),
-      //user:{},
+      user: {},
       updated_at: new Date(),
       user_id: user_Id,
       report_id: report.value!.id,
@@ -349,7 +349,7 @@ function asyc() {
 }
 // .input{
 //   margin: 4px;
-//   width: calc(100% - 2 * 10px); /* 这里假设你想计算宽度 */
+//   width: calc(100% - 2 * 10px);
 
 // }
 .notes {

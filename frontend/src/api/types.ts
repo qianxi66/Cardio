@@ -114,7 +114,7 @@ export type ReportNote = {
   id: number;
   report_id: number;
   user_id: number;
-  //user: User;
+  user: User;
   content: string;
   created_at: Date;
   updated_at: Date;
