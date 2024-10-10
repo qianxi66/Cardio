@@ -4,9 +4,10 @@ import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import conversations from "@/data/conversations.json";
 import * as config from "@/config";
-import { computed, nextTick, ref, watch, type Ref } from "vue";
+import { computed, nextTick, reactive, ref, watch, type Ref } from "vue";
 import type { Report, ReportSummary } from "@/api/types";
 import type { CancelTokenSource } from "axios";
+
 import {
   getReport,
   createNote as createNoteAPI,
@@ -35,7 +36,7 @@ const report = ref<Report | null>(null);
 const loading = ref(true);
 const editingNote = ref("");
 const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({});
-
+let user_Id = 0;
 const refresh = async () => {
   if (cancelToken.value) {
     cancelToken.value.cancel();
@@ -94,14 +95,33 @@ const deleteNote = (note_id: number) => {
   );
   deleteNoteAPI(patient_id.value as number, report_id.value as number, note_id);
 };
+const fetchUserInfo = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.error("Token not found");
+      return;
+    }
+    const userInfoResponse = await getUserInfo(token);
+    if (userInfoResponse.user_id) {
+      user_Id = userInfoResponse.user_id;
+      console.log(user_Id);
+    }
+  } catch (error: any) {
+    console.error("An error occurred while fetching user info:", error);
+  }
+};
+
+fetchUserInfo();
 const createNote = () => {
   if (editingNote.value) {
     report.value!.notes.push({
       id: report.value!.notes.length + 1,
       content: editingNote.value,
       created_at: new Date(),
+      //user:{},
       updated_at: new Date(),
-      user_id: 1,
+      user_id: user_Id,
       report_id: report.value!.id,
     });
     createNoteAPI(
@@ -237,6 +257,7 @@ function asyc() {
             v-model:value="editingNote"
             placeholder="Add a note (press enter to submit)"
             @keyup.enter="createNote()"
+            class="input"
           />
         </div>
       </div>
@@ -326,6 +347,11 @@ function asyc() {
     padding: 8px 12px;
   }
 }
+// .input{
+//   margin: 4px;
+//   width: calc(100% - 2 * 10px); /* 这里假设你想计算宽度 */
+
+// }
 .notes {
   display: flex;
   padding: 8px;
@@ -343,6 +369,7 @@ function asyc() {
     .note {
       margin-right: 12px;
       margin-left: 0px;
+      margin-bottom: 0px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -350,10 +377,10 @@ function asyc() {
         flex: 1;
       }
     }
-    // .n-input {
-    //   margin: 12px;
-    //   width: calc(100% - 24px);
-    // }
+    .n-input {
+      margin: 10px;
+      width: calc(100% - 20px);
+    }
   }
 }
 .message {

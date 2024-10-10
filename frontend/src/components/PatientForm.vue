@@ -34,7 +34,7 @@ export default defineComponent({
     const generalOptions = ref<{ label: string; value: number }[]>([]);
 
     const { model } = toRefs(props);
-
+    const input = ref("");
     const rules = ref({
       EHR_id: { required: false, trigger: ["blur", "input"] },
       participant_id: { required: false, trigger: ["blur", "input"] },
@@ -45,27 +45,13 @@ export default defineComponent({
       age: { type: "number", required: false, trigger: ["blur", "change"] },
     });
 
-    // const fetchUserInfo = async () => {
-    //   try {
-    //     const token = localStorage.getItem("token");
-    //     if (!token) {
-    //       console.error("Token not found");
-    //       return;
-    //     }
-    //     const userInfoResponse = await getUserInfo(token);
-    //     if (userInfoResponse.user_id) {
-    //       model.value.user = [userInfoResponse.user_id];
-    //     }
-    //   } catch (error: any) {
-    //     console.error("An error occurred while fetching user info:", error);
-    //   }
-    // };
-
-    //fetchUserInfo();
     const handleSubmit = async (e: MouseEvent) => {
       e.preventDefault();
       const form = formRef.value;
       if (form) {
+        if (input.value) {
+          model.value.gender = input.value;
+        }
         form.validate(async (errors: any) => {
           if (!errors) {
             try {
@@ -99,17 +85,23 @@ export default defineComponent({
         generalOptions.value = [];
       }
     };
-
+    function handleGenderChange() {
+      if (model.value.gender !== "other") {
+        input.value = "";
+      }
+    }
     onMounted(() => {
       loadGeneralOptions();
     });
 
     return {
+      handleGenderChange,
       generalOptions,
       handleSubmit,
       formRef,
       model,
       rules,
+      input,
     };
   },
 });
@@ -120,17 +112,29 @@ export default defineComponent({
     <n-form ref="formRef" :model="model" :rules="rules" label-placement="top">
       <n-grid :cols="24" :x-gap="24">
         <n-form-item-gi :span="12" label="Age" path="age">
+          <!-- <n-input :input-props="{inputmode:'numeric' ,pattern:'\d*'}" v-model:value="model.age" class="number" /> -->
           <n-input-number v-model:value="model.age" class="number" />
         </n-form-item-gi>
 
         <n-form-item-gi :span="12" label="Gender" path="gender">
-          <n-radio-group v-model:value="model.gender" name="radiogroup1">
+          <n-radio-group
+            v-model:value="model.gender"
+            name="radiogroup1"
+            @change="handleGenderChange"
+          >
             <n-space>
-              <div style="display: flex; align-items: center">
+              <div class="gender-radio">
                 <n-radio value="male"> male </n-radio>
                 <n-radio value="female"> female </n-radio>
-                <n-radio value="other"> other(please input) </n-radio>
+                <n-radio value="other"> </n-radio>
               </div>
+              <n-input
+                v-model:value="input"
+                :disabled="model.gender !== 'other'"
+                small
+                placeholder="other"
+                style="max-width: 120px"
+              />
             </n-space>
           </n-radio-group>
         </n-form-item-gi>
@@ -188,5 +192,15 @@ export default defineComponent({
 }
 .number .n-input-number__controls {
   display: none !important;
+}
+.gender-radio {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  .n-radio {
+    height: 34px;
+    display: flex;
+    align-items: center;
+  }
 }
 </style>

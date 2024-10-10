@@ -141,7 +141,10 @@ const updateState = async (
           </div>
           <div class="row demographic">
             <span class="age-sex">
-              <b>{{ patient!.age }} y.o.</b> {{ patient!.gender }}
+              <b>
+                {{ patient!.age ? patient!.age + ' y.o.' : '' }}
+              </b>
+              {{ patient!.gender }}
             </span>
             <span>
               {{ patient!.EHR_id }}

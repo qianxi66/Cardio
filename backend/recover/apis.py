@@ -2,6 +2,7 @@ import json
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from functools import wraps
+import random
 import secrets
 import string
 from threading import Thread
@@ -221,6 +222,78 @@ def user_to_dict(user):
     }
 
 
+def generate_report_for_patient(patient):
+    for i in range(10):
+        # random state, read false, empty logs
+        symptom_kwargs = [
+            {
+                f"{symptom}_state": 0,
+                f"{symptom}_logs": "[]",
+            }
+            for symptom in symptom_descriptions.keys()
+        ]
+        symptom_kwargs_ = dict([(k, v) for d in symptom_kwargs for k, v in d.items()])
+
+        likerts = [
+            (
+                f"{symptom}_scale",
+                random.randint(1, 10)
+                if symptom_kwargs_[f"{symptom}_state"] == 2
+                else 0,
+            )
+            for symptom, description in symptom_descriptions.items()
+            if description["likert"]
+        ]
+
+        # Debug output
+        print(f"Iteration {i}: symptom_kwargs_ = {symptom_kwargs_}")
+        print(f"Iteration {i}: likerts = {likerts}")
+
+        symptom_kwargs = dict(
+            [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
+        )
+        report = Report(
+            patient_id=patient.id,
+            **symptom_kwargs,
+        )
+        db.session.add(report)
+
+    # update created_at
+    reports = Report.query.filter_by(patient_id=patient.id).all()
+
+    # Debug output for reports
+    print(f"Reports for patient {patient.id} before updating created_at:")
+    for report in reports:
+        print(report)
+
+    for i, report in enumerate(reports):
+        report.created_at = datetime.utcnow() - timedelta(days=(i + 1))
+        db.session.add(report)
+
+    # Debug output for updated reports
+    print(f"Reports for patient {patient.id} after updating created_at:")
+    for report in reports:
+        print(report)
+
+    patient.state = max(
+        [
+            symptom_descriptions[symptom]["max_scale"]
+            if getattr(reports[0], f"{symptom}_state") == 2
+            else getattr(reports[0], f"{symptom}_state")
+            for symptom in symptom_descriptions.keys()
+        ]
+    )
+
+    # Debug output for patient state
+    print(f"Patient {patient.id} state updated to: {patient.state}")
+
+    db.session.add(patient)
+    db.session.commit()
+
+    # Final debug output
+    print(f"Reports and patient {patient.id} state committed to the database.")
+
+
 @current_app.route("/patients", methods=["POST"])
 @api_key_required
 def create_patient():
@@ -246,17 +319,18 @@ def create_patient():
             return jsonify({"message": "No valid users found"}), 400
 
         patient = Patient(
-            EHR_id=data.get("EHRid"),
+            EHR_id=data.get("EHR_id"),
             age=data.get("age"),
             gender=data.get("gender"),
-            participant_id=data.get("participantid"),
-            medical_history=data.get("medicalhistory", ""),
+            participant_id=data.get("participant_id"),
+            medical_history=data.get("medical_history", ""),
             medication=data.get("medication", ""),
             last_read_at=datetime.utcnow(),
             reviewed=False,
             state=0,
         )
-        print("b")
+        print("-----------")
+        print(patient.participant_id)
 
         db.session.add(patient)
         db.session.flush()
@@ -267,6 +341,10 @@ def create_patient():
 
         print("Patient data before saving:", patient_to_dict(patient))
         print("c")
+
+        generate_report_for_patient(patient)
+
+        print("Patient data before saving:", patient_to_dict(patient))
 
         return jsonify(
             {

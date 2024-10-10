@@ -48,6 +48,7 @@ const handleLogin = async () => {
     } else {
       const { token, userid } = response.token;
       localStorage.setItem("token", token);
+      console.log(localStorage.getItem("token"));
       router.push("/patient");
     }
   } catch (error: any) {

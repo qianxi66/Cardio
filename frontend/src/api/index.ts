@@ -18,8 +18,6 @@ const request = axios.create({
   ],
 });
 
-const token = localStorage.getItem("token");
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorHandler = (error: any) => {
   let message = "";
@@ -37,6 +35,7 @@ const api = (req: AxiosRequestConfig<unknown>) =>
     if (!req.headers) {
       req.headers = {};
     }
+    const token = localStorage.getItem("token");
     req.headers["Authorization"] = "Bearer " + token;
     request(req)
       .then((resp) => {

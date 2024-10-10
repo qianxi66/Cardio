@@ -42,7 +42,7 @@ const fetchUserInfo = async () => {
 fetchUserInfo();
 const handlecreatePatient = async (formData) => {
   try {
-    console.log("ds");
+    console.log(formData.participant_id);
     const response = await createPatient(formData);
 
     if (response.data.hasOwnProperty("message")) {
