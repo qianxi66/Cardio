@@ -6,6 +6,9 @@ import { getUsers } from "@/api/user";
 import { log } from "console";
 import { Console } from "console";
 
+// import { useRouteParams } from "@vueuse/router";
+// const patient_id = useRouteParams<number | null>("patient_id");
+
 const fetchUser = async () => {
   try {
     const token = localStorage.getItem("token");
@@ -60,6 +63,7 @@ export default defineComponent({
               emit("submit", model.value);
               message.success("Success");
               await router.push("/patient");
+              //await router.push(`/patient/${patient_id}`);
             } catch (error) {
               message.error(`Submission failed: ${error.message}`);
             }

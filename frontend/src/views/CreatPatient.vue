@@ -13,6 +13,7 @@ import PatientForm from "../components/PatientForm.vue";
 //import { useRouter } from "vue-router";
 //import axios from "axios";
 import { createPatient } from "@/api/patient";
+import { useRouter } from "vue-router";
 
 import { getUserInfo } from "@/api/user";
 const formData = ref({
@@ -40,10 +41,13 @@ const fetchUserInfo = async () => {
   }
 };
 fetchUserInfo();
+const router = useRouter();
 const handlecreatePatient = async (formData) => {
   try {
     console.log(formData.participant_id);
     const response = await createPatient(formData);
+    console.log("patientid:" + response.patient.id);
+    router.push(`/patient/${response.patient.id}`);
 
     if (response.data.hasOwnProperty("message")) {
       notification.create({
@@ -51,7 +55,6 @@ const handlecreatePatient = async (formData) => {
       });
     } else {
       console.log("Patient created successfully:", response.data);
-      // router.push("/patient");
     }
   } catch (error) {
     if (error.response) {

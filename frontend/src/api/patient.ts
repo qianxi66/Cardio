@@ -4,6 +4,7 @@ import {
   type Patient,
   type Report,
   type creatPatientresp,
+  type updatePatientreq,
   type updatePatientresp,
 } from "./types";
 
@@ -22,20 +23,20 @@ export const getPatient = async (id: number, cancelToken?: CancelToken) => {
   })) as Patient;
 };
 
-export const updatePatient = async (id: number, data: updatePatientresp) => {
-  return await api({
+export const updatePatient = async (id: number, data: updatePatientreq) => {
+  return (await api({
     url: `/patients/${id}`,
     method: "PATCH",
     data,
-  });
+  })) as updatePatientresp;
 };
 
 export const createPatient = async (data: creatPatientresp) => {
-  return await api({
+  return (await api({
     url: `/patients`,
     method: "POST",
     data,
-  });
+  })) as creatPatientresp;
 };
 
 export const updateReport = async (

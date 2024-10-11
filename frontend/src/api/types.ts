@@ -18,7 +18,7 @@ export type Patient = {
   state: number;
 };
 
-export type updatePatientresp = {
+export type updatePatientreq = {
   EHRid: string;
   medication: string;
   user: number[];
@@ -26,6 +26,9 @@ export type updatePatientresp = {
   participantid: string;
   gender: string;
   age: number;
+};
+export type updatePatientresp = {
+  patient_id: number;
 };
 
 export type creatPatientresp = {

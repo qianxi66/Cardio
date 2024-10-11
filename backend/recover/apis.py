@@ -223,40 +223,38 @@ def user_to_dict(user):
 
 
 def generate_report_for_patient(patient):
-    for i in range(10):
-        # random state, read false, empty logs
-        symptom_kwargs = [
-            {
-                f"{symptom}_state": 0,
-                f"{symptom}_logs": "[]",
-            }
-            for symptom in symptom_descriptions.keys()
-        ]
-        symptom_kwargs_ = dict([(k, v) for d in symptom_kwargs for k, v in d.items()])
+    i = 1
+    # random state, read false, empty logs
+    symptom_kwargs = [
+        {
+            f"{symptom}_state": 0,
+            f"{symptom}_logs": "[]",
+        }
+        for symptom in symptom_descriptions.keys()
+    ]
+    symptom_kwargs_ = dict([(k, v) for d in symptom_kwargs for k, v in d.items()])
 
-        likerts = [
-            (
-                f"{symptom}_scale",
-                random.randint(1, 10)
-                if symptom_kwargs_[f"{symptom}_state"] == 2
-                else 0,
-            )
-            for symptom, description in symptom_descriptions.items()
-            if description["likert"]
-        ]
-
-        # Debug output
-        print(f"Iteration {i}: symptom_kwargs_ = {symptom_kwargs_}")
-        print(f"Iteration {i}: likerts = {likerts}")
-
-        symptom_kwargs = dict(
-            [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
+    likerts = [
+        (
+            f"{symptom}_scale",
+            random.randint(1, 10) if symptom_kwargs_[f"{symptom}_state"] == 2 else 0,
         )
-        report = Report(
-            patient_id=patient.id,
-            **symptom_kwargs,
-        )
-        db.session.add(report)
+        for symptom, description in symptom_descriptions.items()
+        if description["likert"]
+    ]
+
+    # Debug output
+    print(f"Iteration {i}: symptom_kwargs_ = {symptom_kwargs_}")
+    print(f"Iteration {i}: likerts = {likerts}")
+
+    symptom_kwargs = dict(
+        [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
+    )
+    report = Report(
+        patient_id=patient.id,
+        **symptom_kwargs,
+    )
+    db.session.add(report)
 
     # update created_at
     reports = Report.query.filter_by(patient_id=patient.id).all()
@@ -402,7 +400,9 @@ def update_patient(id):
 
         db.session.commit()
 
-        return jsonify({"message": "Patient updated successfully."}), 200
+        return jsonify(
+            {"patient_id": id, "message": "Patient updated successfully."}
+        ), 200
 
     except Exception as e:
         # Log the error for debugging

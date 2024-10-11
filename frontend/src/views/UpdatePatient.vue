@@ -1,7 +1,7 @@
 <script setup lang="tsx">
 import { ref, watch } from "vue";
 import PatientForm from "../components/PatientForm.vue";
-//import { useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 //import axios from "axios";
 import { useRouteParams } from "@vueuse/router";
 import type { Patient } from "@/api/types";
@@ -11,6 +11,8 @@ import axios from "axios";
 const patient = ref<Patient | null>(null);
 const patient_id = useRouteParams("patient_id");
 const cancelToken = ref<CancelTokenSource | null>(null);
+
+const router = useRouter();
 const loading = ref(true);
 interface FormData {
   EHR_id: string;
@@ -79,6 +81,9 @@ const handleupdatePatient = async (formData) => {
       parseInt(patient_id.value as string),
       formData,
     );
+
+    console.log("patientid:" + response.patient_id);
+    router.push(`/patient/${response.patient_id}`);
 
     if (response.data.hasOwnProperty("message")) {
       notification.create({
