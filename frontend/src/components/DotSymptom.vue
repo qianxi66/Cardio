@@ -33,7 +33,8 @@ const popoverEl = ref<HTMLElement | null>(null)
       class="dot"
       v-if="!props.loading && props.state >= 0"
       :style="{
-        '--color': [stateColors[0], stateColors[1], props.color][props.state]
+        //'--color': [stateColors[0], stateColors[1], props.color][props.state]
+        '--color': stateColors[props.state] || props.color
       }"
     ></div>
     <n-skeleton v-else box style="height: 24px; width: 24px; border-radius: 50%" />
@@ -58,7 +59,7 @@ const popoverEl = ref<HTMLElement | null>(null)
       <n-button-group vertical>
         <n-button
           :theme-overrides="buttonThemeOverrides"
-          v-for="state in [0, 1, 2]"
+          v-for="state in Array.from({ length: symptoms[props.symptom].max_scale + 1 }, (_, index) => index)"
           :key="state"
           ghost
           :type="props.state === state ? 'info' : 'default'"
@@ -72,7 +73,7 @@ const popoverEl = ref<HTMLElement | null>(null)
           <template #icon>
             <dot-symptom :color="color" :state="state" :symptom="props.symptom"></dot-symptom>
           </template>
-          {{ ['No Information', 'Normal', stateMessages[symptoms[symptom].max_scale]][state] }}
+          {{ ['No Information', 'Normal', 'Reported', 'Moderate Severity', 'Most Severe'][state] }}
         </n-button>
       </n-button-group>
     </n-popover>

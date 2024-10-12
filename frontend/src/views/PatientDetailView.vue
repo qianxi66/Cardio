@@ -13,11 +13,14 @@ import type { CancelTokenSource } from 'axios'
 import ReportTableHeader from '@/components/ReportTableHeader.vue'
 import axios from 'axios'
 import CircleProgress from '@/components/CircleProgress.vue'
-
+import { stateColors } from '@/config';//shihan
 const refreshPatients = inject('refreshPatients')
 const patient_id = useRouteParams('patient_id')
 const report_id = useRouteParams('report_id')
 const current_symptom = useRouteQuery('symptom')
+//const report = ref({});//shihan
+const report = ref<Report | null>(null);//shihan
+
 let showall = useRouteQuery('showall', 'false', { transform: (v: string) => v === 'true' })
 
 const patient = ref<Patient | null>(null)
@@ -62,6 +65,59 @@ const jumpToReport = (report: Report, symptom: string | undefined) => {
     }
   })
 }
+
+// const getColorByScale = (scale: number, state: number) => {
+//   console.log('getColorByScale called with scale:', scale, 'and state:', state);
+  
+//   let color;
+//   if (state === 0) {
+//       color = stateColors[0];
+//   } else if (state === 1) {
+//     color = stateColors[1];
+//   } else if (state >= 2) {
+//     // If scale is not 0, assign color based on scale range
+//     if (scale >= 1 && scale <= 3) {
+//       color = stateColors[2]; 
+//     } else if (scale >= 4 && scale <= 6) {
+//       color = stateColors[3]; 
+//     } else if (scale >= 7 && scale <= 10) {
+//       color = stateColors[4];
+//     }
+//   }
+//   console.log('Returning color:', color);
+//   return color;
+// };
+
+const getSymptomColor = (symptom: string, report: Report) => {
+  if (config.symptoms[symptom].likert) {
+    const scale = report[symptom + '_scale'] as number;
+    const state = report[symptom + '_state'] as number;
+    return getColorByScale(scale, state);
+  }
+  return config.symptoms[symptom].color
+}
+
+const getColorByScale = (scale: number, state: number) => {
+  console.log('getColorByScale called with scale:', scale, 'and state:', state);
+  
+  // Default color assignment
+  let color = stateColors[state];  // If state is 0 or 1, return its color directly
+
+  // Only apply scale-based color changes if state is >= 2
+  if (state >= 2) {
+    if (scale >= 1 && scale <= 3) {
+      color = stateColors[2]; 
+    } else if (scale >= 4 && scale <= 6) {
+      color = stateColors[3]; 
+    } else if (scale >= 7 && scale <= 10) {
+      color = stateColors[4];
+    }
+  }
+
+  console.log('Returning color:', color);
+  return color;
+}
+
 watch(patient, () => {
   // get the latest report id
   if (patient.value) {
@@ -192,7 +248,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                     <template #trigger>
                       <circle-progress
                         :percent="report[symptom + '_scale'] * 10"
-                        :color="config.symptoms[symptom].color"
+                        :color="getSymptomColor(symptom, report)"
                         :id="symptom"
                         style="width: 50px"
                       >
@@ -209,7 +265,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                           }"
                           :state="report[symptom + '_state']"
                           @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
-                          :color="config.symptoms[symptom].color"
+                          :color="getSymptomColor(symptom, report)"
                           :symptom="symptom"
                         />
                       </circle-progress>
@@ -220,7 +276,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                   </n-tooltip>
                   <circle-progress
                     :percent="report[symptom + '_scale'] * 10"
-                    :color="config.symptoms[symptom].color"
+                    :color="getSymptomColor(symptom, report)"
                     :id="symptom"
                     style="width: 50px"
                     v-else
@@ -238,7 +294,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                       }"
                       :state="report[symptom + '_state']"
                       @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
-                      :color="config.symptoms[symptom].color"
+                      :color="getSymptomColor(symptom, report)"
                       :symptom="symptom"
                     />
                   </circle-progress>
