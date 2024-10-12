@@ -13,10 +13,14 @@ import type { CancelTokenSource } from "axios";
 import ReportTableHeader from "@/components/ReportTableHeader.vue";
 import axios from "axios";
 import CircleProgress from "@/components/CircleProgress.vue";
+import { getUserInfo } from "@/api/user";
 
 const refreshPatients = inject("refreshPatients");
 const patient_id = useRouteParams("patient_id");
 const report_id = useRouteParams("report_id");
+let user_Id = 0;
+
+let username = "";
 const current_symptom = useRouteQuery("symptom");
 const patient = ref<Patient | null>(null);
 const loading = ref(true);
@@ -44,6 +48,25 @@ watch(
   },
   { immediate: true },
 );
+const fetchUserInfo = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.error("Token not found");
+      return;
+    }
+    const userInfoResponse = await getUserInfo(token);
+    if (userInfoResponse.user_id) {
+      user_Id = userInfoResponse.user_id;
+      username = userInfoResponse.username;
+      console.log(user_Id);
+    }
+  } catch (error: any) {
+    console.error("An error occurred while fetching user info:", error);
+  }
+};
+
+fetchUserInfo();
 const jumpToReport = (report: Report, symptom: string | undefined) => {
   router.push({
     name: "patient.report.detail",
@@ -94,18 +117,47 @@ const updateState = async (
   symptom: string,
   state: number,
 ) => {
+  console.log("updateState called with:", { id, report_id, symptom, state });
+
   const report = patient.value!.reports.find((r) => r.id === report_id);
+  console.log("Found report:", report);
+
   if (report) {
     const date = format(new Date(), "yyyy-MM-dd HH:mm:ss");
+    console.log("Formatted date:", date);
+
+    const oldStateMessage = [
+      "No Information",
+      "Normal",
+      config.stateMessages[config.symptoms[symptom].max_scale],
+    ][report[symptom + "_state"]];
+    const newStateMessage = config.stateMessages[state];
+    console.log("State change:", { oldStateMessage, newStateMessage });
+
     await createNote(
       id,
+      user_Id,
       report_id,
-      `Severity of ${symptom} changed from ${["No Information", "Normal", config.stateMessages[config.symptoms[symptom].max_scale]][report[symptom + "_state"]]} to ${config.stateMessages[state]} at ${date}`,
+      `Severity of ${symptom} changed from ${oldStateMessage} to ${newStateMessage} at ${date}`,
     );
+    console.log("Note created for state change.");
+
     report[symptom + "_state"] = state;
+    console.log(
+      `Updated report state for ${symptom}:`,
+      report[symptom + "_state"],
+    );
+
     await updateReport(id, report_id, { [symptom + "_state"]: state });
+    console.log("Report updated on server.");
+
     right.value.refresh();
+    console.log("Right panel refreshed.");
+
     refreshPatients();
+    console.log("Patients data refreshed.");
+  } else {
+    console.warn("Report not found for report_id:", report_id);
   }
 };
 </script>
