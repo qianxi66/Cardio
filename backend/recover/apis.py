@@ -613,7 +613,7 @@ def create_report_note(id, report_id):
     data = request.get_json()
     note = ReportNote(
         report_id=report_id,
-        user_id=data["user_id"],
+        user_id=g.current_user.id,
         content=data["content"],
     )
     db.session.add(note)

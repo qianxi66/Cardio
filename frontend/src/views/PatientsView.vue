@@ -91,8 +91,11 @@ const updateState = (id: number, state: number) => {
         <div class="filterpart">
           <n-input
             v-model:value="searchTerm"
-            placeholder="search by participant-id"
-          />
+            placeholder="Filter by Participant ID"
+            @keydown.esc="searchTerm = ''"
+            clearable
+          >
+          </n-input>
         </div>
       </template>
       <loading

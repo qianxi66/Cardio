@@ -1,23 +1,35 @@
 <template>
-  <n-card class="login-container">
-    <n-h2>Login</n-h2>
-    <n-form>
-      <n-form-item label="Username">
-        <n-input v-model:value="username" placeholder="Enter your username" />
-      </n-form-item>
-      <n-form-item label="Password">
-        <n-input
-          type="password"
-          v-model:value="password"
-          placeholder="Enter your password"
-        />
-      </n-form-item>
-      <n-checkbox v-model:checked="Rememberme">Remember Me</n-checkbox>
-      <n-button attr-type="submit" type="info" @click="handleLogin"
-        >Start</n-button
-      >
-    </n-form>
-  </n-card>
+  <div class="holder">
+    <n-card class="login-container">
+      <n-h2>Login</n-h2>
+      <n-form>
+        <n-form-item label="Username">
+          <n-input v-model:value="username" placeholder="Enter your username" />
+        </n-form-item>
+        <n-form-item label="Password">
+          <n-input
+            type="password"
+            v-model:value="password"
+            placeholder="Enter your password"
+          />
+        </n-form-item>
+        <div class="row" style="margin-bottom: 24px">
+          <n-checkbox v-model:checked="Rememberme">Remember Me</n-checkbox>
+        </div>
+        <div class="row">
+          <n-button
+            :loading="loading"
+            attr-type="submit"
+            type="info"
+            @click="handleLogin"
+            style="width: 100%"
+          >
+            Login
+          </n-button>
+        </div>
+      </n-form>
+    </n-card>
+  </div>
 </template>
 
 <script setup lang="tsx">
@@ -31,17 +43,20 @@ const router = useRouter();
 const username = ref("");
 const password = ref("");
 const Rememberme = ref(false);
+const loading = ref(false);
 
 const notification = useNotification();
 
 const handleLogin = async () => {
   try {
+    loading.value = true;
     const response = await login(
       username.value,
       password.value,
       Rememberme.value,
     );
-    if (response.hasOwnProperty("message")) {
+    loading.value = false;
+    if (Object.hasOwnProperty(response, "message")) {
       notification.create({
         title: response.message,
       });
@@ -52,6 +67,8 @@ const handleLogin = async () => {
       router.push("/patient");
     }
   } catch (error: any) {
+    loading.value = false;
+    console.log(error);
     if (error.response) {
       const errorMessage = error.response.data.message;
       // message.error( errorMessage);
@@ -60,49 +77,19 @@ const handleLogin = async () => {
 };
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+.holder {
+  flex-grow: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .login-container {
   max-width: 300px;
-  margin: 100px auto;
   padding: 20px;
   border: 1px solid #ccc;
   border-radius: 5px;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-}
-.login-container h2 {
-  text-align: center;
-  margin-bottom: 20px;
-}
-.login-container form {
-  display: flex;
-  flex-direction: column;
-}
-.login-container div {
-  margin-bottom: 15px;
-}
-.login-container label {
-  display: block;
-  margin-bottom: 5px;
-}
-.login-container input {
-  width: 100%;
-  padding: 8px;
-  box-sizing: border-box;
-}
-.remember-me-container {
-  display: flex;
-  align-items: center;
-  margin: 0; /* Ensure no extra margin around the container */
-}
-.login-container button {
-  padding: 10px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-}
-.login-container button:hover {
-  background-color: #0056b3;
 }
 </style>

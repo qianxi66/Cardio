@@ -1,5 +1,5 @@
 <script setup lang="tsx">
-import { ref, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import PatientForm from "../components/PatientForm.vue";
 import { useRouter } from "vue-router";
 //import axios from "axios";
@@ -10,7 +10,6 @@ import type { CancelTokenSource } from "axios";
 import axios from "axios";
 const patient = ref<Patient | null>(null);
 const patient_id = useRouteParams("patient_id");
-const cancelToken = ref<CancelTokenSource | null>(null);
 
 const router = useRouter();
 const loading = ref(true);
@@ -33,46 +32,27 @@ const formData = ref<FormData>({
   age: null,
 });
 
-watch(
-  patient_id,
-  async () => {
-    if (!patient_id.value) {
-      patient.value = null;
-      loading.value = false;
-      return;
-    }
+onMounted(async () => {
+  console.log("formData", formData.value);
+  patient.value = null;
+  loading.value = true;
 
-    console.log("fetching patient", patient_id.value);
-
-    if (cancelToken.value) {
-      cancelToken.value.cancel();
-    }
-
-    cancelToken.value = axios.CancelToken.source();
+  try {
+    patient.value = await getPatient(parseInt(patient_id.value as string));
+    formData.value.EHR_id = patient.value.EHR_id;
+    formData.value.medication = patient.value.medication;
+    formData.value.user = patient.value.users.map((user) => user.id);
+    formData.value.medical_history = patient.value.medical_history;
+    formData.value.gender = patient.value.gender;
+    formData.value.age = patient.value.age;
+    formData.value.participant_id = patient.value.participant_id;
+  } catch (error) {
+    console.error("An error occurred while fetching patient info:", error);
     patient.value = null;
-    loading.value = true;
-
-    try {
-      patient.value = await getPatient(
-        parseInt(patient_id.value as string),
-        cancelToken.value.token,
-      );
-      formData.value.EHR_id = patient.value.EHR_id;
-      formData.value.medication = patient.value.medication;
-      formData.value.user = patient.value.users.map((user) => user.id);
-      formData.value.medical_history = patient.value.medical_history;
-      formData.value.gender = patient.value.gender;
-      formData.value.age = patient.value.age;
-      formData.value.participant_id = patient.value.participant_id;
-    } catch (error) {
-      console.error("An error occurred while fetching patient info:", error);
-      patient.value = null;
-    } finally {
-      loading.value = false;
-    }
-  },
-  { immediate: true },
-);
+  } finally {
+    loading.value = false;
+  }
+});
 
 const handleupdatePatient = async (formData) => {
   try {
@@ -107,7 +87,11 @@ const handleupdatePatient = async (formData) => {
   <div>
     <div class="container">
       <h1>Update Patient</h1>
-      <PatientForm v-model:model="formData" @submit="handleupdatePatient" />
+      <PatientForm
+        :loading="loading"
+        v-model:model="formData"
+        @submit="handleupdatePatient"
+      />
     </div>
   </div>
 </template>

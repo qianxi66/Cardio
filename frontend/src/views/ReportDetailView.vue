@@ -35,8 +35,6 @@ const report = ref<Report | null>(null);
 const loading = ref(true);
 const editingNote = ref("");
 const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({});
-let user_Id = 0;
-let username = "";
 const refresh = async () => {
   if (cancelToken.value) {
     cancelToken.value.cancel();
@@ -95,45 +93,26 @@ const deleteNote = (note_id: number) => {
   );
   deleteNoteAPI(patient_id.value as number, report_id.value as number, note_id);
 };
-const fetchUserInfo = async () => {
-  try {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      console.error("Token not found");
-      return;
-    }
-    const userInfoResponse = await getUserInfo(token);
-    if (userInfoResponse.user_id) {
-      user_Id = userInfoResponse.user_id;
-      username = userInfoResponse.username;
-      console.log(user_Id);
-    }
-  } catch (error: any) {
-    console.error("An error occurred while fetching user info:", error);
-  }
-};
 
-fetchUserInfo();
 const createNote = () => {
-  console.log(user_Id);
   if (editingNote.value) {
-    report.value!.notes.push({
-      id: report.value!.notes.length + 1,
-      content: editingNote.value,
-      created_at: new Date(),
-      user: {
-        username: username,
-      },
-      updated_at: new Date(),
-      user_id: user_Id,
-      report_id: report.value!.id,
-    });
+    // report.value!.notes.push({
+    //   id: report.value!.notes.length + 1,
+    //   content: editingNote.value,
+    //   created_at: new Date(),
+    //   user: {
+    //     username: username
+    //   },
+    //   updated_at: new Date(),
+    //   user_id: user_Id,
+    //   report_id: report.value!.id
+    // })
     createNoteAPI(
       patient_id.value as number,
-      user_Id,
       report_id.value as number,
       editingNote.value,
     );
+    refresh();
     editingNote.value = "";
   }
 };
@@ -150,10 +129,6 @@ const scroll = () => {
   }
 };
 watch(select_log_ids, scroll);
-
-function asyc() {
-  throw new Error("Function not implemented.");
-}
 </script>
 <template>
   <ColoredCard
@@ -231,7 +206,7 @@ function asyc() {
                     formatDistance(note.created_at, new Date(), {
                       addSuffix: true,
                     })
-                  }}, created by {{ note.user.username }}
+                  }}, created by {{ note.user.name }}
                 </div>
               </div>
             </li>

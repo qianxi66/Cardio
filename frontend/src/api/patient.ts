@@ -76,13 +76,12 @@ export const deleteNote = async (
 
 export const createNote = async (
   patient_id: number,
-  user_id: number,
   report_id: number,
   content: string,
 ) => {
   return await api({
     url: `/patients/${patient_id}/report/${report_id}/note`,
     method: "POST",
-    data: { content, user_id: user_id },
+    data: { content },
   });
 };

@@ -20,7 +20,6 @@ const patient_id = useRouteParams("patient_id");
 const report_id = useRouteParams("report_id");
 let user_Id = 0;
 
-let username = "";
 const current_symptom = useRouteQuery("symptom");
 const patient = ref<Patient | null>(null);
 const loading = ref(true);
@@ -28,6 +27,7 @@ const cancelToken = ref<CancelTokenSource | null>(null);
 watch(
   patient_id,
   async () => {
+    console.log("patient_id changed", patient_id.value);
     if (!patient_id.value) {
       patient.value = null;
       loading.value = true;
@@ -58,7 +58,6 @@ const fetchUserInfo = async () => {
     const userInfoResponse = await getUserInfo(token);
     if (userInfoResponse.user_id) {
       user_Id = userInfoResponse.user_id;
-      username = userInfoResponse.username;
       console.log(user_Id);
     }
   } catch (error: any) {
@@ -136,7 +135,6 @@ const updateState = async (
 
     await createNote(
       id,
-      user_Id,
       report_id,
       `Severity of ${symptom} changed from ${oldStateMessage} to ${newStateMessage} at ${date}`,
     );
