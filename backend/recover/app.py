@@ -21,4 +21,4 @@ migrate.init_app(app)
 with app.app_context():
     from . import apis  # noqa
     from . import cli  # noqa
-    from . import db  # noqa
+    from . import db as db_module  # noqa

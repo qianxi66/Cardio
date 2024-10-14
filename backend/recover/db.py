@@ -18,8 +18,13 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
 from .app import db
+from .config import symptom_descriptions
 
 _O = t.TypeVar("_O", bound=object)  # Based on sqlalchemy.orm._typing.py
+
+db.Model.as_dict = lambda self: {
+    c.name: getattr(self, c.name) for c in self.__table__.columns
+}
 
 
 class NotFound(Exception):
@@ -39,7 +44,6 @@ user_patient_table = Table(
 )
 
 
-@dataclass
 class Patient(db.Model):
     __tablename__ = "patient"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -70,24 +74,6 @@ class Patient(db.Model):
     state = db.Column(db.Integer, default=0)
 
 
-# @dataclass
-# class ReportNote(db.Model):
-#     __tablename__ = "reportnote"
-
-#     id: Mapped[int] = mapped_column(primary_key=True)
-#     report_id: Mapped[int] = mapped_column(ForeignKey("report.id"))
-#     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
-#     content: Mapped[str] = mapped_column(Text)
-#     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-#     updated_at: Mapped[datetime] = mapped_column(onupdate=datetime.utcnow)
-
-#     # Define the relationship with User
-#     user: Mapped["User"] = relationship(
-#         "User", back_populates="report_note", uselist=False
-#     )
-
-
-@dataclass
 class ReportNote(db.Model):
     __tablename__ = "reportnote"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -107,134 +93,59 @@ class ReportNote(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
 
-# @dataclass
-# class User(db.Model):
-#     __tablename__ = "user"
-
-#     id: Mapped[int] = mapped_column(primary_key=True)
-#     username: Mapped[str] = mapped_column(String(50))
-#     password: Mapped[str] = mapped_column(String(255))
-#     email: Mapped[str] = mapped_column(String(100))
-#     name: Mapped[str] = mapped_column(String(100))
-
-#     # Define the back reference to ReportNote
-#     report_note: Mapped["ReportNote"] = relationship(
-#         "ReportNote", back_populates="user", uselist=False
-#     )
-
-#     # Example for handling many-to-many or other specific relationships
-#     patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
-
-
 @dataclass
 class User(db.Model):
     __tablename__ = "user"
     id: Mapped[int] = mapped_column(primary_key=True)
     patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
-    username: str
-    password: str
-    email: str
-    name: str
-
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50))
-    password = db.Column(db.String(255))
-    email = db.Column(db.String(100))
-    name = db.Column(db.String(100))
+    username: Mapped[str] = mapped_column(db.String(50))
+    password: Mapped[str] = mapped_column(db.String(255))
+    email: Mapped[str] = mapped_column(db.String(100))
+    name: Mapped[str] = mapped_column(db.String(100))
 
 
-@dataclass
 class Token(db.Model):
-    id: int
-    token: str
-    userid: int
-    # user: User
-    rememberme: bool
-    created_at: datetime = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at: datetime = db.Column(
+    __tablename__ = "token"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(db.String(255))
+    userid: Mapped[int] = mapped_column(db.ForeignKey("user.id"), nullable=False)
+    rememberme: Mapped[bool] = mapped_column(db.Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-    id = db.Column(db.Integer, primary_key=True)
-    token = db.Column(db.String(255))
-    userid = db.Column(db.ForeignKey("user.id"), nullable=False)
-    #  user = db.relationship('User')
-    rememberme = db.Column(db.Boolean, default=False)
+    # user: Mapped["User"] = relationship()
 
 
-@dataclass
 class Report(db.Model):
-    id: int = db.Column(db.Integer, primary_key=True)
-    patient_id: int = db.Column(db.Integer, db.ForeignKey("patient.id"))
-    created_at: datetime = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at: datetime = db.Column(
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-    read: bool = db.Column(db.Boolean, default=False)
-
-    pain_state: int = db.Column(db.Integer)
-    pain_logs: str = db.Column(db.String)
-
-    breathing_state: int = db.Column(db.Integer)
-    breathing_logs: str = db.Column(db.String)
-
-    fever_state: int = db.Column(db.Integer)
-    fever_logs: str = db.Column(db.String)
-
-    stools_state: int = db.Column(db.Integer)
-    stools_logs: str = db.Column(db.String)
-
-    drainage_state: int = db.Column(db.Integer)
-    drainage_logs: str = db.Column(db.String)
-
-    activity_state: int = db.Column(db.Integer)
-    activity_logs: str = db.Column(db.String)
-
-    conscious_state: int = db.Column(db.Integer)
-    conscious_logs: str = db.Column(db.String)
-
-    constipation_state: int = db.Column(db.Integer)
-    constipation_logs: str = db.Column(db.String)
-
-    diarrhea_state: int = db.Column(db.Integer)
-    diarrhea_logs: str = db.Column(db.String)
-
-    eating_state: int = db.Column(db.Integer)
-    eating_logs: str = db.Column(db.String)
-
-    swelling_state: int = db.Column(db.Integer)
-    swelling_logs: str = db.Column(db.String)
-
-    mood_state: int = db.Column(db.Integer)
-    mood_logs: str = db.Column(db.String)
-
-    misc_state: int = db.Column(db.Integer)
-    misc_logs: str = db.Column(db.String)
-
-    breathing_scale: int = db.Column(db.Integer)
-    pain_scale: int = db.Column(db.Integer)
-    conscious_scale: int = db.Column(db.Integer)
-    constipation_scale: int = db.Column(db.Integer)
-    eating_scale: int = db.Column(db.Integer)
+    read = db.Column(db.Boolean, default=False)
 
 
-# @dataclass
-# class ReportNote(db.Model):
-#     id: int
-#     report_id: int
-#     user_id: int
-#     content: str
-#     created_at: datetime
-#     updated_at: datetime
-
-#     id = db.Column(db.Integer, primary_key=True)
-#     report_id = db.Column(db.Integer, db.ForeignKey("report.id"))
-#     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
-#     content = db.Column(db.Text)
-#     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-#     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+for symptom_name in symptom_descriptions:
+    setattr(Report, symptom_name + "_state", db.Column(db.Integer))
+    setattr(Report, symptom_name + "_logs", db.Column(db.String))
+    if symptom_descriptions[symptom_name]["likert"]:
+        setattr(Report, symptom_name + "_scale", db.Column(db.Integer))
 
 
-@dataclass
+class AlexaIDNote(db.Model):
+    id: int
+    alexa_user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    id = db.Column(db.Integer, primary_key=True)
+    alexa_user_id = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+
 class ReportSummary(db.Model):
     id: int
     report_id: int

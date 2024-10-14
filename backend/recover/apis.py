@@ -13,6 +13,7 @@ from flask import abort, current_app, jsonify, logging, request, g
 from .app import app
 from .config import symptom_descriptions
 from .db import (
+    AlexaIDNote,
     ConversationLog,
     Patient,
     Report,
@@ -449,90 +450,6 @@ def get_patient(id):
         return jsonify({"error": "An internal error occurred"}), 500
 
 
-def report_note_to_dict(note: ReportNote) -> dict:
-    return {
-        "id": note.id,
-        "user_id": note.user_id,
-        "report_id": note.report_id,
-        "content": note.content,
-        "created_at": note.created_at.isoformat(),
-        "updated_at": note.updated_at.isoformat() if note.updated_at else None,
-        "user": {
-            "id": note.user.id,
-            "username": note.user.username,
-            "name": note.user.name,
-        }
-        if note.user
-        else None,  # ensure user not none.
-    }
-
-
-def report_to_dict(report: Report) -> dict:
-    return {
-        "id": report.id,
-        "patient_id": report.patient_id,
-        "created_at": report.created_at.isoformat(),
-        "updated_at": report.updated_at.isoformat(),
-        "read": report.read,
-        "pain_state": report.pain_state,
-        "pain_logs": report.pain_logs,
-        "breathing_state": report.breathing_state,
-        "breathing_logs": report.breathing_logs,
-        "fever_state": report.fever_state,
-        "fever_logs": report.fever_logs,
-        "stools_state": report.stools_state,
-        "stools_logs": report.stools_logs,
-        "drainage_state": report.drainage_state,
-        "drainage_logs": report.drainage_logs,
-        "activity_state": report.activity_state,
-        "activity_logs": report.activity_logs,
-        "conscious_state": report.conscious_state,
-        "conscious_logs": report.conscious_logs,
-        "constipation_state": report.constipation_state,
-        "constipation_logs": report.constipation_logs,
-        "diarrhea_state": report.diarrhea_state,
-        "diarrhea_logs": report.diarrhea_logs,
-        "eating_state": report.eating_state,
-        "eating_logs": report.eating_logs,
-        "swelling_state": report.swelling_state,
-        "swelling_logs": report.swelling_logs,
-        "mood_state": report.mood_state,
-        "mood_logs": report.mood_logs,
-        "misc_state": report.misc_state,
-        "misc_logs": report.misc_logs,
-        "breathing_scale": report.breathing_scale,
-        "pain_scale": report.pain_scale,
-        "conscious_scale": report.conscious_scale,
-        "constipation_scale": report.constipation_scale,
-        "eating_scale": report.eating_scale,
-    }
-
-
-def report_summary_to_dict(summary: ReportSummary) -> dict:
-    return {
-        "id": summary.id,
-        "report_id": summary.report_id,
-        "category": summary.category,
-        "content": summary.content,
-        "conversation_log_ids": summary.conversation_log_ids,
-        "highlight_keywords": summary.highlight_keywords,
-        "created_at": summary.created_at.isoformat() if summary.created_at else None,
-        "updated_at": summary.updated_at.isoformat() if summary.updated_at else None,
-    }
-
-
-def conversation_log_to_dict(log: ConversationLog) -> dict:
-    return {
-        "id": log.id,
-        "patient_id": log.patient_id,
-        "report_id": log.report_id,
-        "role": log.role,
-        "content": log.content,
-        "chain_of_thoughts": log.chain_of_thoughts,
-        "created_at": log.created_at.isoformat(),
-    }
-
-
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["GET"])
 @api_key_required
 def get_patient_reports(id, report_id):
@@ -541,23 +458,20 @@ def get_patient_reports(id, report_id):
     if report is None:
         return jsonify({"error": "Report not found"}), 404
 
-    report_dict = report_to_dict(report)
+    report_dict = report.as_dict()
 
     conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
-    report_dict["conversation_logs"] = [
-        conversation_log_to_dict(log) for log in conversation_logs
-    ]
+    report_dict["conversation_logs"] = [log.as_dict() for log in conversation_logs]
 
     summaries = ReportSummary.query.filter_by(report_id=report_id).all()
-    print(summaries)
-    report_dict["summary"] = [report_summary_to_dict(s) for s in summaries]
+    report_dict["summary"] = [s.as_dict() for s in summaries]
 
     notes = (
         ReportNote.query.options(joinedload(ReportNote.user))
         .filter_by(report_id=report_id)
         .all()
     )
-    report_dict["notes"] = [report_note_to_dict(note) for note in notes]
+    report_dict["notes"] = [note.as_dict() for note in notes]
 
     return jsonify(report_dict)
 
@@ -568,7 +482,7 @@ def get_patient_reports(id, report_id):
 def update_report(id, report_id):
     patient = Patient.query.get(id)
     data = request.get_json()
-    report = Report.query.filter_by(id=report_id).first()
+    report = Report.query.get(report_id)
     for key in data:
         setattr(report, key, data[key])
     db.session.add(report)
@@ -711,7 +625,8 @@ mood: not discussed
     )
     db.session.add(log)
     db.session.commit()
-    return jsonify(log)
+    log.content += "CONVERSATION_END" if session_end else ""
+    return jsonify(log.as_dict())
 
 
 def session_end_hook(alexa_user_id):
@@ -812,3 +727,14 @@ def get_last_message(alexa_user_id):
     messages = [asdict(message) for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     return jsonify({"message": "success", "last_message": messages[-1]})
+
+
+@current_app.route("/alexa_user/<alexa_user_id>/create_note", methods=["POST"])
+@api_key_required
+def create_note(alexa_user_id):
+    note = AlexaIDNote(
+        alexa_user_id=alexa_user_id,
+    )
+    db.session.add(note)
+    db.session.commit()
+    return jsonify({"message": "success", "note": note.as_dict()})
