@@ -1,25 +1,30 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup lang="ts">
-import { stateColors, stateMessages } from '@/config'
-import { type ButtonProps } from 'naive-ui'
-type ButtonThemeOverrides = NonNullable<ButtonProps['themeOverrides']>
+import { stateColors, stateMessages } from "@/config";
+import { type ButtonProps } from "naive-ui";
+type ButtonThemeOverrides = NonNullable<ButtonProps["themeOverrides"]>;
 const props = withDefaults(
-  defineProps<{ loading?: boolean; state?: number; editable?: boolean; reviewable?: boolean }>(),
+  defineProps<{
+    loading?: boolean;
+    state?: number;
+    editable?: boolean;
+    reviewable?: boolean;
+  }>(),
   {
     loading: false,
     state: 0,
     editable: false,
-    reviewable: false
-  }
-)
+    reviewable: false,
+  },
+);
 // on edit trigger
-const emit = defineEmits(['update:state'])
+const emit = defineEmits(["update:state"]);
 const buttonThemeOverrides: ButtonThemeOverrides = {
-  colorHover: 'white',
-  colorPressed: 'white',
-  colorFocus: 'white'
-}
-const popoverEl = ref<HTMLElement | null>(null)
+  colorHover: "white",
+  colorPressed: "white",
+  colorFocus: "white",
+};
+const popoverEl = ref<HTMLElement | null>(null);
 </script>
 <template>
   <div v-if="!editable">
@@ -27,7 +32,7 @@ const popoverEl = ref<HTMLElement | null>(null)
       class="dot"
       v-if="!props.loading && props.state >= 0"
       :style="{
-        '--color': stateColors[props.state!]
+        '--color': stateColors[props.state!],
       }"
     ></div>
     <n-icon class="dot" v-else-if="!props.loading && props.state == -1">
@@ -42,7 +47,11 @@ const popoverEl = ref<HTMLElement | null>(null)
         ></path>
       </svg>
     </n-icon>
-    <n-skeleton v-else box style="height: 24px; width: 24px; border-radius: 50%" />
+    <n-skeleton
+      v-else
+      box
+      style="height: 24px; width: 24px; border-radius: 50%"
+    />
   </div>
   <div v-else>
     <n-popover
@@ -65,8 +74,8 @@ const popoverEl = ref<HTMLElement | null>(null)
           :type="props.state === state ? 'info' : 'default'"
           @click="
             () => {
-              emit('update:state', state)
-              popoverEl.setShow(false)
+              emit('update:state', state);
+              popoverEl.setShow(false);
             }
           "
         >
@@ -79,8 +88,8 @@ const popoverEl = ref<HTMLElement | null>(null)
           v-if="props.reviewable"
           @click="
             () => {
-              emit('update:state', -1)
-              popoverEl.setShow(false)
+              emit('update:state', -1);
+              popoverEl.setShow(false);
             }
           "
         >

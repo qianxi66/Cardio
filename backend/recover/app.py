@@ -7,9 +7,10 @@ from . import config  # noqa
 
 db = SQLAlchemy()
 # cors allow everyting
-cors = CORS()
+
 
 app = Flask(__name__)
+cors = CORS()
 app.config["SQLALCHEMY_DATABASE_URI"] = config.db_url
 migrate = Migrate(app, db, render_as_batch=True)
 
@@ -20,4 +21,4 @@ migrate.init_app(app)
 with app.app_context():
     from . import apis  # noqa
     from . import cli  # noqa
-    from . import db  # noqa
+    from . import db as db_module  # noqa

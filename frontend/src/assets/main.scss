@@ -153,13 +153,13 @@ html {
 }
 
 .table-row-block {
-    border-radius: 4px;
-    &.selected {
-      outline: 2px solid #a1a1a1;
-      // background-color: #f8f8f8;
-    }
+  border-radius: 4px;
+  &.selected {
+    outline: 2px solid #a1a1a1;
+    // background-color: #f8f8f8;
+  }
 
-    &.odd {
-      background-color: #f0f0f0;
-    }
+  &.odd {
+    background-color: #f0f0f0;
+  }
 }

@@ -2,12 +2,14 @@
 import json
 import random
 from datetime import datetime, timedelta
+import bcrypt
+import click
 
 from sqlalchemy import text
 
 from .app import app
 from .config import symptom_descriptions
-from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, db
+from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, User, db
 
 
 def initialize_reports():
@@ -124,6 +126,7 @@ def generate_summaries():
                     conversation_log_ids="",
                     highlight_keywords="",
                 )
+                summary.created_at = datetime.utcnow() - timedelta(days=(i + 1))
                 db.session.add(summary)
         db.session.commit()
 
@@ -135,7 +138,7 @@ def generate_notes():
             for i in range(3):
                 note = ReportNote(
                     report_id=r.id,
-                    user_id=0,
+                    user_id=1,
                     content=random.choice(
                         [
                             "should check in with patient tomorrow",
@@ -170,19 +173,19 @@ def generate_patients():
     with app.app_context():
         with db.engine.connect() as connection:
             sql = """INSERT INTO patient VALUES(1, 25, 'male', 'E01-01', NULL, 'no information', 'no information', 'T001 Alex', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(2, 26, 'female', 'E01-02', NULL, 'no information', 'no information', 'T002 Bella', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(3, 27, 'male', 'E01-03', NULL, 'no information', 'no information', 'T003 Charlie', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(4, 28, 'female', 'E01-04', NULL, 'no information', 'no information', 'T004 Dana', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(2, 26,  'female', 'E01-02', NULL, 'no information', 'no information', 'T002 Bella', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(3, 27,  'male', 'E01-03', NULL, 'no information', 'no information', 'T003 Charlie', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(4, 28,  'female', 'E01-04', NULL, 'no information', 'no information', 'T004 Dana', '1970-01-01', false, 0);
 INSERT INTO patient VALUES(5, 29, 'male', 'E01-05', NULL, 'no information', 'no information', 'T005 Ethan', '1970-01-01', false, 0);
 INSERT INTO patient VALUES(6, 30, 'female', 'E01-06', NULL, 'no information', 'no information', 'T006 Fiona', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(7, 31, 'male', 'E01-07', NULL, 'no information', 'no information', 'T007 George', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(7, 31,  'male', 'E01-07', NULL, 'no information', 'no information', 'T007 George', '1970-01-01', false, 0);
 INSERT INTO patient VALUES(8, 32, 'female', 'E01-08', NULL, 'no information', 'no information', 'T008 Hannah', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(9, 33, 'male', 'E01-09', NULL, 'no information', 'no information', 'T009 Ian', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(9, 33,  'male', 'E01-09', NULL, 'no information', 'no information', 'T009 Ian', '1970-01-01', false, 0);
 INSERT INTO patient VALUES(10, 34, 'female', 'E01-10', NULL, 'no information', 'no information', 'T010 Jenna', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(11, 35, 'male', 'E01-11', NULL, 'no information', 'no information', 'T011 Kyle', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(11, 35,  'male', 'E01-11', NULL, 'no information', 'no information', 'T011 Kyle', '1970-01-01', false, 0);
 INSERT INTO patient VALUES(12, 36, 'female', 'E01-12', NULL, 'no information', 'no information', 'T012 Lily', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(13, 37, 'male', 'E01-13', NULL, 'no information', 'no information', 'T013 Max', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(14, 38, 'female', 'E01-14', NULL, 'no information', 'no information', 'T014 Nora', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(13, 37,  'male', 'E01-13', NULL, 'no information', 'no information', 'T013 Max', '1970-01-01', false, 0);
+INSERT INTO patient VALUES(14, 38 ,'female', 'E01-14', NULL, 'no information', 'no information', 'T014 Nora', '1970-01-01', false, 0);
 INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no information', 'T015 Oliver', '1970-01-01', false, 0);
 """
             for statement in sql.split(";"):
@@ -195,6 +198,7 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
             "Jiachen": "amzn1.ask.account.AMA7ZSZ6R5XT6YD23IAFJGTQGW2D6EYQHN22XU5ITEV6ICBAQGRL22U6GHSDILAUOH5VAPZ5CA33BFAVV4ARH3TVJPP53BPINGGJVLMB63TKFQL7DRNJGQOA6X3325Q5RWDRB2SFTUWRJMRQD3LWIMKVDFH4H77V5UQDVPQISFICTJS6RT2SDWDSO2PSLLPDRPIHO5BHRQKLXD5NWZY46KAY7Y4OUEN4RF3CI4LYKSRQ",
             "Ziqi": "amzn1.ask.account.AMATTDONXW34ZAJ6S3VHVVETE3BQ4ZIDZMO4WSV3VW63ADZUZX4Q3LLO4A4M3N2OOTUDS4EOY4E54N6HEBN4FWZAIQURU6UNI4XW2OWEH7VDIYGGY5DKJZINWCFW7SHKE4QNCTXM7XNMXZY5NKA5W75OVRM2K4FQXPTB45SEBFP5OFZJCQAIQPJIQQDUFTPSIPRW7MAK3GZKLIWA25LGCR6H5G5XN7G4OMIHIZYIAHPA",
         }
+        i = 1
         for key in ids:
             patient = Patient(
                 age=25,
@@ -209,8 +213,49 @@ INSERT INTO patient VALUES(15, 39, 'male', 'E01-15', NULL, 'no information', 'no
                 participant_id=f"TEST-{key}",
             )
             db.session.add(patient)
+            i += 1
         db.session.commit()
         print("Patients generated.")
+
+
+# @app.cli.command("generate-users")
+# def generate_users():
+#     with app.app_context():
+#         with db.engine.connect() as connection:
+#             sql = """INSERT INTO user VALUES(1,'sunbo','123','test@gmail.com','sunbo');
+#             INSERT INTO user VALUES(2,'abab','456','test2@gmail.com','abab');"""
+#             for statement in sql.split(";"):
+#                 connection.execute(text(statement))
+#             connection.execute(text("COMMIT;"))
+#         db.session.commit()
+#         print("users generated.")
+
+
+@app.cli.command("create-user")
+@click.option("--username", required=True, type=str, help="Username for the new user")
+@click.option("--password", required=True, type=str, help="Password for the new user")
+@click.option("--email", required=True, type=str, help="Email for the new user")
+@click.option("--name", required=True, type=str, help="Real name for the new user")
+def create_user(username, password, email, name):
+    with app.app_context():
+        print(f"Creating user with username {username}")
+
+        # Check if the username or email already exists
+        existing_user = User.query.filter(
+            (User.username == username) | (User.email == email)
+        ).first()
+        if existing_user:
+            print(f"User with username '{username}' or email '{email}' already exists.")
+            return
+
+        hashed_password = bcrypt.hashpw(
+            password.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
+        user = User(username=username, password=hashed_password, email=email, name=name)
+        db.session.add(user)
+        db.session.commit()
+
+        print(f"User '{username}' created successfully.")
 
 
 @app.cli.command("remove-conversation-summaries")
@@ -246,6 +291,40 @@ def remove_conversation_summaries():
             for note in notes:
                 db.session.delete(note)
         db.session.commit()
+
+
+@app.cli.command("assign-patient")
+@click.option("--user-id", required=True, type=int, help="ID of the user")
+@click.option("--patient-id", required=True, type=int, help="ID of the patient")
+def assign_patient(user_id, patient_id):
+    with app.app_context():
+        print(f"Assigning patient with ID {patient_id} to user with ID {user_id}")
+
+        user = User.query.get(user_id)
+        patient = Patient.query.get(patient_id)
+
+        if not user:
+            print(f"user with ID '{user_id}' does not exist.")
+            return
+
+        if not patient:
+            print(f"Patient with ID '{patient_id}' does not exist.")
+            return
+
+        # check whether the relation exists
+        if patient in user.patients:
+            print(
+                f"user with ID '{user_id}' already has access to patient with ID '{patient_id}'."
+            )
+            return
+
+        user.patients.append(patient)
+
+        db.session.commit()
+
+        print(
+            f"Patient with ID '{patient_id}' assigned to user with ID '{user_id}' successfully."
+        )
 
 
 # INSERT INTO patient VALUES(16, 71, 'male', 'TTTT', NULL, 'no information', 'no information', 'TEST dakuo', '1970-01-01', false, 0);

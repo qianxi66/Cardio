@@ -1,13 +1,16 @@
 import json
-from dataclasses import asdict
 from datetime import datetime, timedelta
 from functools import wraps
+import random
+import secrets
+import string
 from threading import Thread
-
-from flask import abort, current_app, jsonify, request
-
+from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import Session
+import bcrypt
+from flask import abort, current_app, jsonify, logging, request, g
 from .app import app
-from .config import VALID_API_KEYS, symptom_descriptions
+from .config import symptom_descriptions
 from .db import (
     AlexaIDNote,
     ConversationLog,
@@ -15,9 +18,59 @@ from .db import (
     Report,
     ReportNote,
     ReportSummary,
+    User,
     db,
+    Token,
 )
 from .openai_utils import conversation, key_questions, summary
+
+
+def generate_random_string(length=32):
+    characters = string.ascii_letters + string.digits
+    return "".join(secrets.choice(characters) for _ in range(length))
+
+
+def verify_password(input_password, stored_hashed_password):
+    input_password_encoded = input_password.encode("utf-8")
+    stored_hashed_password_encoded = stored_hashed_password.encode("utf-8")
+
+    return bcrypt.checkpw(input_password_encoded, stored_hashed_password_encoded)
+
+
+# api for user to login
+
+
+@current_app.route("/login", methods=["POST"])
+def login():
+    auth = request.json
+    if not auth or not auth.get("username") or not auth.get("password"):
+        return jsonify({"message": "Could not verify"}), 401
+
+    username = auth.get("username")
+    password = auth.get("password")
+    rememberme = auth.get("rememberme")
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"message": "WRONG USERNAME"}), 401
+
+    if user and verify_password(password, user.password):
+        token_string = generate_random_string()
+        token = Token(token=token_string, userid=user.id, rememberme=rememberme)
+        db.session.add(token)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "token": token,
+            }
+        )
+
+    return jsonify({"message": "WRONG PASSWORD"}), 401
+
+
+TOKEN_EXPIRATION_HOURS = 24
+REMEMBERME_EXPIRATION_HOURS = 72
 
 
 # a decorator to valid the 'authentication' header for an api key
@@ -28,94 +81,399 @@ def api_key_required(f):
         if not auth_header or not auth_header.startswith("Bearer "):
             abort(401)  # Unauthorized
 
-        api_key = auth_header.split(" ")[1]
-        if api_key not in VALID_API_KEYS:
-            abort(401)  # Unauthorized
+        # get Token
+        token_string = auth_header.split(" ")[1]
+
+        # dearch token in db
+        token = Token.query.filter_by(token=token_string).first()
+
+        if not token:
+            abort(401)
+        # token expired
+        if not token.rememberme and datetime.utcnow() - token.created_at > timedelta(
+            hours=TOKEN_EXPIRATION_HOURS
+        ):
+            abort(401)
+        # rememberme expired
+        if token.rememberme and datetime.utcnow() - token.created_at > timedelta(
+            hours=REMEMBERME_EXPIRATION_HOURS
+        ):
+            abort(401)
+
+        # get user
+        user = User.query.filter_by(id=token.userid).first()
+        if user:
+            g.current_user = user
+        else:
+            g.current_user = None
+            abort(401)
 
         return f(*args, **kwargs)
 
     return decorated_function
 
 
-# get patients, return all patients
+@current_app.route("/get_user_info", methods=["GET"])
+def get_user_info():
+    try:
+        token = request.headers.get("Authorization")
+        if not token:
+            return jsonify({"message": "Token is missing"}), 401
+
+        token = token.split(" ")[1]
+        token_record = Token.query.filter_by(token=token).first()
+
+        if not token_record:
+            return jsonify({"message": "Invalid token"}), 401
+
+        user = User.query.get(token_record.userid)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+
+        return jsonify({"user_id": user.id, "username": user.username})
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
+
+
+def patient_to_dict(patient):
+    return {
+        "id": patient.id,
+        "age": patient.age,
+        "gender": patient.gender,
+        "EHR_id": patient.EHR_id,
+        "alexa_user_id": patient.alexa_user_id,
+        "medical_history": patient.medical_history,
+        "medication": patient.medication,
+        "participant_id": patient.participant_id,
+        "last_read_at": patient.last_read_at,
+        "reviewed": patient.reviewed,
+        "state": patient.state,
+    }
+
+
 @current_app.route("/patients", methods=["GET"])
 @api_key_required
 def get_patients():
-    # sort by patient state
-    patients = Patient.query.all()
-    patients = [asdict(patient) for patient in patients]
-    for patient in patients:
-        latest_report = (
-            Report.query.filter_by(patient_id=patient["id"])
-            .order_by(Report.created_at.desc())
-            .first()
-        )
-        if latest_report:
-            if patient["last_read_at"]:
-                patient["read"] = patient["last_read_at"] >= latest_report.created_at
+    try:
+        patients = g.current_user.patients
+
+        patients_dict = [patient_to_dict(patient) for patient in patients]
+
+        for patient in patients_dict:
+            latest_report = (
+                Report.query.filter_by(patient_id=patient["id"])
+                .order_by(Report.created_at.desc())
+                .first()
+            )
+            if latest_report:
+                if patient["last_read_at"]:
+                    patient["read"] = (
+                        patient["last_read_at"] >= latest_report.created_at
+                    )
+                else:
+                    patient["read"] = False
             else:
-                patient["read"] = False
-        else:
-            patient["state"] = 0
-        if patient["state"] is None:
-            patient["state"] = 0
-            patient["read"] = True
-    patients = sorted(
-        patients,
-        key=lambda x: -1 if x["reviewed"] else (x["state"] if x["state"] else 0),
-        reverse=True,
+                patient["state"] = 0
+            if patient["state"] is None:
+                patient["state"] = 0
+                patient["read"] = True
+
+        patients_dict = sorted(
+            patients_dict,
+            key=lambda x: -1 if x["reviewed"] else (x["state"] if x["state"] else 0),
+            reverse=True,
+        )
+
+        return jsonify(patients_dict)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
+
+
+@current_app.route("/users", methods=["GET"])
+@api_key_required
+def get_users():
+    try:
+        # Assuming you have access to the database session
+        session: Session = db.session
+        users = session.query(User).all()
+
+        # Convert User objects to dictionary format
+        users_dict = [user_to_dict(user) for user in users]
+
+        return jsonify(users_dict)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
+
+
+def user_to_dict(user):
+    """Helper function to convert User object to dictionary"""
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "name": user.name,
+        # Add more fields as needed
+    }
+
+
+def generate_report_for_patient(patient):
+    i = 1
+    # random state, read false, empty logs
+    symptom_kwargs = [
+        {
+            f"{symptom}_state": 0,
+            f"{symptom}_logs": "[]",
+        }
+        for symptom in symptom_descriptions.keys()
+    ]
+    symptom_kwargs_ = dict([(k, v) for d in symptom_kwargs for k, v in d.items()])
+
+    likerts = [
+        (
+            f"{symptom}_scale",
+            random.randint(1, 10) if symptom_kwargs_[f"{symptom}_state"] == 2 else 0,
+        )
+        for symptom, description in symptom_descriptions.items()
+        if description["likert"]
+    ]
+
+    # Debug output
+    print(f"Iteration {i}: symptom_kwargs_ = {symptom_kwargs_}")
+    print(f"Iteration {i}: likerts = {likerts}")
+
+    symptom_kwargs = dict(
+        [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
     )
-    return jsonify(patients)
+    report = Report(
+        patient_id=patient.id,
+        **symptom_kwargs,
+    )
+    db.session.add(report)
+
+    # update created_at
+    reports = Report.query.filter_by(patient_id=patient.id).all()
+
+    # Debug output for reports
+    print(f"Reports for patient {patient.id} before updating created_at:")
+    for report in reports:
+        print(report)
+
+    for i, report in enumerate(reports):
+        report.created_at = datetime.utcnow() - timedelta(days=(i + 1))
+        db.session.add(report)
+
+    # Debug output for updated reports
+    print(f"Reports for patient {patient.id} after updating created_at:")
+    for report in reports:
+        print(report)
+
+    patient.state = max(
+        [
+            symptom_descriptions[symptom]["max_scale"]
+            if getattr(reports[0], f"{symptom}_state") == 2
+            else getattr(reports[0], f"{symptom}_state")
+            for symptom in symptom_descriptions.keys()
+        ]
+    )
+
+    # Debug output for patient state
+    print(f"Patient {patient.id} state updated to: {patient.state}")
+
+    db.session.add(patient)
+    db.session.commit()
+
+    # Final debug output
+    print(f"Reports and patient {patient.id} state committed to the database.")
+
+
+@current_app.route("/patients", methods=["POST"])
+@api_key_required
+def create_patient():
+    try:
+        data = request.get_json()
+        print("Received data:", data)
+        if not data:
+            return jsonify({"message": "No input data provided"}), 400
+
+        required_fields = ["user"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            print("Missing fields:", missing_fields)
+            return jsonify(
+                {"message": f"Missing fields: {', '.join(missing_fields)}"}
+            ), 400
+        print("a")
+
+        user_ids = data.get("user")
+        users = User.query.filter(User.id.in_(user_ids)).all()
+
+        if not users:
+            return jsonify({"message": "No valid users found"}), 400
+
+        patient = Patient(
+            EHR_id=data.get("EHR_id"),
+            age=data.get("age"),
+            gender=data.get("gender"),
+            participant_id=data.get("participant_id"),
+            medical_history=data.get("medical_history", ""),
+            medication=data.get("medication", ""),
+            last_read_at=datetime.utcnow(),
+            reviewed=False,
+            state=0,
+        )
+        print("-----------")
+        print(patient.participant_id)
+
+        db.session.add(patient)
+        db.session.flush()
+
+        patient.users.extend(users)
+
+        db.session.commit()
+
+        print("Patient data before saving:", patient_to_dict(patient))
+        print("c")
+
+        generate_report_for_patient(patient)
+
+        print("Patient data before saving:", patient_to_dict(patient))
+
+        return jsonify(
+            {
+                "message": "Patient created successfully",
+                "patient": patient_to_dict(patient),
+            }
+        ), 201
+    except Exception:
+        # logging.error("An error occurred: %s", e, exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
 @current_app.route("/patients/<int:id>", methods=["PATCH"])
 @api_key_required
 def update_patient(id):
-    data = request.get_json()
-    print(data)
-    patient = db.get(Patient, id)
-    for key in data:
-        setattr(patient, key, data[key])
-    db.session.add(patient)
-    db.session.commit()
-    # time.sleep(10)
-    return jsonify({"message": "Patient state updated."})
+    try:
+        data = request.get_json()
+        print("Received data:", data)
+        if not data:
+            return jsonify({"message": "No input data provided"}), 400
+
+        # Retrieve the patient by ID
+        patient = Patient.query.get(id)
+        if not patient:
+            return jsonify({"message": "Patient not found"}), 404
+
+        # Check if 'user' field is present
+        if "user" in data:
+            # Retrieve user IDs from the request
+            new_user_ids = set(data.get("user", []))
+            # Get current user IDs associated with the patient
+            current_user_ids = {user.id for user in patient.users}
+
+            # Determine which users to add and which to remove
+            users_to_add = new_user_ids - current_user_ids
+            users_to_remove = current_user_ids - new_user_ids
+
+            # Query users to add
+            if users_to_add:
+                users_to_add_objs = User.query.filter(User.id.in_(users_to_add)).all()
+                patient.users.extend(users_to_add_objs)
+
+            # Remove users
+            if users_to_remove:
+                users_to_remove_objs = User.query.filter(
+                    User.id.in_(users_to_remove)
+                ).all()
+                for user in users_to_remove_objs:
+                    patient.users.remove(user)
+
+        # Update other patient fields
+        for key in data:
+            if key != "user":  # Skip the 'user' field since it's handled separately
+                setattr(patient, key, data[key])
+
+        db.session.commit()
+
+        return jsonify(
+            {"patient_id": id, "message": "Patient updated successfully."}
+        ), 200
+
+    except Exception as e:
+        # Log the error for debugging
+        print(f"An error occurred: {e}")
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
 @current_app.route("/patients/<int:id>", methods=["GET"])
 @api_key_required
 def get_patient(id):
-    # also get reports
-    patient = db.get(Patient, id)
-    patient.last_read_at = datetime.utcnow()
-    db.session.add(patient)
-    db.session.commit()
-    reports = (
-        Report.query.filter_by(patient_id=id).order_by(Report.created_at.desc()).all()
-    )
-    patient = asdict(patient)
-    reports = [asdict(report) for report in reports]
-    for r in reports:
-        for symptom in symptom_descriptions.keys():
-            r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
-    patient["reports"] = reports
-    # time.sleep(1)
-    return jsonify(patient)
+    try:
+        userid = g.current_user.id
+        patient = db.get(Patient, id)
+
+        if not any(user.id == userid for user in patient.users):
+            return jsonify({"message": "permission denied"}), 401
+
+        patient.last_read_at = datetime.utcnow()
+        db.session.add(patient)
+        db.session.commit()
+
+        reports = (
+            Report.query.filter_by(patient_id=id)
+            .order_by(Report.created_at.desc())
+            .all()
+        )
+
+        patient_dict = patient.as_dict()
+        reports_dict = [report.as_dict() for report in reports]
+
+        for r in reports_dict:
+            for symptom in symptom_descriptions.keys():
+                r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
+
+        patient_dict["users"] = [
+            {k: v for k, v in user.as_dict().items() if k != "password"}
+            for user in patient.users
+        ]  # add userid and user name
+        patient_dict["reports"] = reports_dict
+
+        return jsonify(patient_dict)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["GET"])
 @api_key_required
 def get_patient_reports(id, report_id):
-    reports = Report.query.filter_by(patient_id=id, id=report_id).all()
+    report = Report.query.filter_by(patient_id=id, id=report_id).first()
+
+    if report is None:
+        return jsonify({"error": "Report not found"}), 404
+
+    report_dict = report.as_dict()
+
     conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
-    reports = asdict(reports[0])
-    reports["conversation_logs"] = conversation_logs
-    summary = ReportSummary.query.filter_by(report_id=report_id).all()
-    notes = ReportNote.query.filter_by(report_id=report_id).all()
-    reports["summary"] = [i.as_dict() for i in summary]
-    reports["notes"] = [i.as_dict() for i in notes]
-    # time.sleep(1)
-    return jsonify(reports)
+    report_dict["conversation_logs"] = [log.as_dict() for log in conversation_logs]
+
+    summaries = ReportSummary.query.filter_by(report_id=report_id).all()
+    report_dict["summary"] = [s.as_dict() for s in summaries]
+
+    notes = (
+        ReportNote.query.options(joinedload(ReportNote.user))
+        .filter_by(report_id=report_id)
+        .all()
+    )
+    report_dict["notes"] = [note.as_dict() for note in notes]
+
+    return jsonify(report_dict)
 
 
 # update report
@@ -124,7 +482,7 @@ def get_patient_reports(id, report_id):
 def update_report(id, report_id):
     patient = Patient.query.get(id)
     data = request.get_json()
-    report = Report.query.filter_by(id=report_id).first()
+    report = Report.query.get(report_id)
     for key in data:
         setattr(report, key, data[key])
     db.session.add(report)
@@ -169,7 +527,7 @@ def create_report_note(id, report_id):
     data = request.get_json()
     note = ReportNote(
         report_id=report_id,
-        user_id=data["user_id"],
+        user_id=g.current_user.id,
         content=data["content"],
     )
     db.session.add(note)
@@ -227,7 +585,7 @@ def create_conversation_log(alexa_user_id):
     db.session.commit()
     # get all conversation logs for this report
     conversation_logs = ConversationLog.query.filter_by(report_id=report.id).all()
-    conversation_logs = [asdict(log) for log in conversation_logs]
+    conversation_logs = [log.as_dict() for log in conversation_logs]
     conversation_logs = [
         {
             "content": log["content"]
@@ -279,7 +637,7 @@ def session_end_hook(alexa_user_id):
         report = get_or_create_report(patient.id)
         print(report)
         messages = ConversationLog.query.filter_by(report_id=report.id).all()
-        messages = [asdict(message) for message in messages]
+        messages = [message.as_dict() for message in messages]
         messages = [
             {
                 "id": message["id"],
@@ -365,8 +723,8 @@ def get_last_message(alexa_user_id):
         )
         db.session.add(message)
         db.session.commit()
-        return jsonify({"message": "success", "last_message": asdict(message)})
-    messages = [asdict(message) for message in messages]
+        return jsonify({"message": "success", "last_message": message.as_dict()})
+    messages = [message.as_dict() for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     return jsonify({"message": "success", "last_message": messages[-1]})
 

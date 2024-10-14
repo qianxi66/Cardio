@@ -1,31 +1,31 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup lang="ts">
-import { stateColors, stateMessages, symptoms } from '@/config'
-import { type ButtonProps } from 'naive-ui'
-import { ref } from 'vue'
-type ButtonThemeOverrides = NonNullable<ButtonProps['themeOverrides']>
+import { stateColors, stateMessages, symptoms } from "@/config";
+import { type ButtonProps } from "naive-ui";
+import { ref } from "vue";
+type ButtonThemeOverrides = NonNullable<ButtonProps["themeOverrides"]>;
 const props = withDefaults(
   defineProps<{
-    loading?: boolean
-    state?: number
-    color: string
-    editable?: boolean
-    symptom: keyof typeof symptoms
+    loading?: boolean;
+    state?: number;
+    color: string;
+    editable?: boolean;
+    symptom: keyof typeof symptoms;
   }>(),
   {
     loading: false,
     state: 0,
-    editable: false
-  }
-)
+    editable: false,
+  },
+);
 // on edit trigger
-const emit = defineEmits(['update:state'])
+const emit = defineEmits(["update:state"]);
 const buttonThemeOverrides: ButtonThemeOverrides = {
-  colorHover: 'white',
-  colorPressed: 'white',
-  colorFocus: 'white'
-}
-const popoverEl = ref<HTMLElement | null>(null)
+  colorHover: "white",
+  colorPressed: "white",
+  colorFocus: "white",
+};
+const popoverEl = ref<HTMLElement | null>(null);
 </script>
 <template>
   <div v-if="!editable" class="dot-container">
@@ -33,10 +33,14 @@ const popoverEl = ref<HTMLElement | null>(null)
       class="dot"
       v-if="!props.loading && props.state >= 0"
       :style="{
-        '--color': [stateColors[0], stateColors[1], props.color][props.state]
+        '--color': [stateColors[0], stateColors[1], props.color][props.state],
       }"
     ></div>
-    <n-skeleton v-else box style="height: 24px; width: 24px; border-radius: 50%" />
+    <n-skeleton
+      v-else
+      box
+      style="height: 24px; width: 24px; border-radius: 50%"
+    />
   </div>
   <div v-else>
     <n-popover
@@ -64,15 +68,25 @@ const popoverEl = ref<HTMLElement | null>(null)
           :type="props.state === state ? 'info' : 'default'"
           @click="
             () => {
-              emit('update:state', state)
-              popoverEl.setShow(false)
+              emit('update:state', state);
+              popoverEl.setShow(false);
             }
           "
         >
           <template #icon>
-            <dot-symptom :color="color" :state="state" :symptom="props.symptom"></dot-symptom>
+            <dot-symptom
+              :color="color"
+              :state="state"
+              :symptom="props.symptom"
+            ></dot-symptom>
           </template>
-          {{ ['No Information', 'Normal', stateMessages[symptoms[symptom].max_scale]][state] }}
+          {{
+            [
+              "No Information",
+              "Normal",
+              stateMessages[symptoms[symptom].max_scale],
+            ][state]
+          }}
         </n-button>
       </n-button-group>
     </n-popover>
