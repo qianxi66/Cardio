@@ -16,15 +16,38 @@ from sqlalchemy import Column
 from sqlalchemy import Table
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
-
+from sqlalchemy.orm.collections import InstrumentedList
 from .app import db
 from .config import symptom_descriptions
 
 _O = t.TypeVar("_O", bound=object)  # Based on sqlalchemy.orm._typing.py
 
-db.Model.as_dict = lambda self: {
-    c.name: getattr(self, c.name) for c in self.__table__.columns
-}
+
+# db.Model.as_dict = lambda self: {
+#     field: getattr(self, field)
+#     for field in [c.name for c in self.__table__.columns]
+#     + [self.__mapper__.relationships.keys()]
+# }
+def as_dict(self):
+    # fields = [c.name for c in self.__table__.columns]
+    # fields +=
+    # print(fields)
+    fields = {
+        field: getattr(self, field)
+        for field in [c.name for c in self.__table__.columns]
+    }
+    for field in self.__relationship_keys__:
+        attr = getattr(self, field)
+        # if is InstrumentedList
+        if isinstance(attr, InstrumentedList):
+            fields[field] = [item.as_dict() for item in attr]
+        else:
+            fields[field] = attr.as_dict()
+    return fields
+
+
+db.Model.as_dict = as_dict
+db.Model.__relationship_keys__ = []
 
 
 class NotFound(Exception):
@@ -45,7 +68,7 @@ user_patient_table = Table(
 
 
 class Patient(db.Model):
-    __tablename__ = "patient"
+    __relationship_keys__ = ["users"]
     id: Mapped[int] = mapped_column(primary_key=True)
     users: Mapped[List[User]] = relationship(
         secondary=user_patient_table, back_populates="patients"
@@ -75,27 +98,18 @@ class Patient(db.Model):
 
 
 class ReportNote(db.Model):
-    __tablename__ = "reportnote"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    __relationship_keys__ = ["user"]
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(db.Integer, ForeignKey("user.id"))
     user: Mapped["User"] = relationship()
-    report_id: int
-    # user_id: int
-    content: str
-    created_at: datetime
-    updated_at: datetime
-
-    id = db.Column(db.Integer, primary_key=True)
-    report_id = db.Column(db.Integer, db.ForeignKey("report.id"))
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
-    content = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    report_id: Mapped[int] = mapped_column(db.Integer, ForeignKey("report.id"))
+    content: Mapped[str] = mapped_column(db.Text)
+    created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(db.DateTime, onupdate=datetime.utcnow)
 
 
 @dataclass
 class User(db.Model):
-    __tablename__ = "user"
     id: Mapped[int] = mapped_column(primary_key=True)
     patients: Mapped[List[Patient]] = relationship(secondary=user_patient_table)
     username: Mapped[str] = mapped_column(db.String(50))
@@ -105,7 +119,6 @@ class User(db.Model):
 
 
 class Token(db.Model):
-    __tablename__ = "token"
     id: Mapped[int] = mapped_column(primary_key=True)
     token: Mapped[str] = mapped_column(db.String(255))
     userid: Mapped[int] = mapped_column(db.ForeignKey("user.id"), nullable=False)

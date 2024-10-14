@@ -1,5 +1,4 @@
 import json
-from dataclasses import asdict
 from datetime import datetime, timedelta
 from functools import wraps
 import random
@@ -431,8 +430,8 @@ def get_patient(id):
             .all()
         )
 
-        patient_dict = patient_to_dict(patient)
-        reports_dict = [asdict(report) for report in reports]
+        patient_dict = patient.as_dict()
+        reports_dict = [report.as_dict() for report in reports]
 
         for r in reports_dict:
             for symptom in symptom_descriptions.keys():
@@ -585,7 +584,7 @@ def create_conversation_log(alexa_user_id):
     db.session.commit()
     # get all conversation logs for this report
     conversation_logs = ConversationLog.query.filter_by(report_id=report.id).all()
-    conversation_logs = [asdict(log) for log in conversation_logs]
+    conversation_logs = [log.as_dict() for log in conversation_logs]
     conversation_logs = [
         {
             "content": log["content"]
@@ -637,7 +636,7 @@ def session_end_hook(alexa_user_id):
         report = get_or_create_report(patient.id)
         print(report)
         messages = ConversationLog.query.filter_by(report_id=report.id).all()
-        messages = [asdict(message) for message in messages]
+        messages = [message.as_dict() for message in messages]
         messages = [
             {
                 "id": message["id"],
@@ -723,8 +722,8 @@ def get_last_message(alexa_user_id):
         )
         db.session.add(message)
         db.session.commit()
-        return jsonify({"message": "success", "last_message": asdict(message)})
-    messages = [asdict(message) for message in messages]
+        return jsonify({"message": "success", "last_message": message.as_dict()})
+    messages = [message.as_dict() for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     return jsonify({"message": "success", "last_message": messages[-1]})
 
