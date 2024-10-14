@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from "axios";
 import { apiBasePath } from "@/config";
+import router from "@/router";
 export interface Patient {
   EHRid: string;
   medication: string;
@@ -12,20 +13,31 @@ export interface Patient {
 const request = axios.create({
   baseURL: apiBasePath,
   transformResponse: [
-    (data) => {
-      return JSON.parse(data, dateReviver);
+    (data, headers, status) => {
+      // if json
+      if (headers["content-type"] === "application/json") {
+        return JSON.parse(data, dateReviver);
+      }
+      return data;
     },
   ],
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorHandler = (error: any) => {
+  console.log("error", error);
   let message = "";
   if (error.response) {
     const { data } = error.response;
     message += data?.message;
   }
-  window.$message.error("Error Occurred" + (message ? "," + message : "."));
+  if (error.response.status === 401) {
+    localStorage.removeItem("token");
+    router.push("/login");
+    window.$message.error("Login expired, please login again.");
+  } else {
+    window.$message.error("Error Occurred" + (message ? "," + message : "."));
+  }
 };
 
 request.interceptors.response.use((response) => response.data, errorHandler);
@@ -42,6 +54,7 @@ const api = (req: AxiosRequestConfig<unknown>) =>
         resolve(resp);
       })
       .catch((err) => {
+        console.log("error", err);
         window.$message.error("Error Occurred" + (err ? "," + err : "."));
         reject(err);
       });

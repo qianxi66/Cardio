@@ -1,9 +1,12 @@
 import { createRouter, createWebHistory } from "vue-router";
-const require_login = (to, from, next) => {
+const require_login = (to, from) => {
+  if (!localStorage.token) {
+    return "/login";
+  }
+};
+const not_login = (to, from) => {
   if (localStorage.token) {
-    next();
-  } else {
-    next("/login");
+    return "/patient";
   }
 };
 const router = createRouter({
@@ -11,23 +14,24 @@ const router = createRouter({
   routes: [
     {
       path: "/",
-      redirect: "/login",
+      beforeEnter: (to, from, next) => {
+        if (localStorage.token) {
+          next("/patient");
+        } else {
+          next("/login");
+        }
+      },
     },
     {
       path: "/login",
       name: "login",
       component: () => import("../views/LoginView.vue"),
+      beforeEnter: not_login,
     },
     {
       path: "/patient",
       component: () => import("../views/PatientsView.vue"),
-      beforeEnter: (to, from, next) => {
-        if (localStorage.token) {
-          next();
-        } else {
-          next("/login");
-        }
-      },
+      beforeEnter: require_login,
       children: [
         {
           path: "",

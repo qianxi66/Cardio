@@ -9,6 +9,8 @@ const route = useRoute();
 
 const dialog = useDialog();
 const message = useMessage();
+window.$message = message;
+window.$dialog = dialog;
 
 const token = useStorage("token", "", sessionStorage);
 
