@@ -438,7 +438,8 @@ def get_patient(id):
                 r[f"{symptom}_logs"] = json.loads(r[f"{symptom}_logs"])
 
         patient_dict["users"] = [
-            {"id": user.id, "name": user.name} for user in patient.users
+            {k: v for k, v in user.as_dict().items() if k != "password"}
+            for user in patient.users
         ]  # add userid and user name
         patient_dict["reports"] = reports_dict
 

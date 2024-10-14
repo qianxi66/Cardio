@@ -9,25 +9,19 @@ import { updatePatient, getPatient } from "@/api/patient";
 import type { CancelTokenSource } from "axios";
 import axios from "axios";
 const patient = ref<Patient | null>(null);
-const patient_id = useRouteParams("patient_id");
+const patient_id = useRouteParams("patient_id", 0, {
+  transform: (v) => v as number,
+});
 
 const router = useRouter();
 const loading = ref(true);
-interface FormData {
-  EHR_id: string;
-  medication: string;
-  user: number[];
-  medical_history: string;
-  participant_id: string;
-  gender: string;
-  age: number | null;
-}
-const formData = ref<FormData>({
+const formData = ref({
   EHR_id: "",
   medication: "",
   user: [],
   participant_id: "",
   medical_history: "",
+  alexa_user_id: "",
   gender: "",
   age: null,
 });
@@ -38,7 +32,7 @@ onMounted(async () => {
   loading.value = true;
 
   try {
-    patient.value = await getPatient(parseInt(patient_id.value as string));
+    patient.value = await getPatient(patient_id.value);
     formData.value.EHR_id = patient.value.EHR_id;
     formData.value.medication = patient.value.medication;
     formData.value.user = patient.value.users.map((user) => user.id);
@@ -46,6 +40,7 @@ onMounted(async () => {
     formData.value.gender = patient.value.gender;
     formData.value.age = patient.value.age;
     formData.value.participant_id = patient.value.participant_id;
+    formData.value.alexa_user_id = patient.value.alexa_user_id;
   } catch (error) {
     console.error("An error occurred while fetching patient info:", error);
     patient.value = null;
@@ -57,13 +52,9 @@ onMounted(async () => {
 const handleupdatePatient = async (formData) => {
   try {
     console.log("ds");
-    const response = await updatePatient(
-      parseInt(patient_id.value as string),
-      formData,
-    );
+    const response = await updatePatient(patient_id.value, formData);
 
     console.log("patientid:" + response.patient_id);
-    router.push(`/patient/${response.patient_id}`);
 
     if (response.data.hasOwnProperty("message")) {
       notification.create({
@@ -80,6 +71,7 @@ const handleupdatePatient = async (formData) => {
       console.error("Network error:", error);
     }
   }
+  router.push(`/patient/${response.patient_id}`);
 };
 </script>
 

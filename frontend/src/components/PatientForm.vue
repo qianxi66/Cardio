@@ -21,7 +21,7 @@ const emit = defineEmits(["update:model", "submit"]);
 const message = useMessage();
 const router = useRouter();
 const formRef = ref();
-const generalOptions = ref<{ label: string; value: number }[]>([]);
+const userList = ref<{ label: string; value: number }[]>([]);
 
 const { model } = toRefs(props);
 let input = ref("");
@@ -33,7 +33,11 @@ const rules = ref({
   user: { type: "array", required: false, trigger: ["blur", "change"] },
   gender: { type: "string", required: false, trigger: ["blur", "change"] },
   age: { type: "number", required: false, trigger: ["blur", "change"] },
-  email: { type: "email", required: false, trigger: ["blur", "change"] },
+  alexa_user_id: {
+    type: "string",
+    required: false,
+    trigger: ["blur", "change"],
+  },
 });
 
 const fetchUser = async () => {
@@ -74,25 +78,25 @@ const handleSubmit = async (e: MouseEvent) => {
   }
 };
 
-const loadGeneralOptions = () => {
+const loaduserList = () => {
   return new Promise<void>(async (resolve, reject) => {
     try {
       const users = await fetchUser();
       console.log("starting");
       if (users) {
-        generalOptions.value = users.map((user) => ({
+        userList.value = users.map((user) => ({
           label: user.username,
           value: user.id,
         }));
         resolve();
       } else {
         console.warn("No users found.");
-        generalOptions.value = [];
+        userList.value = [];
         reject();
       }
     } catch (error) {
       console.error("Error fetching users:", error);
-      generalOptions.value = [];
+      userList.value = [];
       reject();
     }
   });
@@ -105,7 +109,7 @@ function handleGenderChange() {
 }
 
 onMounted(async () => {
-  await loadGeneralOptions();
+  await loaduserList();
   const loadGender = async () => {
     if (
       model.value.gender != "male" &&
@@ -162,7 +166,7 @@ onMounted(async () => {
           <n-select
             v-model:value="model.user"
             placeholder="Select"
-            :options="generalOptions"
+            :options="userList"
             multiple
             :disabled="loading"
             :loading="loading"
@@ -184,11 +188,11 @@ onMounted(async () => {
             placeholder="Input"
           />
         </n-form-item-gi>
-        <n-form-item-gi :span="12" label="Email" path="email">
+        <n-form-item-gi :span="12" label="Email" path="alexa_user_id">
           <n-input
             :disabled="loading"
             :loading="loading"
-            v-model:value="model.email"
+            v-model:value="model.alexa_user_id"
             placeholder="Input"
           />
         </n-form-item-gi>
