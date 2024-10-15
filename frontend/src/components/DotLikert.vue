@@ -8,7 +8,6 @@ const props = withDefaults(
   defineProps<{
     loading?: boolean
     state?: number
-    color: string
     editable?: boolean
     symptom: keyof typeof symptoms
   }>(),
@@ -33,8 +32,8 @@ const popoverEl = ref<HTMLElement | null>(null)
       class="dot"
       v-if="!props.loading && props.state >= 0"
       :style="{
-        '--color': [stateColors[0], stateColors[1], props.color][props.state]
-        //'--color': stateColors[props.state] || props.color
+        //'--color': [stateColors[0], stateColors[1], props.color][props.state]
+        '--color': stateColors[props.state]
       }"
     ></div>
     <n-skeleton v-else box style="height: 24px; width: 24px; border-radius: 50%" />
@@ -49,17 +48,19 @@ const popoverEl = ref<HTMLElement | null>(null)
       :theme-overrides="{ boxShadow: 'none' }"
     >
       <template #trigger>
-        <dot-symptom
-          :state="props.state"
-          :color="props.color"
-          :loading="props.loading"
-          :symptom="props.symptom"
-        ></dot-symptom>
+        <div
+        class="dot"
+        v-if="!props.loading && props.state >= 0"
+        :style="{
+          //'--color': [stateColors[0], stateColors[1], props.color][props.state]
+          '--color': stateColors[props.state]
+        }"
+      ></div>
       </template>
       <n-button-group vertical>
         <n-button
           :theme-overrides="buttonThemeOverrides"
-          v-for="state in Array.from({ length: symptoms[props.symptom].max_scale + 1 }, (_, index) => index)"
+          v-for="state in [0,1,2,3,4]"
           :key="state"
           ghost
           :type="props.state === state ? 'info' : 'default'"
@@ -71,7 +72,7 @@ const popoverEl = ref<HTMLElement | null>(null)
           "
         >
           <template #icon>
-            <dot-symptom :color="color" :state="state" :symptom="props.symptom"></dot-symptom>
+            <dot :state="state" :symptom="props.symptom"></dot>
           </template>
           {{ ['No Information', 'Normal', 'Reported', 'Moderate Severity', 'Most Severe'][state] }}
         </n-button>

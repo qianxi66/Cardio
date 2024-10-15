@@ -88,36 +88,6 @@ const jumpToReport = (report: Report, symptom: string | undefined) => {
 //   return color;
 // };
 
-const getSymptomColor = (symptom: string, report: Report) => {
-  if (config.symptoms[symptom].likert) {
-    const scale = report[symptom + '_scale'] as number;
-    const state = report[symptom + '_state'] as number;
-    return getColorByScale(scale, state);
-  }
-  return config.symptoms[symptom].color
-}
-
-const getColorByScale = (scale: number, state: number) => {
-  console.log('getColorByScale called with scale:', scale, 'and state:', state);
-  
-  // Default color assignment
-  let color = stateColors[state];  // If state is 0 or 1, return its color directly
-
-  // Only apply scale-based color changes if state is >= 2
-  if (state >= 2) {
-    if (scale >= 1 && scale <= 3) {
-      color = stateColors[2]; 
-    } else if (scale >= 4 && scale <= 6) {
-      color = stateColors[3]; 
-    } else if (scale >= 7 && scale <= 10) {
-      color = stateColors[4];
-    }
-  }
-
-  console.log('Returning color:', color);
-  return color;
-}
-
 watch(patient, () => {
   // get the latest report id
   if (patient.value) {
@@ -248,11 +218,11 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                     <template #trigger>
                       <circle-progress
                         :percent="report[symptom + '_scale'] * 10"
-                        :color="getSymptomColor(symptom, report)"
+                        autocolor
                         :id="symptom"
                         style="width: 50px"
                       >
-                        <dot-symptom
+                        <dot-likert
                           @update:state="updateState(patient.id, report.id, symptom, $event)"
                           :editable="
                             (current_symptom === symptom && report.id === parseInt(report_id)) ||
@@ -265,7 +235,6 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                           }"
                           :state="report[symptom + '_state']"
                           @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
-                          :color="getSymptomColor(symptom, report)"
                           :symptom="symptom"
                         />
                       </circle-progress>
@@ -276,7 +245,6 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                   </n-tooltip>
                   <circle-progress
                     :percent="report[symptom + '_scale'] * 10"
-                    :color="getSymptomColor(symptom, report)"
                     :id="symptom"
                     style="width: 50px"
                     v-else
@@ -294,7 +262,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                       }"
                       :state="report[symptom + '_state']"
                       @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
-                      :color="getSymptomColor(symptom, report)"
+                      :color="config.symptoms[symptom].color"
                       :symptom="symptom"
                     />
                   </circle-progress>

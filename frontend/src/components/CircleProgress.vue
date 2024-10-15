@@ -1,17 +1,34 @@
 <script setup lang="tsx">
 import { computed, type CSSProperties, type VNode } from 'vue'
+import { stateColors } from '@/config'
 const props = withDefaults(
   defineProps<{
     percent: number
     color: string
     id: string
+    autocolor?: boolean
     visible?: boolean
   }>(),
   {
     percent: 0,
-    visible: true
+    visible: true,
+    autocolor: false
   }
 )
+const color = computed(() => {
+  if (props.autocolor) {
+    if (props.percent <= 0){
+      return stateColors[0]
+    } else if (props.percent <= 30){
+      return stateColors[2]
+    } else if (props.percent <= 60){
+      return stateColors[3]
+    } else if (props.percent <= 100){
+      return stateColors[4]
+    }
+  }
+  return props.color
+})
 function getPath(
   percent: number,
   viewBoxWidth: number,
@@ -90,11 +107,11 @@ const Circle = computed(() => {
         <linearGradient
           id={`${props.id}-header-shape-gradient`}
           style={{
-            '--color-1': `color-mix(in srgb, ${props.color}, white 80%)`,
-            '--color-2': `color-mix(in srgb, ${props.color}, white 70%)`,
-            '--color-3': `color-mix(in srgb, ${props.color}, white 50%)`,
-            '--color-4': `color-mix(in srgb, ${props.color}, white 10%)`,
-            '--color-5': props.color
+            '--color-1': `color-mix(in srgb, ${color.value}, white 80%)`,
+            '--color-2': `color-mix(in srgb, ${color.value}, white 70%)`,
+            '--color-3': `color-mix(in srgb, ${color.value}, white 50%)`,
+            '--color-4': `color-mix(in srgb, ${color.value}, white 10%)`,
+            '--color-5': color.value
           }}
         >
           <stop offset="0%" stop-color="var(--color-1)" />

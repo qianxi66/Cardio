@@ -306,6 +306,15 @@ def session_end_hook(alexa_user_id):
             if "scale" in response[key]:
                 if hasattr(report, f"{key}_scale"):
                     setattr(report, f"{key}_scale", response[key]["scale"])
+                    if response[key]["scale"] == 0:
+                        # setattr(report, f"{key}_state", 1)
+                        pass
+                    elif response[key]["scale"] >= 1 and response[key]["scale"] <= 3:
+                        setattr(report, f"{key}_state", 2)
+                    elif response[key]["scale"] >= 4 and response[key]["scale"] <= 6:
+                        setattr(report, f"{key}_state", 3)
+                    elif response[key]["scale"] >= 7 and response[key]["scale"] <= 10:
+                        setattr(report, f"{key}_state", 4)
 
         db.session.add(report)
         summaries = summary(json.dumps(messages), json.dumps(response))
