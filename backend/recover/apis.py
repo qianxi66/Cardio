@@ -62,15 +62,15 @@ def login():
 
         return jsonify(
             {
-                "token": token,
+                "token": token.as_dict(),
             }
         )
 
     return jsonify({"message": "WRONG PASSWORD"}), 401
 
 
-TOKEN_EXPIRATION_HOURS = 24
-REMEMBERME_EXPIRATION_HOURS = 72
+TOKEN_EXPIRATION_HOURS = 2
+REMEMBERME_EXPIRATION_HOURS = 48
 
 
 # a decorator to valid the 'authentication' header for an api key
@@ -90,16 +90,18 @@ def api_key_required(f):
         if not token:
             abort(401)
         # token expired
-        if not token.rememberme and datetime.utcnow() - token.created_at > timedelta(
+        if not token.rememberme and datetime.utcnow() - token.updated_at > timedelta(
             hours=TOKEN_EXPIRATION_HOURS
         ):
             abort(401)
         # rememberme expired
-        if token.rememberme and datetime.utcnow() - token.created_at > timedelta(
+        if token.rememberme and datetime.utcnow() - token.updated_at > timedelta(
             hours=REMEMBERME_EXPIRATION_HOURS
         ):
             abort(401)
-
+        token.updated_at = datetime.utcnow()
+        db.session.add(token)
+        db.session.commit()
         # get user
         user = User.query.filter_by(id=token.userid).first()
         if user:

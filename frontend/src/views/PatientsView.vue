@@ -7,7 +7,7 @@ import { ref, watch } from "vue";
 import { useRouteParams } from "@vueuse/router";
 import { type Patient } from "@/api/types";
 import router from "@/router";
-import { provide, inject } from "vue";
+import { provide, inject, onMounted } from "vue";
 import { defineComponent, computed } from "vue";
 import { NCard, NInput, NList, NListItem, NSpace } from "naive-ui";
 const patients = ref<Patient[] | null>(null);
@@ -34,6 +34,8 @@ const loadPatient = () =>
   getPatients().then((res) => {
     patients.value = res;
     loading.value = false;
+    console.log(res);
+    console.log(patient_id.value);
     if (!patient_id.value) {
       router.push({
         name: "patient.detail",
@@ -41,7 +43,9 @@ const loadPatient = () =>
       });
     }
   });
-loadPatient();
+onMounted(() => {
+  loadPatient();
+});
 provide("refreshPatients", loadPatient);
 watch(patient_id, () => {
   console.log("patient_id changed", patient_id.value);
@@ -76,17 +80,31 @@ const updateState = (id: number, state: number) => {
   <div class="row holder">
     <n-card class="patient-list">
       <template #header>
-        <div class="header">
+        <div class="header row">
           <div class="title">Patient List</div>
-          <button class="icon-button" @click="$router.push('/creat_patient')">
-            <n-icon size="35" quaternary type="primary">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-                <path
-                  d="M368.5 240H272v-96.5c0-8.8-7.2-16-16-16s-16 7.2-16 16V240h-96.5c-8.8 0-16 7.2-16 16 0 4.4 1.8 8.4 4.7 11.3 2.9 2.9 6.9 4.7 11.3 4.7H240v96.5c0 4.4 1.8 8.4 4.7 11.3 2.9 2.9 6.9 4.7 11.3 4.7 8.8 0 16-7.2 16-16V272h96.5c8.8 0 16-7.2 16-16s-7.2-16-16-16z"
-                />
-              </svg>
-            </n-icon>
-          </button>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button
+                quaternary
+                circle
+                @click="$router.push('/creat_patient')"
+              >
+                <template #icon>
+                  <n-icon size="35" quaternary type="primary">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 512 512"
+                    >
+                      <path
+                        d="M368.5 240H272v-96.5c0-8.8-7.2-16-16-16s-16 7.2-16 16V240h-96.5c-8.8 0-16 7.2-16 16 0 4.4 1.8 8.4 4.7 11.3 2.9 2.9 6.9 4.7 11.3 4.7H240v96.5c0 4.4 1.8 8.4 4.7 11.3 2.9 2.9 6.9 4.7 11.3 4.7 8.8 0 16-7.2 16-16V272h96.5c8.8 0 16-7.2 16-16s-7.2-16-16-16z"
+                      />
+                    </svg>
+                  </n-icon>
+                </template>
+              </n-button>
+            </template>
+            Create a Patient
+          </n-tooltip>
         </div>
         <div class="filterpart">
           <n-input
@@ -166,7 +184,7 @@ const updateState = (id: number, state: number) => {
   height: 50px;
 }
 .title {
-  flex: 1;
+  flex-grow: 1;
   font-size: 20px;
   //margin:10px;
   height: 28px;
@@ -179,7 +197,7 @@ const updateState = (id: number, state: number) => {
   margin: 0 8px 8px 8px;
 }
 .patient-list {
-  flex-basis: 230px;
+  flex-basis: 250px;
   flex-grow: 0;
   flex-shrink: 0;
   min-height: 100%;

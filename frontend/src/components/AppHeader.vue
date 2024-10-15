@@ -12,10 +12,10 @@ const message = useMessage();
 window.$message = message;
 window.$dialog = dialog;
 
-const token = useStorage("token", "", sessionStorage);
+const token = useStorage("token", "", localStorage);
 
 const showLogoutButton = computed(() => {
-  return token.value !== null && route.path !== "/login";
+  return token.value !== "" && route.path !== "/login";
 });
 
 const handleLogout = () => {

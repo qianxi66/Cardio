@@ -14,11 +14,12 @@ const router = createRouter({
   routes: [
     {
       path: "/",
-      beforeEnter: (to, from, next) => {
+      component: () => <div>Loading...</div>,
+      beforeEnter: (to, from) => {
         if (localStorage.token) {
-          next("/patient");
+          return "/patient";
         } else {
-          next("/login");
+          return "/login";
         }
       },
     },

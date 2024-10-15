@@ -37,15 +37,12 @@ import { ref } from "vue";
 import axios from "axios";
 import { useRouter } from "vue-router";
 import { login } from "@/api/user";
-import { useNotification } from "naive-ui";
 
 const router = useRouter();
 const username = ref("");
 const password = ref("");
 const Rememberme = ref(false);
 const loading = ref(false);
-
-const notification = useNotification();
 
 const handleLogin = async () => {
   try {
@@ -56,10 +53,21 @@ const handleLogin = async () => {
       Rememberme.value,
     );
     loading.value = false;
-    if (Object.hasOwnProperty(response, "message")) {
-      notification.create({
-        title: response.message,
-      });
+    if (Object.prototype.hasOwnProperty.call(response, "message")) {
+      console.log(response);
+      if (response.message == "WRONG USERNAME") {
+        window.$dialog.error({
+          title: "Wrong Username",
+          content: "Please check your username and password",
+          positiveText: "Continue",
+        });
+      } else if (response.message == "WRONG PASSWORD") {
+        window.$dialog.error({
+          title: "Wrong Password",
+          content: "Please check your username and password",
+          positiveText: "Continue",
+        });
+      }
     } else {
       const { token, userid } = response.token;
       localStorage.setItem("token", token);
