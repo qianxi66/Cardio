@@ -189,24 +189,13 @@ def get_users():
         users = session.query(User).all()
 
         # Convert User objects to dictionary format
-        users_dict = [user_to_dict(user) for user in users]
+        users_dict = [user.as_dict for user in users]
 
         return jsonify(users_dict)
 
     except Exception as e:
         logging.error(f"An error occurred: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred"}), 500
-
-
-def user_to_dict(user):
-    """Helper function to convert User object to dictionary"""
-    return {
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "name": user.name,
-        # Add more fields as needed
-    }
 
 
 def generate_report_for_patient(patient):
