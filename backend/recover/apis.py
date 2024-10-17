@@ -60,6 +60,7 @@ def login():
         db.session.add(token)
         db.session.commit()
 
+        # Use the as_dict method to serialize the token
         return jsonify(
             {
                 "token": token.as_dict(),
@@ -139,29 +140,13 @@ def get_user_info():
         return jsonify({"error": "An internal error occurred"}), 500
 
 
-def patient_to_dict(patient):
-    return {
-        "id": patient.id,
-        "age": patient.age,
-        "gender": patient.gender,
-        "EHR_id": patient.EHR_id,
-        "alexa_user_id": patient.alexa_user_id,
-        "medical_history": patient.medical_history,
-        "medication": patient.medication,
-        "participant_id": patient.participant_id,
-        "last_read_at": patient.last_read_at,
-        "reviewed": patient.reviewed,
-        "state": patient.state,
-    }
-
-
 @current_app.route("/patients", methods=["GET"])
-@api_key_required
+@api_key_required  # If authentication is required
 def get_patients():
     try:
         patients = g.current_user.patients
 
-        patients_dict = [patient_to_dict(patient) for patient in patients]
+        patients_dict = [patient.as_dict() for patient in patients]
 
         for patient in patients_dict:
             latest_report = (
@@ -306,11 +291,9 @@ def create_patient():
         required_fields = ["user"]
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
-            print("Missing fields:", missing_fields)
             return jsonify(
                 {"message": f"Missing fields: {', '.join(missing_fields)}"}
             ), 400
-        print("a")
 
         user_ids = data.get("user")
         users = User.query.filter(User.id.in_(user_ids)).all()
@@ -329,7 +312,6 @@ def create_patient():
             reviewed=False,
             state=0,
         )
-        print("-----------")
         print(patient.participant_id)
 
         db.session.add(patient)
@@ -339,17 +321,12 @@ def create_patient():
 
         db.session.commit()
 
-        print("Patient data before saving:", patient_to_dict(patient))
-        print("c")
-
         generate_report_for_patient(patient)
-
-        print("Patient data before saving:", patient_to_dict(patient))
 
         return jsonify(
             {
                 "message": "Patient created successfully",
-                "patient": patient_to_dict(patient),
+                "patient": patient.as_dict(),
             }
         ), 201
     except Exception:
