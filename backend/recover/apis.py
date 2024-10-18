@@ -189,7 +189,11 @@ def get_users():
         users = session.query(User).all()
 
         # Convert User objects to dictionary format
-        users_dict = [user.as_dict for user in users]
+        # users_dict = [user.as_dict for user in users]
+        users_dict = [
+            {k: v for k, v in user.as_dict().items() if k != "password"}
+            for user in users
+        ]
 
         return jsonify(users_dict)
 
