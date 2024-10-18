@@ -8,7 +8,7 @@ import click
 from sqlalchemy import text
 
 from .app import app
-from .config import symptom_descriptions
+from .symptoms import symptom_descriptions
 from .db import ConversationLog, Patient, Report, ReportNote, ReportSummary, User, db
 
 

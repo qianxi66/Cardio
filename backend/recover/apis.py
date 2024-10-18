@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 import bcrypt
 from flask import abort, current_app, jsonify, logging, request, g
 from .app import app
-from .config import symptom_descriptions
+from .symptoms import symptom_descriptions
 from .db import (
     AlexaIDNote,
     ConversationLog,

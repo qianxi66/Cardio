@@ -18,7 +18,7 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm.collections import InstrumentedList
 from .app import db
-from .config import symptom_descriptions
+from .symptoms import symptom_descriptions
 
 _O = t.TypeVar("_O", bound=object)  # Based on sqlalchemy.orm._typing.py
 

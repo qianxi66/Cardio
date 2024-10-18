@@ -3,7 +3,8 @@ from pathlib import Path
 
 import openai
 
-from .config import openai_key, symptom_descriptions
+from .config import openai_key
+from .symptoms import symptom_descriptions
 
 # client = openai.AzureOpenAI(**openai_config, max_retries=0)
 client = openai.OpenAI(api_key=openai_key)
