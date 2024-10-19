@@ -11,18 +11,21 @@
 </template>
 
 <script lang="ts" setup>
-import { useDebounce } from '@vueuse/core'
-import { toRef } from 'vue'
+import { useDebounce } from "@vueuse/core";
+import { toRef } from "vue";
 
 const props = withDefaults(
   defineProps<{
-    loading: boolean
-    hasData: boolean
-    debounceMs?: number
+    loading: boolean;
+    hasData: boolean;
+    debounceMs?: number;
   }>(),
   {
-    debounceMs: 0
-  }
-)
-const loadingDebounced = useDebounce<boolean>(toRef(props, 'loading'), props.debounceMs)
+    debounceMs: 0,
+  },
+);
+const loadingDebounced = useDebounce<boolean>(
+  toRef(props, "loading"),
+  props.debounceMs,
+);
 </script>

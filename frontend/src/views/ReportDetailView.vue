@@ -1,124 +1,158 @@
 <script setup lang="tsx">
-import { useRouteParams, useRouteQuery } from '@vueuse/router'
-import ColoredCard from '@/components/ColoredCard.vue'
-import Dot from '@/components/Dot.vue'
-import conversations from '@/data/conversations.json'
-import * as config from '@/config'
-import { computed, nextTick, ref, watch, type Ref } from 'vue'
-import type { Report, ReportSummary } from '@/api/types'
-import type { CancelTokenSource } from 'axios'
-import { getReport, createNote as createNoteAPI, deleteNote as deleteNoteAPI } from '@/api/patient'
-import axios from 'axios'
-const patient_id = useRouteParams<number | null>('patient_id')
-const report_id = useRouteParams<number | null>('report_id')
-const select_log_ids_ = useRouteQuery<string[]>('logs')
+import { useRouteParams, useRouteQuery } from "@vueuse/router";
+import ColoredCard from "@/components/ColoredCard.vue";
+import Dot from "@/components/Dot.vue";
+import conversations from "@/data/conversations.json";
+import * as config from "@/config";
+import { computed, nextTick, reactive, ref, watch, type Ref } from "vue";
+import type { Report, ReportSummary } from "@/api/types";
+import type { CancelTokenSource } from "axios";
+
+import {
+  getReport,
+  createNote as createNoteAPI,
+  deleteNote as deleteNoteAPI,
+} from "@/api/patient";
+import axios from "axios";
+import { getUserInfo } from "@/api/user";
+const patient_id = useRouteParams<number | null>("patient_id");
+const report_id = useRouteParams<number | null>("report_id");
+const select_log_ids_ = useRouteQuery<string[]>("logs");
 const select_log_ids = computed(() => {
   if (select_log_ids_.value) {
-    return select_log_ids_.value.map((id) => parseInt(id))
+    return select_log_ids_.value.map((id) => parseInt(id));
   } else {
-    return []
+    return [];
   }
-})
-const state = useRouteQuery<number>('state')
-import { stateColors } from '@/config'
-import { format, formatDistance } from 'date-fns'
+});
+const state = useRouteQuery<number>("state");
+import { stateColors } from "@/config";
+import { format, formatDistance } from "date-fns";
 
-const cancelToken = ref<CancelTokenSource | null>(null)
+const cancelToken = ref<CancelTokenSource | null>(null);
 
-const report = ref<Report | null>(null)
-const loading = ref(true)
-const editingNote = ref('')
-const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({})
-
+const report = ref<Report | null>(null);
+const loading = ref(true);
+const editingNote = ref("");
+const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({});
+const create_note_loading = ref(false);
 const refresh = async () => {
   if (cancelToken.value) {
-    cancelToken.value.cancel()
+    cancelToken.value.cancel();
   }
-  cancelToken.value = axios.CancelToken.source()
-  report.value = null
-  loading.value = true
-  conversationRefs.value = {}
-  report.value = await getReport(patient_id.value!, report_id.value!, cancelToken.value.token)
-  loading.value = false
-}
+  cancelToken.value = axios.CancelToken.source();
+  report.value = null;
+  loading.value = true;
+  conversationRefs.value = {};
+  report.value = await getReport(
+    patient_id.value!,
+    report_id.value!,
+    cancelToken.value.token,
+  );
+  loading.value = false;
+};
 
-defineExpose({ refresh })
+defineExpose({ refresh });
 
 watch(
   report_id,
   async () => {
     if (!report_id.value) {
-      report.value = null
-      loading.value = true
-      return
+      report.value = null;
+      loading.value = true;
+      return;
     }
-    console.log('fetching report', report_id.value)
-    await refresh()
-    nextTick(scroll)
+    console.log("fetching report", report_id.value);
+    await refresh();
+    nextTick(scroll);
   },
-  { immediate: true }
-)
+  { immediate: true },
+);
 
 watch(patient_id, () => {
   if (patient_id.value) {
-    report_id.value = null
+    report_id.value = null;
   }
-})
+});
 // group summaries by category
 const summaries = computed(() => {
-  if (!report.value?.summary) return {}
+  if (!report.value?.summary) return {};
   const result: {
-    [key: string]: ReportSummary[]
-  } = {}
+    [key: string]: ReportSummary[];
+  } = {};
   for (const summary of report.value!.summary!) {
     if (!result[summary.category]) {
-      result[summary.category] = []
+      result[summary.category] = [];
     }
-    result[summary.category].push(summary)
+    result[summary.category].push(summary);
   }
-  return result
-})
+  return result;
+});
 const deleteNote = (note_id: number) => {
-  report.value!.notes = report.value!.notes.filter((note) => note.id !== note_id)
-  deleteNoteAPI(patient_id.value as number, report_id.value as number, note_id)
-}
-const createNote = () => {
+  report.value!.notes = report.value!.notes.filter(
+    (note) => note.id !== note_id,
+  );
+  deleteNoteAPI(patient_id.value as number, report_id.value as number, note_id);
+};
+
+const createNote = async () => {
   if (editingNote.value) {
-    report.value!.notes.push({
-      id: report.value!.notes.length + 1,
-      content: editingNote.value,
-      created_at: new Date(),
-      updated_at: new Date(),
-      user_id: 1,
-      report_id: report.value!.id
-    })
-    createNoteAPI(patient_id.value as number, report_id.value as number, editingNote.value)
-    editingNote.value = ''
+    // report.value!.notes.push({
+    //   id: report.value!.notes.length + 1,
+    //   content: editingNote.value,
+    //   created_at: new Date(),
+    //   user: {
+    //     username: username
+    //   },
+    //   updated_at: new Date(),
+    //   user_id: user_Id,
+    //   report_id: report.value!.id
+    // })
+    create_note_loading.value = true;
+    try {
+      await createNoteAPI(
+        patient_id.value as number,
+        report_id.value as number,
+        editingNote.value,
+      );
+    } catch (e) {
+      console.error(e);
+    } finally {
+      create_note_loading.value = false;
+    }
+    editingNote.value = "";
+    refresh();
   }
-}
+};
 const scroll = () => {
   if (select_log_ids.value.length > 0) {
     if (report.value?.conversation_logs) {
-      const min = Math.min(...select_log_ids.value)
-      console.log('scrolling to', min)
-      const el = conversationRefs.value[min]
+      const min = Math.min(...select_log_ids.value);
+      console.log("scrolling to", min);
+      const el = conversationRefs.value[min];
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }
   }
-}
-watch(select_log_ids, scroll)
+};
+watch(select_log_ids, scroll);
 </script>
 <template>
-  <ColoredCard color="#0094ff" rounded title="Conversation Summary">
+  <ColoredCard
+    color="#0094ff"
+    rounded
+    title="Conversation Summary"
+    class="summary-card"
+  >
     <Loading :loading="loading" :has-data="!!report">
       <template #loading>
         <div class="summary" v-for="i in 2" :key="i">
           <n-skeleton class="title" text style="height: 22.4"> </n-skeleton>
           <ul>
             <li v-for="j in 3" :key="j">
-              <n-skeleton class="summary-content" text style="height: 16px"> </n-skeleton>
+              <n-skeleton class="summary-content" text style="height: 16px">
+              </n-skeleton>
             </li>
           </ul>
         </div>
@@ -126,7 +160,11 @@ watch(select_log_ids, scroll)
           <div class="title">Notes</div>
           <div class="notes-list">
             <div v-for="i in 3" :key="i" class="note">
-              <n-skeleton class="summary-content" text style="height: 20px; margin-bottom: 2.4px">
+              <n-skeleton
+                class="summary-content"
+                text
+                style="height: 20px; margin-bottom: 2.4px"
+              >
               </n-skeleton>
             </div>
             <n-input
@@ -138,26 +176,55 @@ watch(select_log_ids, scroll)
         </div>
       </template>
 
-      <div class="summary" v-for="category in Object.keys(summaries)" :key="category">
+      <div
+        class="summary"
+        v-for="category in Object.keys(summaries)"
+        :key="category"
+      >
         <div class="title">{{ category }}</div>
         <ul>
           <li v-for="summary in summaries[category]" :key="summary.id">
             <div class="summary-content">{{ summary.content }}</div>
+
+            <div
+              class="note-time"
+              :title="format(summary.created_at, 'yyyy-MM-dd HH:mm:ss')"
+            >
+              {{
+                formatDistance(summary.created_at, new Date(), {
+                  addSuffix: true,
+                })
+              }}, created by AI
+            </div>
           </li>
         </ul>
       </div>
       <div class="notes">
         <div class="title">Notes</div>
         <div class="notes-list">
-          <div v-for="note in report!.notes" :key="note.id" class="note">
-            <div class="note-left">
-              <div>{{ note.content }}</div>
-              <div class="note-time" :title="format(note.created_at, 'yyyy-MM-dd HH:mm:ss')">
-                {{ formatDistance(note.created_at, new Date(), { addSuffix: true }) }}
+          <ul v-for="note in report!.notes" :key="note.id" class="note">
+            <li>
+              <div class="note-left">
+                <div>{{ note.content }}</div>
+                <div
+                  class="note-time"
+                  :title="format(note.created_at, 'yyyy-MM-dd HH:mm:ss')"
+                >
+                  {{
+                    formatDistance(note.created_at, new Date(), {
+                      addSuffix: true,
+                    })
+                  }}, created by {{ note.user.name }}
+                </div>
               </div>
-            </div>
+            </li>
             <div class="space"></div>
-            <n-button size="tiny" circle @click="deleteNote(note.id)" quaternary>
+            <n-button
+              size="tiny"
+              circle
+              @click="deleteNote(note.id)"
+              quaternary
+            >
               <template #icon>
                 <n-icon>
                   <svg
@@ -173,11 +240,13 @@ watch(select_log_ids, scroll)
                 </n-icon>
               </template>
             </n-button>
-          </div>
+          </ul>
           <n-input
             v-model:value="editingNote"
+            :loading="create_note_loading"
             placeholder="Add a note (press enter to submit)"
             @keyup.enter="createNote()"
+            class="input"
           />
         </div>
       </div>
@@ -188,7 +257,7 @@ watch(select_log_ids, scroll)
     rounded
     title="Detailed Log"
     :style="{
-      '--color': stateColors[state]
+      '--color': stateColors[state],
     }"
   >
     <Loading :loading="loading" :has-data="!!report">
@@ -197,7 +266,7 @@ watch(select_log_ids, scroll)
           v-for="i in 6"
           :key="i"
           :class="{
-            message: true
+            message: true,
           }"
         >
           <div class="role">
@@ -215,14 +284,21 @@ watch(select_log_ids, scroll)
           message: true,
           assistant: message.role === 'assistant',
           user: message.role === 'user',
-          selected: select_log_ids.includes(message.id)
+          selected: select_log_ids.includes(message.id),
         }"
         :ref="(el) => (conversationRefs[message.id] = el)"
       >
         <div class="role">
           {{ message.role }}
-          <div class="time" :title="format(message.created_at, 'yyyy-MM-dd HH:mm:ss')">
-            {{ formatDistance(message.created_at, new Date(), { addSuffix: true }) }}
+          <div
+            class="time"
+            :title="format(message.created_at, 'yyyy-MM-dd HH:mm:ss')"
+          >
+            {{
+              formatDistance(message.created_at, new Date(), {
+                addSuffix: true,
+              })
+            }}
           </div>
         </div>
         <div class="content">
@@ -234,37 +310,55 @@ watch(select_log_ids, scroll)
 </template>
 <style scoped lang="scss">
 .n-card {
+  padding: 10px;
   flex: 1;
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;
+    margin-top: 22px;
   }
 }
 .summary {
   .title {
     font-size: 14px;
     font-weight: 700;
+    //margin-top:22px;
     margin-bottom: 8px;
+    margin-left: 12px;
   }
   ul {
     margin: 0;
   }
-  margin-bottom: 8px;
+  padding: 8px;
 }
+.summary-card {
+  :deep(.n-card__content) {
+    padding: 8px 12px;
+  }
+}
+// .input{
+//   margin: 4px;
+//   width: calc(100% - 2 * 10px);
+
+// }
 .notes {
   display: flex;
-  padding: 12px;
+  padding: 8px;
   background-color: #c4f1ff;
   flex-direction: column;
   .title {
     width: 80px;
     font-size: 14px;
     font-weight: 700;
+    margin-left: 12px;
+    margin-top: 12px;
   }
   .notes-list {
     flex: 1 1 0;
     .note {
-      margin-left: 13px;
+      margin-right: 12px;
+      margin-left: 0px;
+      margin-bottom: 0px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -273,7 +367,8 @@ watch(select_log_ids, scroll)
       }
     }
     .n-input {
-      margin-top: 8px;
+      margin: 10px;
+      width: calc(100% - 20px);
     }
   }
 }

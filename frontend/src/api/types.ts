@@ -1,7 +1,10 @@
+import type { UseUrlSearchParamsOptions } from "@vueuse/core";
+
 export type Patient = {
   id: number;
   age: number;
   gender: string;
+  users: User[];
   EHR_id: string;
   alexa_user_id?: string;
   medical_history: string;
@@ -15,6 +18,47 @@ export type Patient = {
   state: number;
 };
 
+export type updatePatientreq = {
+  EHRid: string;
+  medication: string;
+  user: number[];
+  medicalhistory: string;
+  participantid: string;
+  gender: string;
+  age: number;
+};
+export type updatePatientresp = {
+  patient_id: number;
+};
+
+export type creatPatientresp = {
+  EHRid: string;
+  medication: string;
+  user: number[];
+  medicalhistory: string;
+  participantid: string;
+  gender: string;
+  age: number;
+};
+// Define the type for the token object
+export type Token = {
+  created_at: string; // Date in string format
+  id: number; // ID as a number
+  rememberme: boolean; // Remember me flag as a boolean
+  token: string; // Token as a string
+  updated_at: string; // Date in string format
+  userid: number; // User ID as a number
+};
+
+// Define the type for the response object
+export type LoginResponse = {
+  token: Token; // Token object
+};
+
+export type UserInfoResponse = {
+  user_id: number;
+  username: string;
+};
 export type User = {
   id: number;
   username: string;
@@ -74,6 +118,7 @@ export type ReportNote = {
   id: number;
   report_id: number;
   user_id: number;
+  user: User;
   content: string;
   created_at: Date;
   updated_at: Date;
@@ -86,6 +131,8 @@ export type ReportSummary = {
   content: string;
   conversation_log_ids: string;
   highlight_keywords: string;
+
+  created_at: Date;
 };
 
 export type ConversationLog = {

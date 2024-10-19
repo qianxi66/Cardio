@@ -1,7 +1,39 @@
 <script setup lang="tsx">
-import { computed } from 'vue'
+import { computed } from "vue";
+import { useDialog, useMessage } from "naive-ui";
+import { useRouter, useRoute } from "vue-router";
+import { useStorage } from "@vueuse/core";
 
-import { useDialog, useMessage } from 'naive-ui'
+const router = useRouter();
+const route = useRoute();
+
+const dialog = useDialog();
+const message = useMessage();
+window.$message = message;
+window.$dialog = dialog;
+
+const token = useStorage("token", "", localStorage);
+
+const showLogoutButton = computed(() => {
+  return token.value !== "" && route.path !== "/login";
+});
+
+const handleLogout = () => {
+  dialog.warning({
+    title: "Confirm Logout",
+    content: "Are you sure you want to log out?",
+    positiveText: "Confirm",
+    negativeText: "Cancel",
+    onPositiveClick: () => {
+      localStorage.removeItem("token");
+      router.push("/login");
+      message.success("You have been logged out.");
+    },
+    onNegativeClick: () => {
+      message.info("Logout canceled.");
+    },
+  });
+};
 </script>
 
 <template>
@@ -16,6 +48,9 @@ import { useDialog, useMessage } from 'naive-ui'
         Elderly Care
       </a>
       <div class="space"></div>
+      <div v-if="showLogoutButton" style="margin-right: 20px">
+        <n-button text color="#fff" @click="handleLogout">logout</n-button>
+      </div>
     </div>
   </header>
 </template>

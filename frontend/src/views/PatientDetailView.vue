@@ -1,130 +1,173 @@
 <script setup lang="tsx">
-import { useRouteParams, useRouteQuery } from '@vueuse/router'
-import ColoredCard from '@/components/ColoredCard.vue'
-import Dot from '@/components/Dot.vue'
-import * as config from '@/config'
-import { computed, watch, type Ref, ref, inject } from 'vue'
-import type { Patient, Report } from '@/api/types'
-import { getPatient, updateReport, createNote } from '@/api/patient'
-import Loading from '@/components/Loading.vue'
-import { format, formatDistance } from 'date-fns'
-import router from '@/router'
-import type { CancelTokenSource } from 'axios'
-import ReportTableHeader from '@/components/ReportTableHeader.vue'
-import axios from 'axios'
-import CircleProgress from '@/components/CircleProgress.vue'
-import { stateColors } from '@/config';//shihan
-const refreshPatients = inject('refreshPatients')
-const patient_id = useRouteParams('patient_id')
-const report_id = useRouteParams('report_id')
-const current_symptom = useRouteQuery('symptom')
-//const report = ref({});//shihan
-const report = ref<Report | null>(null);//shihan
+import { useRouteParams, useRouteQuery } from "@vueuse/router";
+import ColoredCard from "@/components/ColoredCard.vue";
+import Dot from "@/components/Dot.vue";
+import * as config from "@/config";
+import { computed, watch, type Ref, ref, inject } from "vue";
+import type { Patient, Report } from "@/api/types";
+import { getPatient, updateReport, createNote } from "@/api/patient";
+import Loading from "@/components/Loading.vue";
+import { format, formatDistance } from "date-fns";
+import router from "@/router";
+import type { CancelTokenSource } from "axios";
+import ReportTableHeader from "@/components/ReportTableHeader.vue";
+import axios from "axios";
+import CircleProgress from "@/components/CircleProgress.vue";
+import { getUserInfo } from "@/api/user";
+import { stateColors } from "@/config"; // shihan
 
-let showall = useRouteQuery('showall', 'false', { transform: (v: string) => v === 'true' })
+const refreshPatients = inject("refreshPatients");
+const patient_id = useRouteParams("patient_id");
+const report_id = useRouteParams("report_id");
+let user_Id = 0;
 
-const patient = ref<Patient | null>(null)
-const loading = ref(true)
-const cancelToken = ref<CancelTokenSource | null>(null)
+const current_symptom = useRouteQuery("symptom");
+const report = ref<Report | null>(null);
+
+const patient = ref<Patient | null>(null);
+const loading = ref(true);
+const cancelToken = ref<CancelTokenSource | null>(null);
+
 watch(
   patient_id,
   async () => {
+    console.log("patient_id changed", patient_id.value);
     if (!patient_id.value) {
-      patient.value = null
-      loading.value = true
-      return
+      patient.value = null;
+      loading.value = true;
+      return;
     }
-    console.log('fetching patient', patient_id.value)
+    console.log("fetching patient", patient_id.value);
     if (cancelToken.value) {
-      cancelToken.value.cancel()
+      cancelToken.value.cancel();
     }
-    cancelToken.value = axios.CancelToken.source()
-    patient.value = null
-    loading.value = true
-    patient.value = await getPatient(parseInt(patient_id.value as string), cancelToken.value.token)
-    loading.value = false
+    cancelToken.value = axios.CancelToken.source();
+    patient.value = null;
+    loading.value = true;
+    patient.value = await getPatient(
+      parseInt(patient_id.value as string),
+      cancelToken.value.token,
+    );
+    loading.value = false;
   },
-  { immediate: true }
-)
+  { immediate: true },
+);
+
+const fetchUserInfo = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.error("Token not found");
+      return;
+    }
+    const userInfoResponse = await getUserInfo(token);
+    if (userInfoResponse.user_id) {
+      user_Id = userInfoResponse.user_id;
+      console.log(user_Id);
+    }
+  } catch (error: any) {
+    console.error("An error occurred while fetching user info:", error);
+  }
+};
+
+fetchUserInfo();
+
 const jumpToReport = (report: Report, symptom: string | undefined) => {
   router.push({
-    name: 'patient.report.detail',
+    name: "patient.report.detail",
     params: { patient_id: patient_id.value, report_id: report.id },
     query: {
-      showall: showall.value.toString(),
       ...(symptom
         ? {
             symptom: symptom,
-            logs: report[(symptom + '_logs') as keyof Report] as unknown as number[],
+            logs: report[
+              (symptom + "_logs") as keyof Report
+            ] as unknown as number[],
             state:
-              report[symptom + '_state'] == 2
+              report[symptom + "_state"] == 2
                 ? config.symptoms[symptom].max_scale
-                : report[symptom + '_state']
+                : report[symptom + "_state"],
           }
-        : {})
-    }
-  })
-}
-
-// const getColorByScale = (scale: number, state: number) => {
-//   console.log('getColorByScale called with scale:', scale, 'and state:', state);
-  
-//   let color;
-//   if (state === 0) {
-//       color = stateColors[0];
-//   } else if (state === 1) {
-//     color = stateColors[1];
-//   } else if (state >= 2) {
-//     // If scale is not 0, assign color based on scale range
-//     if (scale >= 1 && scale <= 3) {
-//       color = stateColors[2]; 
-//     } else if (scale >= 4 && scale <= 6) {
-//       color = stateColors[3]; 
-//     } else if (scale >= 7 && scale <= 10) {
-//       color = stateColors[4];
-//     }
-//   }
-//   console.log('Returning color:', color);
-//   return color;
-// };
+        : {}),
+    },
+  });
+};
 
 watch(patient, () => {
   // get the latest report id
   if (patient.value) {
-    const latestReport = patient.value.reports[0]
+    const latestReport = patient.value.reports[0];
     if (latestReport) {
       const most_severe_symptom = Object.keys(config.symptoms).reduce(
         (acc: { state: number; symptom: string }, symptom: string) => {
-          if ((latestReport[(symptom + '_state') as keyof Report] as number) > acc.state) {
-            acc.state = latestReport[(symptom + '_state') as keyof Report] as number
-            acc.symptom = symptom
+          if (
+            (latestReport[(symptom + "_state") as keyof Report] as number) >
+            acc.state
+          ) {
+            acc.state = latestReport[
+              (symptom + "_state") as keyof Report
+            ] as number;
+            acc.symptom = symptom;
           }
-          return acc
+          return acc;
         },
-        { state: 0, symptom: '' }
-      )
-      console.log(most_severe_symptom)
-      jumpToReport(latestReport, most_severe_symptom.symptom)
+        { state: 0, symptom: "" },
+      );
+      console.log(most_severe_symptom);
+      jumpToReport(latestReport, most_severe_symptom.symptom);
     }
   }
-})
-const right = ref<Component | null>(null)
-const updateState = async (id: number, report_id: number, symptom: string, state: number) => {
-  const report = patient.value!.reports.find((r) => r.id === report_id)
+});
+
+const right = ref<Component | null>(null);
+const updateState = async (
+  id: number,
+  report_id: number,
+  symptom: string,
+  state: number,
+) => {
+  console.log("updateState called with:", { id, report_id, symptom, state });
+
+  const report = patient.value!.reports.find((r) => r.id === report_id);
+  console.log("Found report:", report);
+
   if (report) {
-    const date = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+    const date = format(new Date(), "yyyy-MM-dd HH:mm:ss");
+    console.log("Formatted date:", date);
+
+    const oldStateMessage = [
+      "No Information",
+      "Normal",
+      config.stateMessages[config.symptoms[symptom].max_scale],
+    ][report[symptom + "_state"]];
+    const newStateMessage = config.stateMessages[state];
+    console.log("State change:", { oldStateMessage, newStateMessage });
+
     await createNote(
       id,
       report_id,
-      `Severity of ${symptom} changed from ${['No Information', 'Normal', config.stateMessages[config.symptoms[symptom].max_scale]][report[symptom + '_state']]} to ${config.stateMessages[state]} at ${date}`
-    )
-    report[symptom + '_state'] = state
-    await updateReport(id, report_id, { [symptom + '_state']: state })
-    right.value.refresh()
-    refreshPatients()
-  }
-}
+      `Severity of ${symptom} changed from ${oldStateMessage} to ${newStateMessage} at ${date}`,
+    );
+    console.log("Note created for state change.");
 
+    report[symptom + "_state"] = state;
+    console.log(
+      `Updated report state for ${symptom}:`,
+      report[symptom + "_state"],
+    );
+
+    await updateReport(id, report_id, { [symptom + "_state"]: state });
+    console.log("Report updated on server.");
+
+    right.value?.refresh();
+    console.log("Right panel refreshed.");
+
+    refreshPatients?.();
+    console.log("Patients data refreshed.");
+  } else {
+    console.warn("Report not found for report_id:", report_id);
+  }
+};
 </script>
 
 <template>
@@ -132,10 +175,44 @@ const updateState = async (id: number, report_id: number, symptom: string, state
     <div class="col" style="flex: 5 1 350px">
       <ColoredCard class="information">
         <Loading :loading="loading" :has-data="!!patient">
-          <div class="participant-id">Older Adults {{ patient!.participant_id }}</div>
+          <div class="row">
+            <div class="participant-id">
+              Older Adults {{ patient!.participant_id }}
+            </div>
+            <div class="space"></div>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button
+                  quaternary
+                  circle
+                  @click="$router.push(`/patient/${patient_id}/update`)"
+                >
+                  <template #icon>
+                    <n-icon>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 16 16"
+                      >
+                        <g fill="none">
+                          <path
+                            d="M12.007 6.81l-5.949 5.95c-.319.318-.719.545-1.156.654l-2.283.57a.498.498 0 0 1-.604-.603l.57-2.283a2.49 2.49 0 0 1 .656-1.156l5.948-5.95l2.818 2.817zm1.41-4.226c.777.778.777 2.039 0 2.817l-.706.704l-2.817-2.818l.705-.703a1.992 1.992 0 0 1 2.817 0z"
+                            fill="currentColor"
+                          ></path>
+                        </g>
+                      </svg>
+                    </n-icon>
+                  </template>
+                </n-button>
+              </template>
+              Edit Patient
+            </n-tooltip>
+          </div>
           <div class="row demographic">
             <span class="age-sex">
-              <b>{{ patient!.age }} y.o.</b> {{ patient!.gender }}
+              <b>
+                {{ patient!.age ? patient!.age + " y.o." : "" }}
+              </b>
+              {{ patient!.gender }}
             </span>
             <span>
               {{ patient!.EHR_id }}
@@ -158,7 +235,10 @@ const updateState = async (id: number, report_id: number, symptom: string, state
             </div>
           </div>
           <template #loading>
-            <n-skeleton class="participant-id" style="height: 25px; width: 100px"></n-skeleton>
+            <n-skeleton
+              class="participant-id"
+              style="height: 25px; width: 100px"
+            ></n-skeleton>
             <div class="row demographic">
               <n-skeleton class="age-sex" style="height: 21px"> </n-skeleton>
               <n-skeleton style="height: 21px; width: 38px"> </n-skeleton>
@@ -169,7 +249,11 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                   <div class="title">Medical History</div>
                   <div class="space"></div>
                   <div>
-                    <n-skeleton text style="display: inline-block; width: 150px"> </n-skeleton>
+                    <n-skeleton
+                      text
+                      style="display: inline-block; width: 150px"
+                    >
+                    </n-skeleton>
                   </div>
                 </div>
                 <n-skeleton text :repeat="2"></n-skeleton>
@@ -191,7 +275,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
         rounded
         style="flex: 1 1 400px"
       >
-        <loading :loading="loading" :has-data="!!patient">
+        <Loading :loading="loading" :has-data="!!patient">
           <div class="reports-table">
             <ReportTableHeader></ReportTableHeader>
             <div
@@ -201,67 +285,93 @@ const updateState = async (id: number, report_id: number, symptom: string, state
                 'table-row-block': true,
                 selected: report.id === parseInt(report_id),
 
-                odd: index % 2 === 0
+                odd: index % 2 === 0,
               }"
             >
               <div
                 :class="{
                   'table-row': true,
-                  report: true
+                  report: true,
                 }"
               >
                 <div class="date">
-                  {{ format(report.created_at, 'yyyy-MM-dd HH:mm:ss') }}
+                  {{ format(report.created_at, "yyyy-MM-dd HH:mm:ss") }}
                 </div>
-                <div class="symptom" v-for="symptom of Object.keys(config.symptoms)" :key="symptom">
-                  <n-tooltip trigger="hover" v-if="config.symptoms[symptom].likert">
+                <div
+                  class="symptom"
+                  v-for="symptom of Object.keys(config.symptoms)"
+                  :key="symptom"
+                >
+                  <n-tooltip
+                    trigger="hover"
+                    v-if="config.symptoms[symptom].likert"
+                  >
                     <template #trigger>
                       <circle-progress
                         :percent="report[symptom + '_scale'] * 10"
                         autocolor
-                        :id="symptom"
+                        color="red"
+                        :id="symptom + index.toString()"
                         style="width: 50px"
                       >
                         <dot-likert
-                          @update:state="updateState(patient.id, report.id, symptom, $event)"
+                          @update:state="
+                            updateState(patient.id, report.id, symptom, $event)
+                          "
                           :editable="
-                            (current_symptom === symptom && report.id === parseInt(report_id)) ||
+                            (current_symptom === symptom &&
+                              report.id === parseInt(report_id)) ||
                             report[symptom + '_state'] === 0
                           "
                           :class="{
                             selected:
-                              current_symptom === symptom && report.id === parseInt(report_id),
-                            disabled: report[symptom + '_state'] === 0
+                              current_symptom === symptom &&
+                              report.id === parseInt(report_id),
+                            disabled: report[symptom + '_state'] === 0,
                           }"
                           :state="report[symptom + '_state']"
-                          @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                          @click="
+                            report[symptom + '_state'] !== 0 &&
+                              jumpToReport(report, symptom)
+                          "
+                          :color="config.symptoms[symptom].color"
                           :symptom="symptom"
                         />
                       </circle-progress>
                     </template>
                     <div>
-                      {{ config.symptoms[symptom].display_name }}: {{ report[symptom + '_scale'] }}
+                      {{ config.symptoms[symptom].display_name }}:
+                      {{ report[symptom + "_scale"] }}
                     </div>
                   </n-tooltip>
                   <circle-progress
-                    :percent="report[symptom + '_scale'] * 10"
+                    v-else
+                    :percent="0"
+                    color="red"
                     :id="symptom"
                     style="width: 50px"
-                    v-else
                     :visible="false"
                   >
                     <dot-symptom
-                      @update:state="updateState(patient.id, report.id, symptom, $event)"
+                      @update:state="
+                        updateState(patient.id, report.id, symptom, $event)
+                      "
                       :editable="
-                        (current_symptom === symptom && report.id === parseInt(report_id)) ||
+                        (current_symptom === symptom &&
+                          report.id === parseInt(report_id)) ||
                         report[symptom + '_state'] === 0
                       "
                       :class="{
-                        selected: current_symptom === symptom && report.id === parseInt(report_id),
-                        disabled: report[symptom + '_state'] === 0
+                        selected:
+                          current_symptom === symptom &&
+                          report.id === parseInt(report_id),
+                        disabled: report[symptom + '_state'] === 0,
                       }"
                       :state="report[symptom + '_state']"
-                      @click="report[symptom + '_state'] !== 0 && jumpToReport(report, symptom)"
+                      @click="
+                        report[symptom + '_state'] !== 0 &&
+                          jumpToReport(report, symptom)
+                      "
                       :color="config.symptoms[symptom].color"
                       :symptom="symptom"
                     />
@@ -273,15 +383,19 @@ const updateState = async (id: number, report_id: number, symptom: string, state
           <template #loading>
             <div class="reports-table">
               <ReportTableHeader></ReportTableHeader>
-
               <template v-for="i in 10" :key="i">
                 <div
                   :class="{
                     'table-row': true,
-                    report: true
+                    report: true,
                   }"
                 >
-                  <n-skeleton text class="date" style="height: 19.2px; width: 130px"> </n-skeleton>
+                  <n-skeleton
+                    text
+                    class="date"
+                    style="height: 19.2px; width: 130px"
+                  >
+                  </n-skeleton>
                   <div
                     class="symptom"
                     v-for="symptom of Object.keys(config.symptoms)"
@@ -301,7 +415,7 @@ const updateState = async (id: number, report_id: number, symptom: string, state
               </template>
             </div>
           </template>
-        </loading>
+        </Loading>
       </ColoredCard>
     </div>
     <div class="col" style="flex: 1 1 250px">
@@ -313,8 +427,6 @@ const updateState = async (id: number, report_id: number, symptom: string, state
 </template>
 
 <style scoped lang="scss">
-
-
 .row {
   flex-grow: 1;
   .col {
@@ -328,12 +440,20 @@ const updateState = async (id: number, report_id: number, symptom: string, state
   overflow-x: hidden;
 }
 
-
 .participant-id {
   font-size: 16px;
-  line-height: 24px;
+  line-height: 30px;
   font-weight: 700;
 }
+.icon-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
 .age-sex {
   width: 100px;
   display: inline-block;

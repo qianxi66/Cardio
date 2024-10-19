@@ -1,49 +1,69 @@
-import axios, { type AxiosRequestConfig } from 'axios';
-import {API_KEY, apiBasePath} from '@/config';
-
+import axios, { type AxiosRequestConfig } from "axios";
+import { apiBasePath } from "@/config";
+import router from "@/router";
+export interface Patient {
+  EHRid: string;
+  medication: string;
+  doctor: string;
+  medicalhistory: string;
+  switchValue: string;
+  gender: string;
+  age: number;
+}
 const request = axios.create({
   baseURL: apiBasePath,
-  transformResponse: [data => {
-    return JSON.parse(data, dateReviver);
-  }],
+  transformResponse: [
+    (data, headers, status) => {
+      // if json
+      if (headers["content-type"] === "application/json") {
+        return JSON.parse(data, dateReviver);
+      }
+      return data;
+    },
+  ],
 });
-
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorHandler = (error: any) => {
-  let message = '';
+  console.log("error", error);
+  let message = "";
   if (error.response) {
     const { data } = error.response;
     message += data?.message;
   }
-  window.$dialog.error({
-    title: 'Error Occurred',
-    content: 'Error Occurred' + (message ? ',' + message :  '.'),
-  });
+  if (error.response.status === 401) {
+    localStorage.removeItem("token");
+    router.push("/login");
+    window.$message.error("Login expired, please login again.");
+  } else {
+    window.$message.error("Error Occurred" + (message ? "," + message : "."));
+  }
 };
 
 request.interceptors.response.use((response) => response.data, errorHandler);
 
-const api = (req: AxiosRequestConfig<unknown>) => new Promise((resolve, reject) => {
-  if(!req.headers){
-    req.headers = {};
-  }
-  req.headers['Authorization'] = 'Bearer ' + API_KEY;
-  request(req).then((resp) => {
-    resolve(resp);
-  }).catch((err) => {
-    window.$dialog.error({
-      title: 'Error Occurred',
-      content: 'Error Occurred' + (err.message ? ',' + err.message :  '.'),
-    });
-    reject(err);
+const api = (req: AxiosRequestConfig<unknown>) =>
+  new Promise((resolve, reject) => {
+    if (!req.headers) {
+      req.headers = {};
+    }
+    const token = localStorage.getItem("token");
+    req.headers["Authorization"] = "Bearer " + token;
+    request(req)
+      .then((resp) => {
+        resolve(resp);
+      })
+      .catch((err) => {
+        console.log("error", err);
+        window.$message.error("Error Occurred" + (err ? "," + err : "."));
+        reject(err);
+      });
   });
-});
 
 // Custom reviver function to convert date strings to Date objects
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const dateReviver = (key: string, value: any) => {
-  if (typeof value === 'string' && key.endsWith('_at')) {
+  if (typeof value === "string" && key.endsWith("_at")) {
     const date = new Date(value);
     if (!isNaN(date.getTime()) && Number(value).toString() !== value) {
       return date;
