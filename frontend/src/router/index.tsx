@@ -70,9 +70,9 @@ const router = createRouter({
       ],
     },
     {
-      path: "/creat_patient",
-      name: "creat_patient",
-      component: () => import("../views/CreatPatient.vue"),
+      path: "/create_patient",
+      name: "create_patient",
+      component: () => import("../views/CreatePatient.vue"),
       beforeEnter: require_login,
     },
     {
