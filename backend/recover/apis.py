@@ -22,6 +22,7 @@ from .db import (
     db,
     Token,
 )
+from .config import VALID_API_KEYS
 from .openai_utils import conversation, key_questions, summary
 
 
@@ -67,8 +68,24 @@ TOKEN_EXPIRATION_HOURS = 2
 REMEMBERME_EXPIRATION_HOURS = 48
 
 
-# Decorator to validate the 'Authorization' header for an API key
 def api_key_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            abort(401)  # Unauthorized
+
+        # Get token
+        token_string = auth_header.split(" ")[1]
+        if token_string not in VALID_API_KEYS:
+            abort(401)
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+# Decorator to validate the 'Authorization' header for an API key
+def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         auth_header = request.headers.get("Authorization")
@@ -134,7 +151,7 @@ def get_user_info():
 
 
 @current_app.route("/patients", methods=["GET"])
-@api_key_required
+@login_required
 def get_patients():
     try:
         patients = g.current_user.patients
@@ -175,7 +192,7 @@ def get_patients():
 
 
 @current_app.route("/users", methods=["GET"])
-@api_key_required
+@login_required
 def get_users():
     try:
         session: Session = db.session
@@ -242,7 +259,7 @@ def generate_report_for_patient(patient):
 
 
 @current_app.route("/patients", methods=["POST"])
-@api_key_required
+@login_required
 def create_patient():
     try:
         data = request.get_json()
@@ -297,7 +314,7 @@ def create_patient():
 
 
 @current_app.route("/patients/<int:id>", methods=["PATCH"])
-@api_key_required
+@login_required
 def update_patient(id):
     try:
         data = request.get_json()
@@ -343,7 +360,7 @@ def update_patient(id):
 
 
 @current_app.route("/patients/<int:id>", methods=["GET"])
-@api_key_required
+@login_required
 def get_patient(id):
     try:
         userid = g.current_user.id
@@ -391,7 +408,7 @@ def get_patient(id):
 
 
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["GET"])
-@api_key_required
+@login_required
 def get_patient_reports(id, report_id):
     report = Report.query.filter_by(patient_id=id, id=report_id).first()
 
@@ -417,7 +434,7 @@ def get_patient_reports(id, report_id):
 
 
 @current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["PATCH"])
-@api_key_required
+@login_required
 def update_report(id, report_id):
     patient = Patient.query.get(id)
     data = request.get_json()
@@ -447,7 +464,7 @@ def update_report(id, report_id):
     "/patients/<int:id>/report/<int:report_id>/note/<int:note_id>",
     methods=["DELETE"],
 )
-@api_key_required
+@login_required
 def delete_report_note(id, report_id, note_id):
     note = ReportNote.query.filter_by(id=note_id).first()
     db.session.delete(note)
@@ -456,7 +473,7 @@ def delete_report_note(id, report_id, note_id):
 
 
 @current_app.route("/patients/<int:id>/report/<int:report_id>/note", methods=["POST"])
-@api_key_required
+@login_required
 def create_report_note(id, report_id):
     data = request.get_json()
     note = ReportNote(
