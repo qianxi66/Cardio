@@ -50,7 +50,11 @@ onMounted(async () => {
 
 const handleupdatePatient = async (formData) => {
   try {
-    console.log("ds");
+    for (const key in ["EHR_id", "participant_id", "alexa_user_id", "gender"]) {
+      if (formData[key] !== null) {
+        formData[key] = formData[key].trim();
+      }
+    }
     const response = await updatePatient(patient_id.value, formData);
 
     console.log("patientid:" + response.patient_id);
@@ -61,6 +65,13 @@ const handleupdatePatient = async (formData) => {
       });
     } else {
       console.log("Patient created successfully:", response.data);
+      notification.create({
+        title: "Patient updated successfully",
+      });
+      router.push({
+        name: "patient.detail",
+        params: { patient_id: patient_id.value },
+      });
     }
   } catch (error) {
     if (error.response) {
@@ -70,7 +81,6 @@ const handleupdatePatient = async (formData) => {
       console.error("Network error:", error);
     }
   }
-  router.push(`/patient/${response.patient_id}`);
 };
 </script>
 
