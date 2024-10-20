@@ -66,8 +66,6 @@ const handleSubmit = async (e: MouseEvent) => {
       if (!errors) {
         try {
           emit("submit", model.value);
-          message.success("Success");
-          await router.push("/patient");
         } catch (error: any) {
           message.error(`Submission failed: ${error.message}`);
         }
