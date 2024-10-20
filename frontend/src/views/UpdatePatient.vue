@@ -1,6 +1,6 @@
 <script setup lang="tsx">
 import { onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import router from "@/router";
 //import axios from "axios";
 import { useRouteParams } from "@vueuse/router";
 import type { Patient } from "@/api/types";
@@ -12,7 +12,6 @@ const patient_id = useRouteParams("patient_id", 0, {
   transform: (v) => v as number,
 });
 
-const router = useRouter();
 const loading = ref(true);
 const formData = ref({
   EHR_id: "",
@@ -50,8 +49,8 @@ onMounted(async () => {
 
 const handleupdatePatient = async (formData) => {
   try {
-    for (const key in ["EHR_id", "participant_id", "alexa_user_id", "gender"]) {
-      if (formData[key] !== null) {
+    for (const key of ["EHR_id", "participant_id", "alexa_user_id", "gender"]) {
+      if (formData[key]) {
         formData[key] = formData[key].trim();
       }
     }
@@ -59,15 +58,15 @@ const handleupdatePatient = async (formData) => {
 
     console.log("patientid:" + response.patient_id);
 
-    if (response.data.hasOwnProperty("message")) {
-      notification.create({
-        title: response.data.message,
+    if (Object.prototype.hasOwnProperty.call(response, "message")) {
+      window.$message.success(response.message);
+      router.push({
+        name: "patient.detail",
+        params: { patient_id: patient_id.value },
       });
     } else {
-      console.log("Patient created successfully:", response.data);
-      notification.create({
-        title: "Patient updated successfully",
-      });
+      console.log("Patient updated successfully:", response);
+      window.$message.success("Patient updated successfully");
       router.push({
         name: "patient.detail",
         params: { patient_id: patient_id.value },
@@ -77,8 +76,10 @@ const handleupdatePatient = async (formData) => {
     if (error.response) {
       const errorMessage = error.response.data.message;
       console.error("Error creating patient:", errorMessage);
+      window.$message.error(errorMessage);
     } else {
       console.error("Network error:", error);
+      window.$message.error("Network error");
     }
   }
 };
