@@ -651,9 +651,8 @@ def get_last_message(alexa_user_id):
     messages = ConversationLog.query.filter_by(report_id=report.id).all()
     if len(messages) == 0:
         msg = (
-            "Hello, this is the elderly care bot developed by the "
-            "Northeastern University Human-Centered AI Lab. "
-            "Do you have anything to share with me?"
+            "Hello, thanks for checking in for our study."
+            "How are you feeling today? "
         )
         message = ConversationLog(
             patient_id=patient.id,
