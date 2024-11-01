@@ -1,10 +1,11 @@
 Symptom Keys and Descriptions:
 
-activity: "Decrease in Daily Activities", likert: false
-cognition: "Decrease in Cognitive Level", likert: false
-eating: "Inability to Tolerate Food or Drink", likert: false
-pain: "Physical Condition", likert: true
-mood: "Feeling Down or Depressed", likert: false
+Physical: "Physical Well-Being", likert: false
+Stress: "Managing Stress", likert: false
+Emotion: "Emotional Health", likert: false
+Self-Care: "Goal Setting and Self-Care", likert: true
+Communication: "Communicating Needs", likert: false
+Processing:"Processing Caregiving Emotions", likert: false
 misc: "Other Symptoms", likert: false
 
 For each symptom listed above, perform the following tasks:

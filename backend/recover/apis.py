@@ -550,12 +550,12 @@ def create_conversation_log(alexa_user_id):
         )
         assistant_message = assistant_message.strip()
     except ValueError:
-        chain_of_thoughts = """activity: not discussed
-congnition: not discussed
-eating: not discussed
-mood: not discussed
-pain: not discussed
-misc: not discussed
+        chain_of_thoughts = """physical: not discussed
+stress: not discussed
+emotion: not discussed
+selfcare: not discussed
+communication: not discussed
+processing: not discussed
 """
     session_end = "CONVERSATION_END" in assistant_message
     log = ConversationLog(
