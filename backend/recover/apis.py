@@ -651,7 +651,7 @@ def get_last_message(alexa_user_id):
     messages = ConversationLog.query.filter_by(report_id=report.id).all()
     if len(messages) == 0:
         msg = (
-            "Hello, thanks for checking in for our study."
+            "Hello, thanks for checking in for our study. "
             "How are you feeling today? "
         )
         message = ConversationLog(
