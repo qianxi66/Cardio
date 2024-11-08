@@ -45,7 +45,7 @@ const handleLogout = () => {
         style="color: inherit; text-decoration: none"
         @click.prevent="$router.push('/')"
       >
-        Elderly Care
+        AI Caring (0.2.0-alpha)
       </a>
       <div class="space"></div>
       <div v-if="showLogoutButton" style="margin-right: 20px">
