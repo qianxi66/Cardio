@@ -557,17 +557,15 @@ selfcare: not discussed
 communication: not discussed
 processing: not discussed
 """
-    session_end = "CONVERSATION_END" in assistant_message
     log = ConversationLog(
         patient_id=patient.id,
         report_id=report.id,
         role="assistant",
-        content=assistant_message.replace("CONVERSATION_END", ""),
+        content=assistant_message,
         chain_of_thoughts=chain_of_thoughts,
     )
     db.session.add(log)
     db.session.commit()
-    log.content += "CONVERSATION_END" if session_end else ""
     return jsonify(log.as_dict())
 
 
@@ -666,7 +664,20 @@ def get_last_message(alexa_user_id):
         return jsonify({"message": "success", "last_message": message.as_dict()})
     messages = [message.as_dict() for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
-    return jsonify({"message": "success", "last_message": messages[-1]})
+    if "CONVERSATION_END" in messages[-1]["content"]:
+        msg = "Happy to see you again, want to chat more?"
+        message = ConversationLog(
+            patient_id=patient.id,
+            report_id=report.id,
+            role="assistant",
+            chain_of_thoughts="",
+            content=msg,
+        )
+        db.session.add(message)
+        db.session.commit()
+        return jsonify({"message": "success", "last_message": message.as_dict()})
+    else:
+        return jsonify({"message": "success", "last_message": messages[-1]})
 
 
 @current_app.route("/alexa_user/<alexa_user_id>/create_note", methods=["POST"])

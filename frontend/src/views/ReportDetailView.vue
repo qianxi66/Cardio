@@ -302,7 +302,7 @@ watch(select_log_ids, scroll);
           </div>
         </div>
         <div class="content">
-          {{ message.content }}
+          {{ message.content.replace("CONVERSATION_END", "") }}
         </div>
       </div>
     </Loading>

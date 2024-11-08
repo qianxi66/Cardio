@@ -177,7 +177,7 @@ const updateState = async (
         <Loading :loading="loading" :has-data="!!patient">
           <div class="row">
             <div class="participant-id">
-              Older Adults {{ patient!.participant_id }}
+              Caregiver {{ patient!.participant_id }}
             </div>
             <div class="space"></div>
             <n-tooltip trigger="hover">

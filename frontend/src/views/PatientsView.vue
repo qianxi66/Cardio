@@ -89,7 +89,7 @@ const updateState = (id: number, state: number) => {
     <n-card class="patient-list">
       <template #header>
         <div class="header row">
-          <div class="title">Older Adults</div>
+          <div class="title">Participants</div>
           <n-tooltip trigger="hover">
             <template #trigger>
               <n-button
@@ -157,7 +157,7 @@ const updateState = (id: number, state: number) => {
             }"
             class="patient-info"
           >
-            <div class="name">Older Adults {{ p.participant_id }}</div>
+            <div class="name">Caregiver {{ p.id }} {{ p.participant_id }}</div>
             <div class="age-sex">
               <span v-if="p.age">{{ p.age }} y.o.</span>
               <span v-if="p.age && p.gender"> , </span>
