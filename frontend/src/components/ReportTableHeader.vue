@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import * as config from "@/config";
+import * as config from "@/symptoms";
 </script>
 <template>
   <div class="table-row header">

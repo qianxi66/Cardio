@@ -2,7 +2,7 @@
 import { useRouteParams, useRouteQuery } from "@vueuse/router";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
-import * as config from "@/config";
+import * as config from "@/symptoms";
 import { computed, watch, type Ref, ref, inject } from "vue";
 import type { Patient, Report } from "@/api/types";
 import { getPatient, updateReport, createNote } from "@/api/patient";
@@ -14,7 +14,6 @@ import ReportTableHeader from "@/components/ReportTableHeader.vue";
 import axios from "axios";
 import CircleProgress from "@/components/CircleProgress.vue";
 import { getUserInfo } from "@/api/user";
-import { stateColors } from "@/config"; // shihan
 
 const refreshPatients = inject("refreshPatients");
 const patient_id = useRouteParams("patient_id");

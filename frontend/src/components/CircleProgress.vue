@@ -1,6 +1,6 @@
 <script setup lang="tsx">
 import { computed, type CSSProperties, type VNode } from "vue";
-import { stateColors } from "@/config";
+import { stateColors } from "@/symptoms";
 const props = withDefaults(
   defineProps<{
     percent: number;

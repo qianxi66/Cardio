@@ -1,6 +1,6 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup lang="ts">
-import { stateColors, stateMessages, symptoms } from "@/config";
+import { stateColors, stateMessages, symptoms } from "@/symptoms";
 import { type ButtonProps } from "naive-ui";
 import { ref } from "vue";
 type ButtonThemeOverrides = NonNullable<ButtonProps["themeOverrides"]>;

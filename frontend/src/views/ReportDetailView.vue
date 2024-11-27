@@ -3,7 +3,6 @@ import { useRouteParams, useRouteQuery } from "@vueuse/router";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import conversations from "@/data/conversations.json";
-import * as config from "@/config";
 import { computed, nextTick, reactive, ref, watch, type Ref } from "vue";
 import type { Report, ReportSummary } from "@/api/types";
 import type { CancelTokenSource } from "axios";
@@ -26,7 +25,7 @@ const select_log_ids = computed(() => {
   }
 });
 const state = useRouteQuery<number>("state");
-import { stateColors } from "@/config";
+import { stateColors } from "@/symptoms";
 import { format, formatDistance } from "date-fns";
 
 const cancelToken = ref<CancelTokenSource | null>(null);
