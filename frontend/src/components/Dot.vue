@@ -1,6 +1,6 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup lang="ts">
-import { stateColors, stateMessages } from "@/symotoms";
+import { stateColors, stateMessages } from "@/symptoms";
 import { type ButtonProps } from "naive-ui";
 import { ref, computed } from "vue";
 
