@@ -47,6 +47,10 @@ watch(
       parseInt(patient_id.value as string),
       cancelToken.value.token,
     );
+    for(const report of patient.value.reports) {
+      console.log(report);
+      report.activity=['1', '2', '3'][Math.floor(Math.random() * 3 )];
+    }
     loading.value = false;
   },
   { immediate: true },
@@ -296,6 +300,19 @@ const updateState = async (
                 <div class="date">
                   {{ format(report.created_at, "yyyy-MM-dd HH:mm:ss") }}
                 </div>
+                <div class="symptom">
+                  {{ report.steps.total_steps }}
+                </div>
+
+                <div class="symptom">
+                  {{ report.heart_rate.min_hr || 'N/A' }} - {{ report.heart_rate.max_hr || 'N/A' }}
+                </div>
+
+                <div class="symptom">
+                  {{ Math.round(report.stress?.avg_stress || 0) || 'N/A' }}
+                </div>
+
+
                 <div
                   class="symptom"
                   v-for="symptom of Object.keys(config.symptoms)"

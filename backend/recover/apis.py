@@ -22,8 +22,9 @@ from .db import (
     db,
     Token,
 )
-from .config import VALID_API_KEYS
+from .config import VALID_API_KEYS, mongodb_url
 from .openai_utils import conversation, key_questions, summary
+from pymongo import MongoClient
 
 
 def generate_random_string(length=32):
@@ -359,6 +360,13 @@ def update_patient(id):
         return jsonify({"error": "An internal error occurred"}), 500
 
 
+
+client = MongoClient(mongodb_url)
+db2 = client['Mycare']
+collection_hr = db2['garmin_hr']
+collection_steps = db2['garmin_steps']
+collection_stress = db2['garmin_stress']
+
 @current_app.route("/patients/<int:id>", methods=["GET"])
 @login_required
 def get_patient(id):
@@ -394,6 +402,86 @@ def get_patient(id):
                 else:
                     r[f"{symptom}_logs"] = []
 
+            # Start of the day
+            start_of_day = r['created_at'].replace(hour=0, minute=0, second=0, microsecond=0)
+            end_of_day = r['created_at'].replace(hour=23, minute=59, second=59, microsecond=999999)
+
+            try:
+                # Heart Rate Data
+                pipeline_hr = [
+                    {
+                        "$match": {
+                            "uid": "test001",
+                            "timestamp": {
+                                "$gt": start_of_day.timestamp(),
+                                "$lt": end_of_day.timestamp()
+                            }
+                        }
+                    },
+                    {
+                        "$group": {
+                            "_id": None,
+                            "max_hr": {"$max": "$heart_rate"},
+                            "min_hr": {"$min": "$heart_rate"}
+                        }
+                    }
+                ]
+                result_hr = list(collection_hr.aggregate(pipeline_hr))
+                r["heart_rate"] = result_hr[0] if result_hr else {"max_hr": None, "min_hr": None}
+
+                # Steps Data
+                pipeline_steps = [
+                    {
+                        "$match": {
+                            "uid": "test001",
+                            "timestamp": {
+                                "$gt": start_of_day.timestamp(),
+                                "$lt": end_of_day.timestamp()
+                            }
+                        }
+                    },
+                    {
+                        "$group": {
+                            "_id": None,
+                            "total_steps": {"$sum": "$steps"}
+                        }
+                    }
+                ]
+                result_steps = list(collection_steps.aggregate(pipeline_steps))
+                r["steps"] = result_steps[0] if result_steps else {"total_steps": None}
+
+                # Stress Data
+                pipeline_stress = [
+                    {
+                        "$match": {
+                            "uid": "test001",
+                            "timestamp": {
+                                "$gt": start_of_day.timestamp(),
+                                "$lt": end_of_day.timestamp()
+                            }
+                        }
+                    },
+                    {
+                        "$addFields": {
+                            "stress_numeric": {"$toInt": "$stress"}  # Convert stress to integer
+                        }
+                    },
+                    {
+                        "$group": {
+                            "_id": None,
+                            "avg_stress": {"$avg": "$stress_numeric"}  # Calculate average stress
+                        }
+                    }
+                ]
+                result_stress = list(collection_stress.aggregate(pipeline_stress))
+                r["stress"] = result_stress[0] if result_stress else {"avg_stress": None}
+
+            except Exception as e:
+                logging.error(f"Failed to fetch data from MongoDB: {e}")
+                r["heart_rate"] = {"max_hr": None, "min_hr": None}
+                r["steps"] = {"total_steps": None}
+                r["stress"] = {"avg_stress": None}
+
         patient_dict["users"] = [
             {k: v for k, v in user.as_dict().items() if k != "password"}
             for user in patient.users
@@ -401,6 +489,7 @@ def get_patient(id):
         patient_dict["reports"] = reports_dict
 
         return jsonify(patient_dict)
+
 
     except Exception as e:
         logging.error(f"An error occurred: {e}", exc_info=True)
@@ -665,7 +754,23 @@ def get_last_message(alexa_user_id):
     messages = [message.as_dict() for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     if "CONVERSATION_END" in messages[-1]["content"]:
-        msg = "Happy to see you again, want to chat more?"
+        msg = (
+            "Hello, thanks for checking in for our study. "
+            "How are you feeling today? "
+        )
+        symptom_kwargs = [
+            {
+                f"{symptom}_state": 0,
+                f"{symptom}_logs": "[]",
+            }
+            for symptom in symptom_descriptions.keys()
+        ]
+        symptom_kwargs = {k: v for d in symptom_kwargs for k, v in d.items()}
+        report = Report(patient_id=patient.id, **symptom_kwargs)
+        patient = Patient.query.get(patient.id)
+        patient.reviewed = False
+        db.session.add(patient)
+        db.session.add(report)
         message = ConversationLog(
             patient_id=patient.id,
             report_id=report.id,
