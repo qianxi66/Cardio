@@ -9,7 +9,7 @@ export const symptoms = {
   stress: {
     description: "Managing Stress",
     display_name: "Stress",
-    max_scale: 2,
+    max_scale: 5,
     color: "#f9d965",
     likert: false,
   },

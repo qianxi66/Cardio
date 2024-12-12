@@ -641,10 +641,8 @@ def create_conversation_log(alexa_user_id):
     except ValueError:
         chain_of_thoughts = """physical: not discussed
 stress: not discussed
-emotion: not discussed
 selfcare: not discussed
 communication: not discussed
-processing: not discussed
 """
     log = ConversationLog(
         patient_id=patient.id,
@@ -739,7 +737,7 @@ def get_last_message(alexa_user_id):
     if len(messages) == 0:
         msg = (
             "Hello, thanks for checking in for our study. "
-            "How are you feeling today? "
+            "How are you managing your caregiving and taking care of yourself? "
         )
         message = ConversationLog(
             patient_id=patient.id,
@@ -756,7 +754,7 @@ def get_last_message(alexa_user_id):
     if "CONVERSATION_END" in messages[-1]["content"]:
         msg = (
             "Hello, thanks for checking in for our study. "
-            "How are you feeling today? "
+            "How are you managing your caregiving and taking care of yourself? "
         )
         symptom_kwargs = [
             {
