@@ -25,7 +25,7 @@ from .db import (
 from .config import VALID_API_KEYS, mongodb_url
 from .openai_utils import conversation, key_questions, summary
 from pymongo import MongoClient
-
+import requests
 
 def generate_random_string(length=32):
     characters = string.ascii_letters + string.digits
@@ -404,80 +404,30 @@ def get_patient(id):
 
             # Start of the day
             start_of_day = r['created_at'].replace(hour=0, minute=0, second=0, microsecond=0)
-            end_of_day = r['created_at'].replace(hour=23, minute=59, second=59, microsecond=999999)
+            end_of_day = r['created_at'].replace(hour=23, minute=59, second=59, microsecond=0)
 
             try:
-                # Heart Rate Data
-                pipeline_hr = [
-                    {
-                        "$match": {
-                            "uid": "test001",
-                            "timestamp": {
-                                "$gt": start_of_day.timestamp(),
-                                "$lt": end_of_day.timestamp()
-                            }
-                        }
-                    },
-                    {
-                        "$group": {
-                            "_id": None,
-                            "max_hr": {"$max": "$heart_rate"},
-                            "min_hr": {"$min": "$heart_rate"}
-                        }
-                    }
-                ]
-                result_hr = list(collection_hr.aggregate(pipeline_hr))
-                r["heart_rate"] = result_hr[0] if result_hr else {"max_hr": None, "min_hr": None}
+                # Example URL and parameters for the HTTPS API
+                uid = "test001"
+                start =  int(start_of_day.timestamp())
+                end = int(end_of_day.timestamp())
+                url = f"https://ubiwell-llm.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_all/sdfji32jefcisdjj2/{uid}/{start}/{end}/all"
+                # Send request to the API
+                response = requests.get(url)
+                response.raise_for_status()  # Raise an error for bad responses
 
-                # Steps Data
-                pipeline_steps = [
-                    {
-                        "$match": {
-                            "uid": "test001",
-                            "timestamp": {
-                                "$gt": start_of_day.timestamp(),
-                                "$lt": end_of_day.timestamp()
-                            }
-                        }
-                    },
-                    {
-                        "$group": {
-                            "_id": None,
-                            "total_steps": {"$sum": "$steps"}
-                        }
-                    }
-                ]
-                result_steps = list(collection_steps.aggregate(pipeline_steps))
-                r["steps"] = result_steps[0] if result_steps else {"total_steps": None}
+                # Parse the JSON response
+                data = response.json()
+                data = json.loads(data['message']['all_data'])
 
-                # Stress Data
-                pipeline_stress = [
-                    {
-                        "$match": {
-                            "uid": "test001",
-                            "timestamp": {
-                                "$gt": start_of_day.timestamp(),
-                                "$lt": end_of_day.timestamp()
-                            }
-                        }
-                    },
-                    {
-                        "$addFields": {
-                            "stress_numeric": {"$toInt": "$stress"}  # Convert stress to integer
-                        }
-                    },
-                    {
-                        "$group": {
-                            "_id": None,
-                            "avg_stress": {"$avg": "$stress_numeric"}  # Calculate average stress
-                        }
-                    }
-                ]
-                result_stress = list(collection_stress.aggregate(pipeline_stress))
-                r["stress"] = result_stress[0] if result_stress else {"avg_stress": None}
+                heart_rate = [i['heart_rate'] for i in data['garmin_hr']]
+                r["heart_rate"] = {"max_hr": max(heart_rate) if heart_rate else None, "min_hr": min(heart_rate) if heart_rate else None}
+                r["steps"] = {"total_steps": data['garmin_steps'][-1]['total_steps'] if data['garmin_steps'] else None}
+                stress = [float(i['stress']) for i in data['garmin_stress']]
+                r["stress"] = {"avg_stress": sum(stress) / len(stress) if stress else None}
 
-            except Exception as e:
-                logging.error(f"Failed to fetch data from MongoDB: {e}")
+            except requests.RequestException as e:
+                logging.error(f"Failed to fetch data from HTTPS API: {e}")
                 r["heart_rate"] = {"max_hr": None, "min_hr": None}
                 r["steps"] = {"total_steps": None}
                 r["stress"] = {"avg_stress": None}
@@ -489,7 +439,6 @@ def get_patient(id):
         patient_dict["reports"] = reports_dict
 
         return jsonify(patient_dict)
-
 
     except Exception as e:
         logging.error(f"An error occurred: {e}", exc_info=True)

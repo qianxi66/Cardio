@@ -287,6 +287,24 @@ def create_user(username, password, email, name):
 
         print(f"User '{username}' created successfully.")
 
+@app.cli.command("reset-password")
+@click.option("--username", required=True, type=str, help="Username for the user")
+@click.option("--password", required=True, type=str, help="New password for the user")
+def reset_password(username, password):
+    with app.app_context():
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            print(f"User with username '{username}' does not exist.")
+            return
+
+        hashed_password = bcrypt.hashpw(
+            password.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
+        user.password = hashed_password
+        db.session.commit()
+
+        print(f"Password for user '{username}' reset successfully.")
+
 
 @app.cli.command("assign-patient")
 @click.option("--user-id", required=True, type=int, help="ID of the user")
