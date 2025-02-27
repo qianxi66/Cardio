@@ -590,7 +590,7 @@ def create_conversation_log(alexa_user_id):
     except ValueError:
         chain_of_thoughts = """physical: not discussed
 stress: not discussed
-selfcare: not discussed
+mood: not discussed
 communication: not discussed
 """
     log = ConversationLog(
