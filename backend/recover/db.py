@@ -80,6 +80,7 @@ class Patient(db.Model):
     last_read_at: datetime
     reviewed: bool
     state: int
+    garmin_id: str
 
     id = db.Column(db.Integer, primary_key=True)
     age = db.Column(db.Integer)
@@ -92,6 +93,7 @@ class Patient(db.Model):
     last_read_at = db.Column(db.DateTime)
     reviewed = db.Column(db.Boolean, default=False)
     state = db.Column(db.Integer, default=0)
+    garmin_id = db.Column(db.String(50), nullable=True)
 
 
 class ReportNote(db.Model):

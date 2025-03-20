@@ -408,23 +408,87 @@ def get_patient(id):
 
             try:
                 # Example URL and parameters for the HTTPS API
-                uid = "test001"
+                # uid = "test001"
+                uid = patient.garmin_id
                 start =  int(start_of_day.timestamp())
                 end = int(end_of_day.timestamp())
-                url = f"https://ubiwell-llm.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_all/sdfji32jefcisdjj2/{uid}/{start}/{end}/all"
+
+                # get garmin_stress/stress
+                # url = f"https://ubiwell-llm.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_all/sdfji32jefcisdjj2/{uid}/{start}/{end}/all"
+                url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/garmin_stress/stress/{start}/{end}"
+                print(url)
                 # Send request to the API
                 response = requests.get(url)
                 response.raise_for_status()  # Raise an error for bad responses
 
                 # Parse the JSON response
                 data = response.json()
-                data = json.loads(data['message']['all_data'])
+                # message.all_data:{
+                #     "count": 8107.0,
+                #     "mean": 32.79881583816455,
+                #     "std": 22.944985289650344,
+                #     "min": 1.0,
+                #     "25%": 16.0,
+                #     "50%": 27.0,
+                #     "75%": 42.0,
+                #     "max": 97.0,
+                #     "uid": "u004",
+                #     "event_name": "garmin_stress",
+                #     "time_start": "1742270400",
+                #     "time_end": "1742356799",
+                #     "parameter": "stress"
+                #     }
+                try:
+                    data = json.loads(data['message']['all_data'])
+                    r['stress'] = {
+                        "avg_stress": data['mean']
+                    }
+                except Exception as e:
+                    # logging.error(f"Failed to parse stress data: {e}")
+                    r['stress'] = {
+                        "avg_stress": None
+                    }
+                # get min and max hr
+                url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/garmin_hr/heart_rate/{start}/{end}"
+                response = requests.get(url)
+                response.raise_for_status()  # Raise an error for bad responses
+                data = response.json()
+                try:
+                    data = json.loads(data['message']['all_data'])
+                    r['heart_rate'] = {
+                        "max_hr": data['max'],
+                        "min_hr": data['min']
+                    }
+                except Exception as e:
+                    # logging.error(f"Failed to parse heart rate data: {e}")
+                    r['heart_rate'] = {
+                        "max_hr": None,
+                        "min_hr": None
+                    }
+                # get total steps
+                url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/garmin_steps/total_steps/{start}/{end}"
+                response = requests.get(url)
+                response.raise_for_status()  # Raise an error for bad responses
+                data = response.json()
+                try:
+                    data = json.loads(data['message']['all_data'])
+                    r['steps'] = {
+                        "total_steps": data['max']
+                    }
+                except Exception as e:
+                    # logging.error(f"Failed to parse steps data: {e}")
+                    r['steps'] = {
+                        "total_steps": None
+                    }
 
-                heart_rate = [i['heart_rate'] for i in data['garmin_hr']]
-                r["heart_rate"] = {"max_hr": max(heart_rate) if heart_rate else None, "min_hr": min(heart_rate) if heart_rate else None}
-                r["steps"] = {"total_steps": data['garmin_steps'][-1]['total_steps'] if data['garmin_steps'] else None}
-                stress = [float(i['stress']) for i in data['garmin_stress']]
-                r["stress"] = {"avg_stress": sum(stress) / len(stress) if stress else None}
+
+
+                # r["stress"] = {"avg_stress": sum(stress) / len(stress) if stress else None}
+
+                # heart_rate = [i['heart_rate'] for i in data['garmin_hr']]
+                # r["heart_rate"] = {"max_hr": max(heart_rate) if heart_rate else None, "min_hr": min(heart_rate) if heart_rate else None}
+                # r["steps"] = {"total_steps": data['garmin_steps'][-1]['total_steps'] if data['garmin_steps'] else None}
+                # stress = [float(i['stress']) for i in data['garmin_stress']]
 
             except requests.RequestException as e:
                 logging.error(f"Failed to fetch data from HTTPS API: {e}")
