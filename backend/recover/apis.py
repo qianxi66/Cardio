@@ -8,7 +8,7 @@ from threading import Thread
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Session
 import bcrypt
-from flask import abort, current_app, jsonify, logging, request, g
+from flask import abort, current_app, jsonify, request, g
 from .app import app
 from .symptoms import symptom_descriptions
 from .db import (
@@ -22,10 +22,36 @@ from .db import (
     db,
     Token,
 )
-from .config import VALID_API_KEYS, mongodb_url
+from .config import (
+    VALID_API_KEYS, mongodb_url, symptom_descriptions, GREETINGS
+)
 from .openai_utils import conversation, key_questions, summary
 from pymongo import MongoClient
 import requests
+import aiohttp
+import asyncio
+from functools import partial
+import logging
+
+# Cache for wearable data
+wearable_data_cache = {}  # Format: {alexa_user_id: {'timestamp': datetime, 'data': {...}}}
+CACHE_EXPIRY_MINUTES = 60  # Cache expires after 60 minutes
+
+def get_cached_wearable_data(alexa_user_id):
+    """Get wearable data from cache if it exists and is not expired"""
+    if alexa_user_id in wearable_data_cache:
+        cache_entry = wearable_data_cache[alexa_user_id]
+        cache_age = datetime.utcnow() - cache_entry['timestamp']
+        if cache_age.total_seconds() < CACHE_EXPIRY_MINUTES * 60:
+            return cache_entry['data']
+    return None
+
+def set_cached_wearable_data(alexa_user_id, data):
+    """Store wearable data in cache"""
+    wearable_data_cache[alexa_user_id] = {
+        'timestamp': datetime.utcnow(),
+        'data': data
+    }
 
 def generate_random_string(length=32):
     characters = string.ascii_letters + string.digits
@@ -287,6 +313,7 @@ def create_patient():
             participant_id=data.get("participant_id"),
             medical_history=data.get("medical_history", ""),
             medication=data.get("medication", ""),
+            garmin_id=data.get("garmin_id"),
             last_read_at=datetime.utcnow(),
             reviewed=False,
             state=0,
@@ -367,6 +394,48 @@ collection_hr = db2['garmin_hr']
 collection_steps = db2['garmin_steps']
 collection_stress = db2['garmin_stress']
 
+async def fetch_sensor_data(session, uid, sensor_type, parameter, start, end):
+    url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/{sensor_type}/{parameter}/{start}/{end}"
+    try:
+        async with session.get(url) as response:
+            response.raise_for_status()
+            raw_data = await response.text()  # Get raw response text first
+            # current_app.logger.info(f"Raw response for {sensor_type}: {raw_data[:200]}...")  # Use Flask logger
+            
+            try:
+                data = json.loads(raw_data)
+                if not isinstance(data, dict) or 'message' not in data or 'all_data' not in data['message']:
+                    # current_app.logger.error(f"Unexpected response format for {sensor_type}. Response: {raw_data[:200]}...")
+                    return sensor_type, None
+                
+                try:
+                    parsed_data = json.loads(data['message']['all_data'])
+                    return sensor_type, parsed_data
+                except json.JSONDecodeError as e:
+                    # current_app.logger.error(f"Failed to parse all_data for {sensor_type}: {e}. all_data content: {data['message']['all_data'][:200]}...")
+                    return sensor_type, None
+                    
+            except json.JSONDecodeError as e:
+                # current_app.logger.error(f"Failed to parse response for {sensor_type}: {e}. Raw response: {raw_data[:200]}...")
+                return sensor_type, None
+                
+    except aiohttp.ClientError as e:
+        # current_app.logger.error(f"HTTP request failed for {sensor_type}: {e}")
+        return sensor_type, None
+    except Exception as e:
+        # current_app.logger.error(f"Unexpected error fetching {sensor_type} data: {e}")
+        return sensor_type, None
+
+async def fetch_all_sensor_data(uid, start, end):
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            fetch_sensor_data(session, uid, 'garmin_stress', 'stress', start, end),
+            fetch_sensor_data(session, uid, 'garmin_hr', 'heart_rate', start, end),
+            fetch_sensor_data(session, uid, 'garmin_steps', 'total_steps', start, end)
+        ]
+        results = await asyncio.gather(*tasks)
+        return dict(results)
+
 @current_app.route("/patients/<int:id>", methods=["GET"])
 @login_required
 def get_patient(id):
@@ -405,97 +474,53 @@ def get_patient(id):
             # Start of the day
             start_of_day = r['created_at'].replace(hour=0, minute=0, second=0, microsecond=0)
             end_of_day = r['created_at'].replace(hour=23, minute=59, second=59, microsecond=0)
-
-            try:
-                # Example URL and parameters for the HTTPS API
-                # uid = "test001"
-                uid = patient.garmin_id
-                start =  int(start_of_day.timestamp())
-                end = int(end_of_day.timestamp())
-
-                # get garmin_stress/stress
-                # url = f"https://ubiwell-llm.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_all/sdfji32jefcisdjj2/{uid}/{start}/{end}/all"
-                url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/garmin_stress/stress/{start}/{end}"
-                print(url)
-                # Send request to the API
-                response = requests.get(url)
-                response.raise_for_status()  # Raise an error for bad responses
-
-                # Parse the JSON response
-                data = response.json()
-                # message.all_data:{
-                #     "count": 8107.0,
-                #     "mean": 32.79881583816455,
-                #     "std": 22.944985289650344,
-                #     "min": 1.0,
-                #     "25%": 16.0,
-                #     "50%": 27.0,
-                #     "75%": 42.0,
-                #     "max": 97.0,
-                #     "uid": "u004",
-                #     "event_name": "garmin_stress",
-                #     "time_start": "1742270400",
-                #     "time_end": "1742356799",
-                #     "parameter": "stress"
-                #     }
+            if patient.garmin_id:
                 try:
-                    data = json.loads(data['message']['all_data'])
-                    r['stress'] = {
-                        "avg_stress": data['mean']
-                    }
+                    uid = patient.garmin_id
+                    start = int(start_of_day.timestamp())
+                    end = int(end_of_day.timestamp())
+
+                    # Run async code in sync context
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    sensor_data = loop.run_until_complete(fetch_all_sensor_data(uid, start, end))
+                    loop.close()
+
+                    # Process stress data
+                    if sensor_data.get('garmin_stress'):
+                        r['stress'] = {
+                            "avg_stress": sensor_data['garmin_stress']['mean']
+                        }
+                    else:
+                        r['stress'] = {"avg_stress": None}
+
+                    # Process heart rate data
+                    if sensor_data.get('garmin_hr'):
+                        r['heart_rate'] = {
+                            "max_hr": sensor_data['garmin_hr']['max'],
+                            "min_hr": sensor_data['garmin_hr']['min']
+                        }
+                    else:
+                        r['heart_rate'] = {"max_hr": None, "min_hr": None}
+
+                    # Process steps data
+                    if sensor_data.get('garmin_steps'):
+                        r['steps'] = {
+                            "total_steps": sensor_data['garmin_steps']['max']
+                        }
+                    else:
+                        r['steps'] = {"total_steps": None}
+
                 except Exception as e:
-                    # logging.error(f"Failed to parse stress data: {e}")
-                    r['stress'] = {
-                        "avg_stress": None
-                    }
-                # get min and max hr
-                url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/garmin_hr/heart_rate/{start}/{end}"
-                response = requests.get(url)
-                response.raise_for_status()  # Raise an error for bad responses
-                data = response.json()
-                try:
-                    data = json.loads(data['message']['all_data'])
-                    r['heart_rate'] = {
-                        "max_hr": data['max'],
-                        "min_hr": data['min']
-                    }
-                except Exception as e:
-                    # logging.error(f"Failed to parse heart rate data: {e}")
-                    r['heart_rate'] = {
-                        "max_hr": None,
-                        "min_hr": None
-                    }
-                # get total steps
-                url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/garmin_steps/total_steps/{start}/{end}"
-                response = requests.get(url)
-                response.raise_for_status()  # Raise an error for bad responses
-                data = response.json()
-                try:
-                    data = json.loads(data['message']['all_data'])
-                    r['steps'] = {
-                        "total_steps": data['max']
-                    }
-                except Exception as e:
-                    # logging.error(f"Failed to parse steps data: {e}")
-                    r['steps'] = {
-                        "total_steps": None
-                    }
-
-
-
-                # r["stress"] = {"avg_stress": sum(stress) / len(stress) if stress else None}
-
-                # heart_rate = [i['heart_rate'] for i in data['garmin_hr']]
-                # r["heart_rate"] = {"max_hr": max(heart_rate) if heart_rate else None, "min_hr": min(heart_rate) if heart_rate else None}
-                # r["steps"] = {"total_steps": data['garmin_steps'][-1]['total_steps'] if data['garmin_steps'] else None}
-                # stress = [float(i['stress']) for i in data['garmin_stress']]
-
-            except requests.RequestException as e:
-                logging.error(f"Failed to fetch data from HTTPS API: {e}")
+                    logging.error(f"Failed to fetch data from HTTPS API: {e}")
+                    r["heart_rate"] = {"max_hr": None, "min_hr": None}
+                    r["steps"] = {"total_steps": None}
+                    r["stress"] = {"avg_stress": None}
+            else:
                 r["heart_rate"] = {"max_hr": None, "min_hr": None}
                 r["steps"] = {"total_steps": None}
                 r["stress"] = {"avg_stress": None}
-
+            
         patient_dict["users"] = [
             {k: v for k, v in user.as_dict().items() if k != "password"}
             for user in patient.users
@@ -617,6 +642,33 @@ def get_or_create_report(patient_id):
     return report
 
 
+async def fetch_day_sensor_data(uid, start, end):
+    async with aiohttp.ClientSession() as session:
+        tasks = [
+            fetch_sensor_data(session, uid, 'garmin_stress', 'stress', start, end),
+            fetch_sensor_data(session, uid, 'garmin_steps', 'total_steps', start, end)
+        ]
+        results = await asyncio.gather(*tasks)
+        data = {}
+        for sensor_type, sensor_data in results:
+            if sensor_type == 'garmin_stress' and sensor_data:
+                data["avg_stress"] = sensor_data['mean']
+                data["max_stress"] = sensor_data['max']
+            elif sensor_type == 'garmin_steps' and sensor_data:
+                data["avg_steps"] = sensor_data['mean']
+                data["max_steps"] = sensor_data['max']
+        return data
+
+def get_week_boundaries(date):
+    """Get the start and end of the week (Monday-Sunday) containing the given date."""
+    # Get the current weekday (0 is Monday, 6 is Sunday)
+    weekday = date.weekday()
+    # Calculate the date of Monday (start of week)
+    week_start = date - timedelta(days=weekday)
+    # Calculate the date of Sunday (end of week)
+    week_end = week_start + timedelta(days=7)
+    return week_start, week_end
+
 @current_app.route("/alexa_user/<alexa_user_id>/conversation", methods=["POST"])
 @api_key_required
 def create_conversation_log(alexa_user_id):
@@ -624,6 +676,92 @@ def create_conversation_log(alexa_user_id):
     if patient is None:
         return jsonify({"message": "Patient not found."}), 404
     report = get_or_create_report(patient.id)
+    
+    # Get wearable data for today, yesterday and weeks
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday = today - timedelta(days=1)
+    
+    # Get current and last week's boundaries
+    this_week_start, this_week_end = get_week_boundaries(today)
+    last_week_start = this_week_start - timedelta(days=7)
+    last_week_end = this_week_start  # Last week ends where this week starts
+    
+    # Initialize wearable data structure
+    wearable_data = {
+        "today": {},
+        "yesterday": {},
+        "this_week": {},  # Current week's data
+        "last_week": {}   # Last week's data
+    }
+    
+    if patient.garmin_id:
+        # Try to get data from cache first
+        cached_data = get_cached_wearable_data(patient.alexa_user_id)
+        if cached_data is not None:
+            wearable_data = cached_data
+            print("Using cached wearable data")
+            print(wearable_data)
+        else:
+            try:
+                # Setup async event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Get data for today and yesterday
+                today_data = loop.run_until_complete(fetch_day_sensor_data(
+                    patient.garmin_id,
+                    int(today.timestamp()),
+                    int((today + timedelta(days=1)).timestamp() - 1)
+                ))
+                
+                yesterday_data = loop.run_until_complete(fetch_day_sensor_data(
+                    patient.garmin_id,
+                    int(yesterday.timestamp()),
+                    int(today.timestamp() - 1)
+                ))
+                
+                # Get this week's data (Monday-Sunday)
+                this_week_data = loop.run_until_complete(fetch_day_sensor_data(
+                    patient.garmin_id,
+                    int(this_week_start.timestamp()),
+                    int(this_week_end.timestamp() - 1)
+                ))
+                
+                # Get last week's data (Monday-Sunday)
+                last_week_data = loop.run_until_complete(fetch_day_sensor_data(
+                    patient.garmin_id,
+                    int(last_week_start.timestamp()),
+                    int(last_week_end.timestamp() - 1)
+                ))
+                
+                loop.close()
+                
+                # Update wearable_data with the results
+                if today_data:
+                    wearable_data["today"].update(today_data)
+                if yesterday_data:
+                    wearable_data["yesterday"].update(yesterday_data)
+                if this_week_data:
+                    wearable_data["this_week"].update(this_week_data)
+                    wearable_data["this_week"]["week_start"] = this_week_start.strftime("%Y-%m-%d")
+                    wearable_data["this_week"]["week_end"] = this_week_end.strftime("%Y-%m-%d")
+                if last_week_data:
+                    wearable_data["last_week"].update(last_week_data)
+                    wearable_data["last_week"]["week_start"] = last_week_start.strftime("%Y-%m-%d")
+                    wearable_data["last_week"]["week_end"] = last_week_end.strftime("%Y-%m-%d")
+                
+                # Store the fetched data in cache
+                set_cached_wearable_data(patient.alexa_user_id, wearable_data)
+                print("Wearable data fetched and cached")
+                
+            except Exception as e:
+                current_app.logger.error(f"Failed to fetch wearable data: {e}")
+                wearable_data = None
+                print("Failed to fetch wearable data")
+    else:
+        wearable_data = None
+        print("No garmin id")
+    
     data = request.get_json()["content"]
     log = ConversationLog(
         patient_id=patient.id,
@@ -632,8 +770,10 @@ def create_conversation_log(alexa_user_id):
         content=data,
         created_at=datetime.utcnow(),
     )
+    
     db.session.add(log)
     db.session.commit()
+    
     conversation_logs = ConversationLog.query.filter_by(report_id=report.id).all()
     conversation_logs = [log.as_dict() for log in conversation_logs]
     conversation_logs = [
@@ -645,7 +785,7 @@ def create_conversation_log(alexa_user_id):
         }
         for log in conversation_logs
     ]
-    assistant_message = conversation(conversation_logs)
+    assistant_message = conversation(conversation_logs, wearable_data)
     try:
         chain_of_thoughts, assistant_message = assistant_message.split(
             "==============", 1
@@ -655,7 +795,7 @@ def create_conversation_log(alexa_user_id):
         chain_of_thoughts = """physical: not discussed
 stress: not discussed
 mood: not discussed
-communication: not discussed
+misc: not discussed
 """
     log = ConversationLog(
         patient_id=patient.id,
@@ -750,7 +890,7 @@ def get_last_message(alexa_user_id):
     if len(messages) == 0:
         msg = (
             "Hello, thanks for checking in for our study. "
-            "How are you managing your caregiving and taking care of yourself? "
+            "How are you managing your caregiving and taking care of yourself today? "
         )
         message = ConversationLog(
             patient_id=patient.id,
@@ -765,10 +905,7 @@ def get_last_message(alexa_user_id):
     messages = [message.as_dict() for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     if "CONVERSATION_END" in messages[-1]["content"]:
-        msg = (
-            "Hello, thanks for checking in for our study. "
-            "How are you managing your caregiving and taking care of yourself? "
-        )
+        msg = random.choice(GREETINGS)
         symptom_kwargs = [
             {
                 f"{symptom}_state": 0,

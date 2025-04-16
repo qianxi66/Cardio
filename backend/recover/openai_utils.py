@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-
+from datetime import datetime
 import openai
 
 from .config import openai_key
@@ -25,10 +25,22 @@ def gpt_inference(client: openai.OpenAI, messages, stop=None, model="gpt-4o", **
     return response.choices[0].message.content
 
 
-def conversation(messages):
+def conversation(messages, wearable_data=None):
+    system_messages = [{"role": "system", "content": conversation_system_prompt}]
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if wearable_data:
+        system_messages.append({
+            "role": "system",
+            "content": f"Today's wearable data: {json.dumps(wearable_data)}"
+        })
+    system_messages.append({
+        "role": "system",
+        "content": f"current time: {current_time}"
+    })
+    
     return gpt_inference(
         client,
-        [{"role": "system", "content": conversation_system_prompt}, *messages],
+        [*system_messages, *messages],
     )
 
 

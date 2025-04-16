@@ -344,7 +344,8 @@ def assign_patient(user_id, patient_id):
 @click.option("--participant-id", required=True, type=str)
 @click.option("--EHR-id", required=True, type=str)
 @click.option("--alexa-note-id", type=int)
-def create_patient(patient_id, participant_id, ehr_id, alexa_note_id):
+@click.option("--garmin-id", type=str)
+def create_patient(patient_id, participant_id, ehr_id, alexa_note_id, garmin_id):
     with app.app_context():
         print(f"Creating patient with id {patient_id}")
         alexa_user_id = ""
@@ -363,6 +364,7 @@ def create_patient(patient_id, participant_id, ehr_id, alexa_note_id):
             last_read_at=datetime(1970, 1, 1),
             reviewed=False,
             state=0,
+            garmin_id= garmin_id
         )
         db.session.add(patient)
         db.session.commit()

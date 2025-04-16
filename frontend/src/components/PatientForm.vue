@@ -38,6 +38,11 @@ const rules = ref({
     required: false,
     trigger: ["blur", "change"],
   },
+  garmin_id: {
+    type: "string",
+    required: false,
+    trigger: ["blur", "change"],
+  },
 });
 
 const fetchUser = async () => {
@@ -191,6 +196,14 @@ onMounted(async () => {
             :disabled="loading"
             :loading="loading"
             v-model:value="model.alexa_user_id"
+            placeholder="Input"
+          />
+        </n-form-item-gi>
+        <n-form-item-gi :span="12" label="Garmin ID" path="garmin_id">
+          <n-input
+            :disabled="loading"
+            :loading="loading"
+            v-model:value="model.garmin_id"
             placeholder="Input"
           />
         </n-form-item-gi>

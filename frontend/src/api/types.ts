@@ -10,6 +10,7 @@ export type Patient = {
   medical_history: string;
   medication: string;
   participant_id: string;
+  garmin_id?: string;
   reports: Report[]; // Relationship: One-to-Many with Report
   conversationLogs: ConversationLog[]; // Relationship: One-to-Many with ConversationLog
   read: boolean;
@@ -26,6 +27,7 @@ export type updatePatientreq = {
   participantid: string;
   gender: string;
   age: number;
+  garmin_id?: string;
 };
 export type updatePatientresp = {
   patient_id: number;

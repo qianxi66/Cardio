@@ -22,6 +22,7 @@ const formData = ref({
   alexa_user_id: "",
   gender: "",
   age: null,
+  garmin_id: "",
 });
 
 onMounted(async () => {
@@ -39,6 +40,7 @@ onMounted(async () => {
     formData.value.age = patient.value.age;
     formData.value.participant_id = patient.value.participant_id;
     formData.value.alexa_user_id = patient.value.alexa_user_id;
+    formData.value.garmin_id = patient.value.garmin_id;
   } catch (error) {
     console.error("An error occurred while fetching patient info:", error);
     patient.value = null;
