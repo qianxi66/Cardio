@@ -23,7 +23,7 @@ from .db import (
     Token,
 )
 from .config import (
-    VALID_API_KEYS, mongodb_url, symptom_descriptions, GREETINGS
+    VALID_API_KEYS, mongodb_url, GREETINGS
 )
 from .openai_utils import conversation, key_questions, summary
 from pymongo import MongoClient
