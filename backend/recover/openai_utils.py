@@ -25,7 +25,7 @@ def gpt_inference(client: openai.OpenAI, messages, stop=None, model="gpt-4o", **
     return response.choices[0].message.content
 
 
-def conversation(messages, wearable_data=None):
+def conversation(messages, wearable_data=None, recent_reports_summaries=None):
     system_messages = [{"role": "system", "content": conversation_system_prompt}]
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if wearable_data:
@@ -33,11 +33,18 @@ def conversation(messages, wearable_data=None):
             "role": "system",
             "content": f"Today's wearable data: {json.dumps(wearable_data)}"
         })
+    
     system_messages.append({
         "role": "system",
         "content": f"current time: {current_time}"
     })
     
+    if recent_reports_summaries:
+        system_messages.append({
+            "role":"system",
+            "content": f"Recent's report: {json.dumps(recent_reports_summaries)}"
+        })
+        
     return gpt_inference(
         client,
         [*system_messages, *messages],

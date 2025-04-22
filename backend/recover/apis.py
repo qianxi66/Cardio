@@ -785,7 +785,20 @@ def create_conversation_log(alexa_user_id):
         }
         for log in conversation_logs
     ]
-    assistant_message = conversation(conversation_logs, wearable_data)
+    # TODO: get the most recent N reports of the current patient, 
+    # Get the summary of the N reports, and use it as the context of the conversation
+    recent_reports = Report.query.filter_by(patient_id=patient.id).order_by(Report.created_at.desc()).limit(10).all()
+    recent_reports_summaries = ReportSummary.query.filter(ReportSummary.report_id.in_([r.id for r in recent_reports])).all()
+    recent_reports_summaries = [recent_reports_summary.as_dict() for recent_reports_summary in recent_reports_summaries]
+    recent_reports_summaries =[
+        {
+            "content": r["content"],
+            "created_at": r["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+        }
+        for r in recent_reports_summaries
+    ]
+    
+    assistant_message = conversation(conversation_logs, wearable_data, recent_reports_summaries)
     try:
         chain_of_thoughts, assistant_message = assistant_message.split(
             "==============", 1
