@@ -301,7 +301,7 @@ const updateState = async (
                   {{ format(report.created_at, "yyyy-MM-dd HH:mm:ss") }}
                 </div>
                 <div class="symptom">
-                  {{ report.steps.total_steps }}
+                  {{ report.steps.total_steps || 'N/A' }}
                 </div>
 
                 <div class="symptom">

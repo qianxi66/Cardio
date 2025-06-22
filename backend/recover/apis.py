@@ -401,6 +401,7 @@ async def fetch_sensor_data(session, uid, sensor_type, parameter, start, end):
             response.raise_for_status()
             raw_data = await response.text()  # Get raw response text first
             # current_app.logger.info(f"Raw response for {sensor_type}: {raw_data[:200]}...")  # Use Flask logger
+            current_app.logger.info(f"Fetching sensor data for {uid} from {start} to {end}, raw data: {raw_data}")
             
             try:
                 data = json.loads(raw_data)
@@ -753,6 +754,8 @@ def create_conversation_log(alexa_user_id):
                 # Store the fetched data in cache
                 set_cached_wearable_data(patient.alexa_user_id, wearable_data)
                 print("Wearable data fetched and cached")
+                current_app.logger.info(f"Wearable data fetched and cached for {patient.alexa_user_id} from {today} to {yesterday}")
+                current_app.logger.info(f"Wearable data in conversation: {wearable_data}")
                 
             except Exception as e:
                 current_app.logger.error(f"Failed to fetch wearable data: {e}")
