@@ -47,10 +47,6 @@ watch(
       parseInt(patient_id.value as string),
       cancelToken.value.token,
     );
-    for(const report of patient.value.reports) {
-      console.log(report);
-      report.activity=['1', '2', '3'][Math.floor(Math.random() * 3 )];
-    }
     loading.value = false;
   },
   { immediate: true },
@@ -290,6 +286,7 @@ const updateState = async (
 
                 odd: index % 2 === 0,
               }"
+              @click="jumpToReport(report, undefined)"
             >
               <div
                 :class="{
@@ -502,6 +499,9 @@ const updateState = async (
     min-width: 0;
     overflow-x: overlay;
   }
+}
+.table-row-block {
+  cursor: pointer;
 }
 .information {
   flex: 0 0 210px;

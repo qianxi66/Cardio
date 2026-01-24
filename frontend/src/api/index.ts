@@ -26,12 +26,17 @@ const request = axios.create({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorHandler = (error: any) => {
   console.log("error", error);
-  let message = "";
-  if (error.response) {
-    const { data } = error.response;
-    message += data?.message;
+  if (axios.isCancel(error) || error?.code === "ERR_CANCELED") {
+    return;
   }
-  if (error.response.status === 401) {
+  const status = error?.response?.status;
+  let message = "";
+  if (error?.response?.data?.message) {
+    message += error.response.data.message;
+  } else if (error?.message) {
+    message += error.message;
+  }
+  if (status === 401) {
     localStorage.removeItem("token");
     router.push("/login");
     window.$message.error("Login expired, please login again.");
@@ -55,6 +60,9 @@ const api = (req: AxiosRequestConfig<unknown>) =>
       })
       .catch((err) => {
         console.log("error", err);
+        if (axios.isCancel(err) || err?.code === "ERR_CANCELED") {
+          return;
+        }
         window.$message.error("Error Occurred" + (err ? "," + err : "."));
         reject(err);
       });

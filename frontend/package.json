@@ -16,7 +16,7 @@
     "@vueuse/core": "^10.9.0",
     "@vueuse/router": "^10.9.0",
     "axios": "^1.6.8",
-    "date-fns": "^3.6.0",
+    "date-fns": "^2.30.0",
     "naive-ui": "^2.38.1",
     "sass": "^1.74.1",
     "unplugin-auto-import": "^0.17.5",

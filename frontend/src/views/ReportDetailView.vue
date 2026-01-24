@@ -24,6 +24,7 @@ const select_log_ids = computed(() => {
     return [];
   }
 });
+const selectedLogIds = ref<Set<number>>(new Set());
 const state = useRouteQuery<number>("state");
 import { stateColors } from "@/symptoms";
 import { format, formatDistance } from "date-fns";
@@ -43,6 +44,7 @@ const refresh = async () => {
   report.value = null;
   loading.value = true;
   conversationRefs.value = {};
+  selectedLogIds.value = new Set();
   report.value = await getReport(
     patient_id.value!,
     report_id.value!,
@@ -136,6 +138,14 @@ const scroll = () => {
   }
 };
 watch(select_log_ids, scroll);
+
+const toggleSelectedLog = (logId: number) => {
+  if (selectedLogIds.value.has(logId)) {
+    selectedLogIds.value.delete(logId);
+  } else {
+    selectedLogIds.value.add(logId);
+  }
+};
 </script>
 <template>
   <ColoredCard
@@ -283,9 +293,10 @@ watch(select_log_ids, scroll);
           message: true,
           assistant: message.role === 'assistant',
           user: message.role === 'user',
-          selected: select_log_ids.includes(message.id),
+          selected: selectedLogIds.has(message.id),
         }"
         :ref="(el) => (conversationRefs[message.id] = el)"
+        @click="toggleSelectedLog(message.id)"
       >
         <div class="role">
           {{ message.role }}

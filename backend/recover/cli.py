@@ -226,11 +226,11 @@ def generate_notes_cmd():
 def generate_patients():
     with app.app_context():
         with db.engine.connect() as connection:
-            sql = """INSERT INTO patient VALUES(1, 25, 'male', 'E01-01', NULL, 'no information', 'no information', 'T001', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(2, 26, 'female', 'E01-02', NULL, 'no information', 'no information', 'T002', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(3, 27, 'male', 'E01-03', NULL, 'no information', 'no information', 'T003', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(4, 28, 'female', 'E01-04', NULL, 'no information', 'no information', 'T004', '1970-01-01', false, 0);
-INSERT INTO patient VALUES(5, 29, 'male', 'E01-05', NULL, 'no information', 'no information', 'T005', '1970-01-01', false, 0);"""
+            sql = """INSERT INTO patient (id, age, gender, EHR_id, alexa_user_id, medical_history, medication, participant_id, last_read_at, reviewed, state, garmin_id) VALUES(1, 25, 'male', 'E01-01', NULL, 'no information', 'no information', 'T001', '1970-01-01', false, 0, NULL);
+INSERT INTO patient (id, age, gender, EHR_id, alexa_user_id, medical_history, medication, participant_id, last_read_at, reviewed, state, garmin_id) VALUES(2, 26, 'female', 'E01-02', NULL, 'no information', 'no information', 'T002', '1970-01-01', false, 0, NULL);
+INSERT INTO patient (id, age, gender, EHR_id, alexa_user_id, medical_history, medication, participant_id, last_read_at, reviewed, state, garmin_id) VALUES(3, 27, 'male', 'E01-03', NULL, 'no information', 'no information', 'T003', '1970-01-01', false, 0, NULL);
+INSERT INTO patient (id, age, gender, EHR_id, alexa_user_id, medical_history, medication, participant_id, last_read_at, reviewed, state, garmin_id) VALUES(4, 28, 'female', 'E01-04', NULL, 'no information', 'no information', 'T004', '1970-01-01', false, 0, NULL);
+INSERT INTO patient (id, age, gender, EHR_id, alexa_user_id, medical_history, medication, participant_id, last_read_at, reviewed, state, garmin_id) VALUES(5, 29, 'male', 'E01-05', NULL, 'no information', 'no information', 'T005', '1970-01-01', false, 0, NULL);"""
             for statement in sql.strip().split(";"):
                 if statement.strip():
                     connection.execute(text(statement))

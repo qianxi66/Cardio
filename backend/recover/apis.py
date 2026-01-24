@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime, timedelta
 from functools import wraps
 import random
@@ -27,10 +28,6 @@ from .config import (
 )
 from .openai_utils import conversation, key_questions, summary
 from pymongo import MongoClient
-import requests
-import aiohttp
-import asyncio
-from functools import partial
 import logging
 
 # Cache for wearable data
@@ -388,55 +385,319 @@ def update_patient(id):
 
 
 
-client = MongoClient(mongodb_url)
-db2 = client['Mycare']
-collection_hr = db2['garmin_hr']
-collection_steps = db2['garmin_steps']
-collection_stress = db2['garmin_stress']
-
-async def fetch_sensor_data(session, uid, sensor_type, parameter, start, end):
-    url = f"https://agewell.europa.khoury.northeastern.edu/http_requests_api/v1/data/get/sensor_stat/sdfji32jefcisdjj2/{uid}/{sensor_type}/{parameter}/{start}/{end}"
+def _mongo_wearable_stats(
+    participant_id,
+    collection_name,
+    start_ts,
+    end_ts,
+    *,
+    db_name,
+    id_field,
+    value_field,
+    min_value=None,
+):
+    if not participant_id:
+        return {"mean": None, "max": None, "min": None}
+    client = MongoClient(mongodb_url)
     try:
-        async with session.get(url) as response:
-            response.raise_for_status()
-            raw_data = await response.text()  # Get raw response text first
-            # current_app.logger.info(f"Raw response for {sensor_type}: {raw_data[:200]}...")  # Use Flask logger
-            current_app.logger.info(f"Fetching sensor data for {uid} from {start} to {end}, raw data: {raw_data}")
-            
-            try:
-                data = json.loads(raw_data)
-                if not isinstance(data, dict) or 'message' not in data or 'all_data' not in data['message']:
-                    # current_app.logger.error(f"Unexpected response format for {sensor_type}. Response: {raw_data[:200]}...")
-                    return sensor_type, None
-                
-                try:
-                    parsed_data = json.loads(data['message']['all_data'])
-                    return sensor_type, parsed_data
-                except json.JSONDecodeError as e:
-                    # current_app.logger.error(f"Failed to parse all_data for {sensor_type}: {e}. all_data content: {data['message']['all_data'][:200]}...")
-                    return sensor_type, None
-                    
-            except json.JSONDecodeError as e:
-                # current_app.logger.error(f"Failed to parse response for {sensor_type}: {e}. Raw response: {raw_data[:200]}...")
-                return sensor_type, None
-                
-    except aiohttp.ClientError as e:
-        # current_app.logger.error(f"HTTP request failed for {sensor_type}: {e}")
-        return sensor_type, None
-    except Exception as e:
-        # current_app.logger.error(f"Unexpected error fetching {sensor_type} data: {e}")
-        return sensor_type, None
+        db2 = client[db_name]
+        cursor = db2[collection_name].find(
+            {
+                id_field: participant_id,
+                "timestamp": {"$gte": start_ts, "$lte": end_ts},
+            },
+            {value_field: 1},
+        )
+        values = []
+        for doc in cursor:
+            value = doc.get(value_field)
+            if not isinstance(value, (int, float)):
+                continue
+            if not math.isfinite(value):
+                continue
+            if min_value is not None and value < min_value:
+                continue
+            values.append(value)
+        if not values:
+            return {"mean": None, "max": None, "min": None}
+        return {
+            "mean": sum(values) / len(values),
+            "max": max(values),
+            "min": min(values),
+        }
+    finally:
+        client.close()
 
-async def fetch_all_sensor_data(uid, start, end):
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            fetch_sensor_data(session, uid, 'garmin_stress', 'stress', start, end),
-            fetch_sensor_data(session, uid, 'garmin_hr', 'heart_rate', start, end),
-            fetch_sensor_data(session, uid, 'garmin_steps', 'total_steps', start, end)
-        ]
-        results = await asyncio.gather(*tasks)
-        return dict(results)
 
+def _mongo_latest_value(
+    participant_id,
+    collection_name,
+    start_ts,
+    end_ts,
+    *,
+    db_name,
+    id_field,
+    value_field,
+    min_value=None,
+):
+    if not participant_id:
+        return None
+    client = MongoClient(mongodb_url)
+    try:
+        db2 = client[db_name]
+        doc = (
+            db2[collection_name]
+            .find(
+                {
+                    id_field: participant_id,
+                    "timestamp": {"$gte": start_ts, "$lte": end_ts},
+                },
+                {value_field: 1},
+            )
+            .sort("timestamp", -1)
+            .limit(1)
+        )
+        doc = next(doc, None)
+        if not doc:
+            return None
+        value = doc.get(value_field)
+        if not isinstance(value, (int, float)):
+            return None
+        if not math.isfinite(value):
+            return None
+        if min_value is not None and value < min_value:
+            return None
+        return value
+    finally:
+        client.close()
+
+
+def _mongo_has_any(
+    participant_id,
+    collection_name,
+    start_ts,
+    end_ts,
+    *,
+    db_name,
+    id_field,
+):
+    if not participant_id:
+        return False
+    client = MongoClient(mongodb_url)
+    try:
+        db2 = client[db_name]
+        doc = (
+            db2[collection_name]
+            .find(
+                {
+                    id_field: participant_id,
+                    "timestamp": {"$gte": start_ts, "$lte": end_ts},
+                },
+                {"_id": 1},
+            )
+            .limit(1)
+        )
+        return next(doc, None) is not None
+    finally:
+        client.close()
+
+
+def _steps_max_since_reset(
+    participant_id,
+    start_ts,
+    end_ts,
+    *,
+    db_name,
+    id_field,
+    value_field,
+    min_value=0,
+    reset_lookback_hours=36,
+):
+    if not participant_id:
+        return None
+    client = MongoClient(mongodb_url)
+    try:
+        db2 = client[db_name]
+        lookback_start = max(0, int(start_ts - reset_lookback_hours * 3600))
+        cursor = db2["garmin_steps"].find(
+            {
+                id_field: participant_id,
+                "timestamp": {"$gte": lookback_start, "$lte": end_ts},
+            },
+            {value_field: 1, "timestamp": 1},
+        ).sort("timestamp", 1)
+        rows = []
+        for doc in cursor:
+            ts = doc.get("timestamp")
+            value = doc.get(value_field)
+            if not isinstance(value, (int, float)):
+                continue
+            if not math.isfinite(value):
+                continue
+            if value < min_value:
+                continue
+            if not isinstance(ts, (int, float)):
+                continue
+            rows.append((int(ts), value))
+        if not rows:
+            return None
+        reset_ts = None
+        prev_val = None
+        for ts, val in rows:
+            if prev_val is not None and val < prev_val:
+                reset_ts = ts
+            prev_val = val
+        window_start = max(start_ts, reset_ts) if reset_ts else start_ts
+        day_values = [val for ts, val in rows if window_start <= ts <= end_ts]
+        if not day_values:
+            return None
+        return max(day_values)
+    finally:
+        client.close()
+
+
+def _steps_total_for_window(
+    participant_id,
+    start_ts,
+    end_ts,
+    *,
+    db_name,
+    id_field,
+    value_field,
+    min_value=0,
+):
+    if not participant_id:
+        return None
+    client = MongoClient(mongodb_url)
+    try:
+        db2 = client[db_name]
+        cursor = db2["garmin_steps"].find(
+            {
+                id_field: participant_id,
+                "timestamp": {"$gte": start_ts, "$lte": end_ts},
+            },
+            {value_field: 1, "timestamp": 1},
+        ).sort("timestamp", 1)
+        values = []
+        for doc in cursor:
+            value = doc.get(value_field)
+            if not isinstance(value, (int, float)):
+                continue
+            if not math.isfinite(value):
+                continue
+            if value < min_value:
+                continue
+            values.append(value)
+        if not values:
+            return None
+        decreases = 0
+        prev_val = None
+        for val in values:
+            if prev_val is not None and val < prev_val:
+                decreases += 1
+            prev_val = val
+        max_val = max(values)
+        if decreases <= 2:
+            return max_val
+        total = sum(values)
+        return total if total > 0 else max_val
+    finally:
+        client.close()
+
+
+def _step_resets(
+    participant_id,
+    start_ts,
+    end_ts,
+    *,
+    db_name,
+    id_field,
+    value_field,
+    min_value=0,
+):
+    if not participant_id:
+        return []
+    client = MongoClient(mongodb_url)
+    try:
+        db2 = client[db_name]
+        cursor = db2["garmin_steps"].find(
+            {
+                id_field: participant_id,
+                "timestamp": {"$gte": start_ts, "$lte": end_ts},
+            },
+            {value_field: 1, "timestamp": 1},
+        ).sort("timestamp", 1)
+        prev_val = None
+        resets = []
+        for doc in cursor:
+            ts = doc.get("timestamp")
+            value = doc.get(value_field)
+            if not isinstance(value, (int, float)):
+                continue
+            if not math.isfinite(value):
+                continue
+            if value < min_value:
+                continue
+            if not isinstance(ts, (int, float)):
+                continue
+            ts = int(ts)
+            if prev_val is not None and value < prev_val:
+                resets.append(ts)
+            prev_val = value
+        return resets
+    finally:
+        client.close()
+
+
+def _day_window_from_steps_reset(
+    participant_id,
+    report_date,
+    *,
+    db_name,
+    id_field,
+    value_field,
+    min_value=0,
+    reset_lookback_hours=36,
+    reset_lookahead_hours=36,
+):
+    if not participant_id:
+        return None
+    anchor_ts = int(report_date.timestamp())
+    lookback_start = max(0, int(anchor_ts - reset_lookback_hours * 3600))
+    lookahead_end = int(anchor_ts + reset_lookahead_hours * 3600)
+    resets = _step_resets(
+        participant_id,
+        lookback_start,
+        lookahead_end,
+        db_name=db_name,
+        id_field=id_field,
+        value_field=value_field,
+        min_value=min_value,
+    )
+    if not resets:
+        return None
+    start_reset = None
+    next_reset = None
+    for ts in resets:
+        if ts <= anchor_ts:
+            start_reset = ts
+        else:
+            next_reset = ts
+            break
+    if start_reset is None:
+        if next_reset is None:
+            return None
+        start_reset = next_reset - 24 * 3600
+        end_reset = next_reset
+    else:
+        end_reset = None
+        for ts in resets:
+            if ts > start_reset:
+                end_reset = ts
+                break
+        if end_reset is None:
+            end_reset = start_reset + 24 * 3600
+    return start_reset, end_reset - 1
 @current_app.route("/patients/<int:id>", methods=["GET"])
 @login_required
 def get_patient(id):
@@ -446,6 +707,9 @@ def get_patient(id):
 
         if not any(user.id == userid for user in patient.users):
             return jsonify({"message": "Permission denied"}), 401
+
+        # Ensure today's report exists so the dashboard shows current day.
+        get_or_create_report(patient.id)
 
         patient.last_read_at = datetime.utcnow()
         db.session.add(patient)
@@ -473,47 +737,151 @@ def get_patient(id):
                     r[f"{symptom}_logs"] = []
 
             # Start of the day
-            start_of_day = r['created_at'].replace(hour=0, minute=0, second=0, microsecond=0)
-            end_of_day = r['created_at'].replace(hour=23, minute=59, second=59, microsecond=0)
-            if patient.garmin_id:
+            start_of_day = r["created_at"].replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            end_of_day = r["created_at"].replace(
+                hour=23, minute=59, second=59, microsecond=0
+            )
+            if patient.participant_id:
                 try:
-                    uid = patient.garmin_id
-                    start = int(start_of_day.timestamp())
-                    end = int(end_of_day.timestamp())
+                    report_day_start_ts = int(start_of_day.timestamp())
+                    report_day_end_ts = int(end_of_day.timestamp())
+                    has_steps_for_report_day = _mongo_has_any(
+                        patient.participant_id,
+                        "garmin_steps",
+                        report_day_start_ts,
+                        report_day_end_ts,
+                        db_name="study_db",
+                        id_field="uid",
+                    )
+                    has_hr_for_report_day = _mongo_has_any(
+                        patient.participant_id,
+                        "garmin_hr",
+                        report_day_start_ts,
+                        report_day_end_ts,
+                        db_name="study_db",
+                        id_field="uid",
+                    )
+                    has_stress_for_report_day = _mongo_has_any(
+                        patient.participant_id,
+                        "garmin_stress",
+                        report_day_start_ts,
+                        report_day_end_ts,
+                        db_name="study_db",
+                        id_field="uid",
+                    )
+                    start_ts = report_day_start_ts
+                    end_ts = report_day_end_ts
+                    if has_steps_for_report_day:
+                        day_window = _day_window_from_steps_reset(
+                            patient.participant_id,
+                            r["created_at"],
+                            db_name="study_db",
+                            id_field="uid",
+                            value_field="total_steps",
+                            min_value=0,
+                        )
+                        if day_window:
+                            start_ts, end_ts = day_window
+                    stress_stats = {"mean": None, "max": None, "min": None}
+                    hr_stats = {"max": None, "min": None}
+                    steps_stats = {"mean": None, "max": None, "min": None}
+                    steps_latest = None
+                    steps_total = None
+                    if has_stress_for_report_day:
+                        stress_stats = _mongo_wearable_stats(
+                            patient.participant_id,
+                            "garmin_stress",
+                            start_ts,
+                            end_ts,
+                            db_name="study_db",
+                            id_field="uid",
+                            value_field="heart_rate",
+                            min_value=0,
+                        )
+                    if has_hr_for_report_day:
+                        hr_stats = _mongo_wearable_stats(
+                            patient.participant_id,
+                            "garmin_hr",
+                            start_ts,
+                            end_ts,
+                            db_name="study_db",
+                            id_field="uid",
+                            value_field="heart_rate",
+                            min_value=1,
+                        )
+                    if has_steps_for_report_day:
+                        steps_stats = _mongo_wearable_stats(
+                            patient.participant_id,
+                            "garmin_steps",
+                            start_ts,
+                            end_ts,
+                            db_name="study_db",
+                            id_field="uid",
+                            value_field="total_steps",
+                            min_value=0,
+                        )
+                        steps_latest = _mongo_latest_value(
+                            patient.participant_id,
+                            "garmin_steps",
+                            start_ts,
+                            end_ts,
+                            db_name="study_db",
+                            id_field="uid",
+                            value_field="total_steps",
+                            min_value=0,
+                        )
+                        steps_total = _steps_total_for_window(
+                            patient.participant_id,
+                            start_ts,
+                            end_ts,
+                            db_name="study_db",
+                            id_field="uid",
+                            value_field="total_steps",
+                            min_value=0,
+                        )
+                    current_app.logger.info(
+                        "steps window pid=%s report_id=%s report_at=%s report_day_start=%s report_day_end=%s start_ts=%s end_ts=%s has_steps_day=%s has_hr_day=%s has_stress_day=%s steps_total=%s steps_latest=%s steps_max=%s steps_mean=%s",
+                        patient.participant_id,
+                        r.get("id"),
+                        r.get("created_at"),
+                        report_day_start_ts,
+                        report_day_end_ts,
+                        start_ts,
+                        end_ts,
+                        has_steps_for_report_day,
+                        has_hr_for_report_day,
+                        has_stress_for_report_day,
+                        steps_total,
+                        steps_latest,
+                        steps_stats["max"],
+                        steps_stats["mean"],
+                    )
 
-                    # Run async code in sync context
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    sensor_data = loop.run_until_complete(fetch_all_sensor_data(uid, start, end))
-                    loop.close()
-
-                    # Process stress data
-                    if sensor_data.get('garmin_stress'):
-                        r['stress'] = {
-                            "avg_stress": sensor_data['garmin_stress']['mean']
-                        }
-                    else:
-                        r['stress'] = {"avg_stress": None}
-
-                    # Process heart rate data
-                    if sensor_data.get('garmin_hr'):
-                        r['heart_rate'] = {
-                            "max_hr": sensor_data['garmin_hr']['max'],
-                            "min_hr": sensor_data['garmin_hr']['min']
-                        }
-                    else:
-                        r['heart_rate'] = {"max_hr": None, "min_hr": None}
-
-                    # Process steps data
-                    if sensor_data.get('garmin_steps'):
-                        r['steps'] = {
-                            "total_steps": sensor_data['garmin_steps']['max']
-                        }
-                    else:
-                        r['steps'] = {"total_steps": None}
-
+                    r["stress"] = {
+                        "avg_stress": (
+                            stress_stats["mean"] if has_stress_for_report_day else None
+                        )
+                    }
+                    r["heart_rate"] = {
+                        "max_hr": hr_stats["max"] if has_hr_for_report_day else None,
+                        "min_hr": hr_stats["min"] if has_hr_for_report_day else None,
+                    }
+                    steps_value = None
+                    if has_steps_for_report_day:
+                        steps_value = (
+                            steps_total
+                            if steps_total is not None
+                            else (
+                                steps_latest
+                                if steps_latest is not None
+                                else steps_stats["max"]
+                            )
+                        )
+                    r["steps"] = {"total_steps": steps_value}
                 except Exception as e:
-                    logging.error(f"Failed to fetch data from HTTPS API: {e}")
+                    logging.error(f"Failed to fetch data from MongoDB: {e}")
                     r["heart_rate"] = {"max_hr": None, "min_hr": None}
                     r["steps"] = {"total_steps": None}
                     r["stress"] = {"avg_stress": None}
@@ -643,22 +1011,42 @@ def get_or_create_report(patient_id):
     return report
 
 
-async def fetch_day_sensor_data(uid, start, end):
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            fetch_sensor_data(session, uid, 'garmin_stress', 'stress', start, end),
-            fetch_sensor_data(session, uid, 'garmin_steps', 'total_steps', start, end)
-        ]
-        results = await asyncio.gather(*tasks)
-        data = {}
-        for sensor_type, sensor_data in results:
-            if sensor_type == 'garmin_stress' and sensor_data:
-                data["avg_stress"] = sensor_data['mean']
-                data["max_stress"] = sensor_data['max']
-            elif sensor_type == 'garmin_steps' and sensor_data:
-                data["avg_steps"] = sensor_data['mean']
-                data["max_steps"] = sensor_data['max']
-        return data
+def fetch_day_sensor_data(participant_id, start, end):
+    stress_stats = _mongo_wearable_stats(
+        participant_id,
+        "garmin_stress",
+        start,
+        end,
+        db_name="study_db",
+        id_field="uid",
+        value_field="heart_rate",
+        min_value=0,
+    )
+    steps_stats = _mongo_wearable_stats(
+        participant_id,
+        "garmin_steps",
+        start,
+        end,
+        db_name="study_db",
+        id_field="uid",
+        value_field="total_steps",
+        min_value=0,
+    )
+    steps_total = _steps_total_for_window(
+        participant_id,
+        start,
+        end,
+        db_name="study_db",
+        id_field="uid",
+        value_field="total_steps",
+        min_value=0,
+    )
+    data = {}
+    data["avg_stress"] = stress_stats["mean"]
+    data["max_stress"] = stress_stats["max"]
+    data["avg_steps"] = steps_stats["mean"]
+    data["max_steps"] = steps_total if steps_total is not None else steps_stats["max"]
+    return data
 
 def get_week_boundaries(date):
     """Get the start and end of the week (Monday-Sunday) containing the given date."""
@@ -695,7 +1083,7 @@ def create_conversation_log(alexa_user_id):
         "last_week": {}   # Last week's data
     }
     
-    if patient.garmin_id:
+    if patient.participant_id:
         # Try to get data from cache first
         cached_data = get_cached_wearable_data(patient.alexa_user_id)
         if cached_data is not None:
@@ -704,39 +1092,33 @@ def create_conversation_log(alexa_user_id):
             print(wearable_data)
         else:
             try:
-                # Setup async event loop
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
                 # Get data for today and yesterday
-                today_data = loop.run_until_complete(fetch_day_sensor_data(
-                    patient.garmin_id,
+                today_data = fetch_day_sensor_data(
+                    patient.participant_id,
                     int(today.timestamp()),
-                    int((today + timedelta(days=1)).timestamp() - 1)
-                ))
-                
-                yesterday_data = loop.run_until_complete(fetch_day_sensor_data(
-                    patient.garmin_id,
+                    int((today + timedelta(days=1)).timestamp() - 1),
+                )
+
+                yesterday_data = fetch_day_sensor_data(
+                    patient.participant_id,
                     int(yesterday.timestamp()),
-                    int(today.timestamp() - 1)
-                ))
-                
+                    int(today.timestamp() - 1),
+                )
+
                 # Get this week's data (Monday-Sunday)
-                this_week_data = loop.run_until_complete(fetch_day_sensor_data(
-                    patient.garmin_id,
+                this_week_data = fetch_day_sensor_data(
+                    patient.participant_id,
                     int(this_week_start.timestamp()),
-                    int(this_week_end.timestamp() - 1)
-                ))
-                
+                    int(this_week_end.timestamp() - 1),
+                )
+
                 # Get last week's data (Monday-Sunday)
-                last_week_data = loop.run_until_complete(fetch_day_sensor_data(
-                    patient.garmin_id,
+                last_week_data = fetch_day_sensor_data(
+                    patient.participant_id,
                     int(last_week_start.timestamp()),
-                    int(last_week_end.timestamp() - 1)
-                ))
-                
-                loop.close()
-                
+                    int(last_week_end.timestamp() - 1),
+                )
+
                 # Update wearable_data with the results
                 if today_data:
                     wearable_data["today"].update(today_data)
@@ -763,7 +1145,7 @@ def create_conversation_log(alexa_user_id):
                 print("Failed to fetch wearable data")
     else:
         wearable_data = None
-        print("No garmin id")
+        print("No participant id")
     
     data = request.get_json()["content"]
     log = ConversationLog(
