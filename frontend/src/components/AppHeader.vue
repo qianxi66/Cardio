@@ -45,7 +45,7 @@ const handleLogout = () => {
         style="color: inherit; text-decoration: none"
         @click.prevent="$router.push('/')"
       >
-        AI Caring (0.2.0-alpha)
+        Cardiotoxicity Monitoring Dashboard
       </a>
       <div class="space"></div>
       <div v-if="showLogoutButton" style="margin-right: 20px">
@@ -86,7 +86,7 @@ const handleLogout = () => {
 header {
   display: flex;
   justify-content: center;
-  margin-bottom: 8px;
+  margin-bottom: 0;
   background-color: #041527;
   color: white;
 }

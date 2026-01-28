@@ -7,9 +7,12 @@ export {}
 
 declare module 'vue' {
   export interface GlobalComponents {
+    AiRiskGauge: typeof import('./src/components/AiRiskGauge.vue')['default']
+    AiRiskTrendChart: typeof import('./src/components/AiRiskTrendChart.vue')['default']
     AppHeader: typeof import('./src/components/AppHeader.vue')['default']
     CircleProgress: typeof import('./src/components/CircleProgress.vue')['default']
     ColoredCard: typeof import('./src/components/ColoredCard.vue')['default']
+    DetailedWearableChart: typeof import('./src/components/DetailedWearableChart.vue')['default']
     Dot: typeof import('./src/components/Dot.vue')['default']
     DotLikert: typeof import('./src/components/DotLikert.vue')['default']
     DotSymptom: typeof import('./src/components/DotSymptom.vue')['default']
@@ -18,6 +21,7 @@ declare module 'vue' {
     NButtonGroup: typeof import('naive-ui')['NButtonGroup']
     NCard: typeof import('naive-ui')['NCard']
     NCheckbox: typeof import('naive-ui')['NCheckbox']
+    NDatePicker: typeof import('naive-ui')['NDatePicker']
     NDialogProvider: typeof import('naive-ui')['NDialogProvider']
     NForm: typeof import('naive-ui')['NForm']
     NFormItem: typeof import('naive-ui')['NFormItem']

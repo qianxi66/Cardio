@@ -111,13 +111,13 @@ const popoverEl = ref<HTMLElement | null>(null);
   line-height: 1;
 }
 .dot {
-  width: 24px;
-  height: 24px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background-color: var(--color);
   border-color: gray;
   box-sizing: border-box;
-  font-size: 24px;
+  font-size: 16px;
 }
 :global(.n-icon-slot .dot) {
   width: var(--n-icon-size);

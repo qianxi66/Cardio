@@ -11,6 +11,15 @@ export type Patient = {
   medication: string;
   participant_id: string;
   garmin_id?: string;
+  patient_name?: string;
+  cancer_type?: string;
+  cancer_stage?: string;
+  treatment_type?: string;
+  hospitalizations?: {
+    date?: string;
+    therapy?: string;
+    treatment?: string;
+  }[];
   reports: Report[]; // Relationship: One-to-Many with Report
   conversationLogs: ConversationLog[]; // Relationship: One-to-Many with ConversationLog
   read: boolean;

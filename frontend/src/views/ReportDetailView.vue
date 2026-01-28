@@ -1,338 +1,383 @@
 <script setup lang="tsx">
-import { useRouteParams, useRouteQuery } from "@vueuse/router";
+import { ref } from "vue";
 import ColoredCard from "@/components/ColoredCard.vue";
-import Dot from "@/components/Dot.vue";
-import conversations from "@/data/conversations.json";
-import { computed, nextTick, reactive, ref, watch, type Ref } from "vue";
-import type { Report, ReportSummary } from "@/api/types";
-import type { CancelTokenSource } from "axios";
+import AiRiskTrendChart from "@/components/AiRiskTrendChart.vue";
+import AiRiskGauge from "@/components/AiRiskGauge.vue";
 
-import {
-  getReport,
-  createNote as createNoteAPI,
-  deleteNote as deleteNoteAPI,
-} from "@/api/patient";
-import axios from "axios";
-import { getUserInfo } from "@/api/user";
-const patient_id = useRouteParams<number | null>("patient_id");
-const report_id = useRouteParams<number | null>("report_id");
-const select_log_ids_ = useRouteQuery<string[]>("logs");
-const select_log_ids = computed(() => {
-  if (select_log_ids_.value) {
-    return select_log_ids_.value.map((id) => parseInt(id));
-  } else {
-    return [];
-  }
-});
-const selectedLogIds = ref<Set<number>>(new Set());
-const state = useRouteQuery<number>("state");
-import { stateColors } from "@/symptoms";
-import { format, formatDistance } from "date-fns";
-
-const cancelToken = ref<CancelTokenSource | null>(null);
-
-const report = ref<Report | null>(null);
-const loading = ref(true);
-const editingNote = ref("");
-const conversationRefs = ref<{ [key: number]: HTMLElement | null }>({});
-const create_note_loading = ref(false);
-const refresh = async () => {
-  if (cancelToken.value) {
-    cancelToken.value.cancel();
-  }
-  cancelToken.value = axios.CancelToken.source();
-  report.value = null;
-  loading.value = true;
-  conversationRefs.value = {};
-  selectedLogIds.value = new Set();
-  report.value = await getReport(
-    patient_id.value!,
-    report_id.value!,
-    cancelToken.value.token,
-  );
-  loading.value = false;
-};
-
-defineExpose({ refresh });
-
-watch(
-  report_id,
-  async () => {
-    if (!report_id.value) {
-      report.value = null;
-      loading.value = true;
-      return;
-    }
-    console.log("fetching report", report_id.value);
-    await refresh();
-    nextTick(scroll);
-  },
-  { immediate: true },
-);
-
-watch(patient_id, () => {
-  if (patient_id.value) {
-    report_id.value = null;
-  }
-});
-// group summaries by category
-const summaries = computed(() => {
-  if (!report.value?.summary) return {};
-  const result: {
-    [key: string]: ReportSummary[];
-  } = {};
-  for (const summary of report.value!.summary!) {
-    if (!result[summary.category]) {
-      result[summary.category] = [];
-    }
-    result[summary.category].push(summary);
-  }
-  return result;
-});
-const deleteNote = (note_id: number) => {
-  report.value!.notes = report.value!.notes.filter(
-    (note) => note.id !== note_id,
-  );
-  deleteNoteAPI(patient_id.value as number, report_id.value as number, note_id);
-};
-
-const createNote = async () => {
-  if (editingNote.value) {
-    // report.value!.notes.push({
-    //   id: report.value!.notes.length + 1,
-    //   content: editingNote.value,
-    //   created_at: new Date(),
-    //   user: {
-    //     username: username
-    //   },
-    //   updated_at: new Date(),
-    //   user_id: user_Id,
-    //   report_id: report.value!.id
-    // })
-    create_note_loading.value = true;
-    try {
-      await createNoteAPI(
-        patient_id.value as number,
-        report_id.value as number,
-        editingNote.value,
-      );
-    } catch (e) {
-      console.error(e);
-    } finally {
-      create_note_loading.value = false;
-    }
-    editingNote.value = "";
-    refresh();
-  }
-};
-const scroll = () => {
-  if (select_log_ids.value.length > 0) {
-    if (report.value?.conversation_logs) {
-      const min = Math.min(...select_log_ids.value);
-      console.log("scrolling to", min);
-      const el = conversationRefs.value[min];
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-  }
-};
-watch(select_log_ids, scroll);
-
-const toggleSelectedLog = (logId: number) => {
-  if (selectedLogIds.value.has(logId)) {
-    selectedLogIds.value.delete(logId);
-  } else {
-    selectedLogIds.value.add(logId);
-  }
-};
+const conversationDate = ref<number | null>(Date.now());
+const riskDate = ref<number | null>(Date.now());
+const riskScore = ref(70);
 </script>
 <template>
-  <ColoredCard
-    color="#0094ff"
-    rounded
-    title="Conversation Summary"
-    class="summary-card"
-  >
-    <Loading :loading="loading" :has-data="!!report">
-      <template #loading>
-        <div class="summary" v-for="i in 2" :key="i">
-          <n-skeleton class="title" text style="height: 22.4"> </n-skeleton>
-          <ul>
-            <li v-for="j in 3" :key="j">
-              <n-skeleton class="summary-content" text style="height: 16px">
-              </n-skeleton>
-            </li>
-          </ul>
-        </div>
-        <div class="notes">
-          <div class="title">Notes</div>
-          <div class="notes-list">
-            <div v-for="i in 3" :key="i" class="note">
-              <n-skeleton
-                class="summary-content"
-                text
-                style="height: 20px; margin-bottom: 2.4px"
-              >
-              </n-skeleton>
-            </div>
-            <n-input
-              v-model:value="editingNote"
-              placeholder="Add a note (press enter to submit)"
-              @keyup.enter="createNote()"
-            />
-          </div>
-        </div>
+  <div class="report-detail">
+    <ColoredCard
+      color="#5171AB"
+      rounded
+      title="AI Risk Prediction"
+      class="summary-card ai-risk-card indigo-title full-title-bar"
+    >
+      <template #title-extra>
+        <n-date-picker v-model:value="riskDate" type="date" size="small" clearable />
       </template>
-
-      <div
-        class="summary"
-        v-for="category in Object.keys(summaries)"
-        :key="category"
-      >
-        <div class="title">{{ category }}</div>
-        <ul>
-          <li v-for="summary in summaries[category]" :key="summary.id">
-            <div class="summary-content">{{ summary.content }}</div>
-
-            <div
-              class="note-time"
-              :title="format(summary.created_at, 'yyyy-MM-dd HH:mm:ss')"
-            >
-              {{
-                formatDistance(summary.created_at, new Date(), {
-                  addSuffix: true,
-                })
-              }}, created by AI
+      <div class="ai-risk-content">
+        <div class="ai-risk-top">
+          <div class="ai-risk-panel left-panel">
+            <div class="ai-risk-title">Cardiotoxicity Risk Score</div>
+            <div class="risk-score">
+              <div class="risk-gauge">
+                <AiRiskGauge :value="riskScore" />
+              </div>
+              <div class="risk-desc">
+                The score predicts the 6-month risk of cardiovascular complications based on EHR data,
+                wearable sensors, and self-reported symptoms.
+              </div>
             </div>
-          </li>
-        </ul>
-      </div>
-      <div class="notes">
-        <div class="title">Notes</div>
-        <div class="notes-list">
-          <ul v-for="note in report!.notes" :key="note.id" class="note">
-            <li>
-              <div class="note-left">
-                <div>{{ note.content }}</div>
-                <div
-                  class="note-time"
-                  :title="format(note.created_at, 'yyyy-MM-dd HH:mm:ss')"
-                >
-                  {{
-                    formatDistance(note.created_at, new Date(), {
-                      addSuffix: true,
-                    })
-                  }}, created by {{ note.user.name }}
+          </div>
+          <div class="ai-risk-panel right-panel">
+            <div class="ai-risk-title">Feature Importance</div>
+            <div class="feature-box">
+              <div class="feature-list">
+                <div class="feature-item">
+                  <span class="feature-label">Chest Discomfort</span>
+                  <div class="feature-bar">
+                    <div class="feature-fill" style="width: 75%"></div>
+                  </div>
+                  <span class="feature-val">75%</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-label">Heart Rate</span>
+                  <div class="feature-bar">
+                    <div class="feature-fill" style="width: 50%"></div>
+                  </div>
+                  <span class="feature-val">50%</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-label">Respiration</span>
+                  <div class="feature-bar">
+                    <div class="feature-fill" style="width: 15%"></div>
+                  </div>
+                  <span class="feature-val">15%</span>
+                </div>
+                <div class="feature-item">
+                  <span class="feature-label">SpO2</span>
+                  <div class="feature-bar">
+                    <div class="feature-fill" style="width: 15%"></div>
+                  </div>
+                  <span class="feature-val">15%</span>
                 </div>
               </div>
-            </li>
-            <div class="space"></div>
-            <n-button
-              size="tiny"
-              circle
-              @click="deleteNote(note.id)"
-              quaternary
-            >
-              <template #icon>
-                <n-icon>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    xmlns:xlink="http://www.w3.org/1999/xlink"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10s10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8zm3.59-13L12 10.59L8.41 7L7 8.41L10.59 12L7 15.59L8.41 17L12 13.41L15.59 17L17 15.59L13.41 12L17 8.41z"
-                      fill="currentColor"
-                    ></path>
-                  </svg>
-                </n-icon>
-              </template>
-            </n-button>
-          </ul>
-          <n-input
-            v-model:value="editingNote"
-            :loading="create_note_loading"
-            placeholder="Add a note (press enter to submit)"
-            @keyup.enter="createNote()"
-            class="input"
-          />
+            </div>
+          </div>
+        </div>
+        <div class="ai-risk-bottom">
+          <AiRiskTrendChart />
         </div>
       </div>
-    </Loading>
-  </ColoredCard>
-  <ColoredCard
-    color="#e6372e"
-    rounded
-    title="Detailed Log"
-    :style="{
-      '--color': stateColors[state],
-    }"
-  >
-    <Loading :loading="loading" :has-data="!!report">
-      <template #loading>
-        <div
-          v-for="i in 6"
-          :key="i"
-          :class="{
-            message: true,
-          }"
-        >
-          <div class="role">
-            <n-skeleton text style="height: 16px; width: 60px"> </n-skeleton>
-          </div>
-          <div class="content">
-            <n-skeleton text style="height: 16px" :repeat="2"> </n-skeleton>
-          </div>
-        </div>
+    </ColoredCard>
+    <ColoredCard
+      color="#5171AB"
+      rounded
+      title="Conversational Log"
+      class="conversation-card indigo-title full-title-bar"
+    >
+      <template #title-extra>
+        <n-date-picker
+          v-model:value="conversationDate"
+          type="date"
+          size="small"
+          clearable
+        />
       </template>
-      <div
-        v-for="message in report?.conversation_logs"
-        :key="message.content"
-        :class="{
-          message: true,
-          assistant: message.role === 'assistant',
-          user: message.role === 'user',
-          selected: selectedLogIds.has(message.id),
-        }"
-        :ref="(el) => (conversationRefs[message.id] = el)"
-        @click="toggleSelectedLog(message.id)"
-      >
-        <div class="role">
-          {{ message.role }}
-          <div
-            class="time"
-            :title="format(message.created_at, 'yyyy-MM-dd HH:mm:ss')"
-          >
-            {{
-              formatDistance(message.created_at, new Date(), {
-                addSuffix: true,
-              })
-            }}
+      <div class="conversation-panel conversation-left">
+        <div class="conversation-title">Details Symptoms from Log</div>
+        <div class="conversation-box"></div>
+      </div>
+      <div class="conversation-panel conversation-right">
+        <div class="conversation-title">Log History</div>
+        <div class="conversation-box conversation-log">
+          <div class="log-row log-agent">
+            <div class="log-avatar">
+              <svg
+                width="800"
+                height="800"
+                viewBox="0 -64 640 640"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M32,224H64V416H32A31.96166,31.96166,0,0,1,0,384V256A31.96166,31.96166,0,0,1,32,224Zm512-48V448a64.06328,64.06328,0,0,1-64,64H160a64.06328,64.06328,0,0,1-64-64V176a79.974,79.974,0,0,1,80-80H288V32a32,32,0,0,1,64,0V96H464A79.974,79.974,0,0,1,544,176ZM264,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,264,256Zm-8,128H192v32h64Zm96,0H288v32h64ZM456,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,456,256Zm-8,128H384v32h64ZM640,256V384a31.96166,31.96166,0,0,1-32,32H576V224h32A31.96166,31.96166,0,0,1,640,256Z"
+                  fill="#7892b5"
+                />
+              </svg>
+            </div>
+            <div class="log-bubble log-agent-bubble">
+              Is there anything else you would like to mention?
+            </div>
+          </div>
+          <div class="log-row log-user">
+            <div class="log-bubble log-user-bubble">I feel very sleepy today.</div>
+            <div class="log-avatar">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </div>
+          </div>
+          <div class="log-row log-agent">
+            <div class="log-avatar">
+              <svg
+                width="800"
+                height="800"
+                viewBox="0 -64 640 640"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M32,224H64V416H32A31.96166,31.96166,0,0,1,0,384V256A31.96166,31.96166,0,0,1,32,224Zm512-48V448a64.06328,64.06328,0,0,1-64,64H160a64.06328,64.06328,0,0,1-64-64V176a79.974,79.974,0,0,1,80-80H288V32a32,32,0,0,1,64,0V96H464A79.974,79.974,0,0,1,544,176ZM264,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,264,256Zm-8,128H192v32h64Zm96,0H288v32h64ZM456,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,456,256Zm-8,128H384v32h64ZM640,256V384a31.96166,31.96166,0,0,1-32,32H576V224h32A31.96166,31.96166,0,0,1,640,256Z"
+                  fill="#7892b5"
+                />
+              </svg>
+            </div>
+            <div class="log-bubble log-agent-bubble">Have you passed out?</div>
+          </div>
+          <div class="log-row log-user">
+            <div class="log-bubble log-user-bubble">
+              No, I have not passed out, but I feel very bad at that time.
+            </div>
+            <div class="log-avatar">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </div>
           </div>
         </div>
-        <div class="content">
-          {{ message.content.replace("CONVERSATION_END", "") }}
-        </div>
       </div>
-    </Loading>
-  </ColoredCard>
+    </ColoredCard>
+  </div>
 </template>
 <style scoped lang="scss">
 .n-card {
-  padding: 10px;
   flex: 1;
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;
-    margin-top: 22px;
+    margin-top: 4px;
   }
+}
+.report-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  row-gap: 16px;
+  flex: 1 1 0;
+  min-height: 0;
+  padding-right: 16px;
+  box-sizing: border-box;
+}
+.report-detail .n-card {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.report-detail .ai-risk-card {
+  flex: 0 1 55%;
+}
+.report-detail .conversation-card {
+  flex: 0 1 45%;
+}
+.ai-risk-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.ai-risk-top {
+  display: flex;
+  gap: 16px;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+}
+.ai-risk-bottom {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.ai-risk-panel {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.ai-risk-panel.right-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.feature-box {
+  background-color: #f3f3f3;
+  padding: 12px;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ai-risk-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.risk-score {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 50;
+}
+.risk-gauge {
+  width: 200px;
+  height: 100%;
+  position: relative;
+  flex: 0 0 auto;
+}
+.feature-label{
+  text-align: right;
+  padding-right: 12px;
+  font-weight: 700;
+  font-family: "Arial";
+  color: #808080;  
+}
+.risk-desc {
+  color: #777;
+  font-size: 12px;
+  line-height: 1.4;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  align-self: center;
+  overflow-wrap: anywhere;
+}
+.feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.feature-item {
+  display: grid;
+  grid-template-columns: 130px 1fr 48px;
+  align-items: center;
+}
+.feature-bar {
+  height: 14px;
+  background: #ffffff;
+  border-radius: 4px;
+  overflow: hidden;
+  width: 80%;
+}
+.feature-fill {
+  height: 100%;
+  background: #5574aa;
+}
+.feature-val {
+  font-weight: 700;
+  color: #555;
+}
+.conversation-card :deep(.n-card__content) {
+  display: flex;
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+}
+.conversation-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.conversation-left {
+  flex: 0 0 40%;
+  padding-right: 16px;
+  box-sizing: border-box;
+}
+.conversation-right {
+  flex: 0 0 60%;
+  padding-left: 16px;
+  box-sizing: border-box;
+  border-right: none;
+}
+.conversation-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+.conversation-box {
+  background-color: #f3f3f3;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.conversation-log {
+  padding: 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.log-agent {
+  justify-content: flex-start;
+}
+.log-user {
+  justify-content: flex-end;
+}
+.log-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #8a8a8a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.log-avatar svg {
+  width: 18px;
+  height: 18px;
+  transform: scale(1.1);
+}
+.log-bubble {
+  padding: 10px 12px;
+  border-radius: 12px;
+  max-width: 70%;
+  line-height: 1.4;
+  font-size: 14px;
+}
+.log-agent-bubble {
+  background: transparent;
+  color: #222;
+}
+.log-user-bubble {
+  background: #ffffff;
+  color: #222;
+  box-shadow: 0 0 0 1px #e6e6e6 inset;
 }
 .summary {
   .title {
     font-size: 14px;
     font-weight: 700;
-    //margin-top:22px;
     margin-bottom: 8px;
     margin-left: 12px;
   }
@@ -413,5 +458,32 @@ const toggleSelectedLog = (logId: number) => {
 .note-time {
   font-size: 0.6em;
   color: #666;
+}
+.indigo-title :deep(.roundtag__label) {
+  background-color: #5171AB !important;
+  color: #fff;
+}
+.indigo-title :deep(.roundtag__round) {
+  background-color: #5171AB !important;
+}
+.empty-card {
+  height: 100%;
+}
+.full-title-bar :deep(.roundtag) {
+  width: 100%;
+  left: 0;
+  right: 0;
+}
+.full-title-bar :deep(.roundtag__label) {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0 12px;
+  border-radius: 0;
+}
+.full-title-bar :deep(.roundtag__round) {
+  display: none;
+}
+.full-title-bar :deep(.n-card.color-card) {
+  border-left: none;
 }
 </style>

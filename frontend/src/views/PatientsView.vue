@@ -89,7 +89,7 @@ const updateState = (id: number, state: number) => {
     <n-card class="patient-list">
       <template #header>
         <div class="header row">
-          <div class="title">Participants</div>
+          <div class="title">Patient List</div>
           <n-tooltip trigger="hover">
             <template #trigger>
               <n-button
@@ -157,7 +157,9 @@ const updateState = (id: number, state: number) => {
             }"
             class="patient-info"
           >
-            <div class="name">Caregiver {{ p.id }} {{ p.participant_id }}</div>
+            <div class="name">
+              {{ p.patient_name || p.users?.[0]?.name || "n/a" }}
+            </div>
             <div class="age-sex">
               <span v-if="p.age">{{ p.age }} y.o.</span>
               <span v-if="p.age && p.gender"> , </span>
@@ -186,7 +188,9 @@ const updateState = (id: number, state: number) => {
         </template>
       </Loading>
     </n-card>
-    <router-view></router-view>
+    <div class="patient-detail">
+      <router-view></router-view>
+    </div>
   </div>
 </template>
 
@@ -205,13 +209,20 @@ const updateState = (id: number, state: number) => {
 .holder {
   flex: 1;
   min-height: 0;
-  margin: 0 8px 8px 8px;
+  margin: 0;
+  background-color: #f3f3f3;
+}
+.patient-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
 }
 .patient-list {
-  flex-basis: 260px;
+  flex-basis: 200px;
   flex-grow: 0;
   flex-shrink: 0;
   min-height: 100%;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.2);
 }
 .n-card:deep(.n-card__content) {
   padding: 0;
@@ -258,7 +269,7 @@ const updateState = (id: number, state: number) => {
   flex: 1;
   color: black;
   .name {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 500;
   }
 }
@@ -266,7 +277,7 @@ a {
   text-decoration: none;
 }
 .selected {
-  box-shadow: inset 0px 0px 0px 2px #a1a1a1;
+  background-color: #f3f3f3; 
   cursor: default;
 }
 </style>

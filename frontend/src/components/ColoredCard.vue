@@ -33,7 +33,10 @@ const title = computed(() => {
       :style="{ '--color': props.color, '--white-ratio': '75%' }"
     >
       <div className="roundtag__label">
-        {{ props.title }}
+        <span className="roundtag__title">{{ props.title }}</span>
+        <span className="roundtag__extra">
+          <slot name="title-extra"></slot>
+        </span>
       </div>
       <div className="roundtag__round"></div>
     </div>
@@ -46,9 +49,12 @@ const title = computed(() => {
   box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.1);
   background-color: white;
   position: relative !important;
+  :deep(.n-card__content) {
+    padding: 16px 16px;
+  }
 }
 .n-card.color-card {
-  border-left: 8px solid var(--card-color);
+  border-left: none;
   padding-top: 34px;
 }
 .roundtag {
@@ -64,9 +70,20 @@ const title = computed(() => {
   background-color: color-mix(in srgb, var(--color), white var(--white-ratio));
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding-left: 10px;
-  height: 34px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px 0 10px;
+  height: 38px;
+  font-weight: 700;
+}
+ .roundtag__title {
+  display: inline-flex;
+  align-items: center;
+}
+.roundtag__extra {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
 }
 
 .roundtag__round {
@@ -74,7 +91,7 @@ const title = computed(() => {
   display: inline-block;
   border-radius: 0 17px 17px 0;
   width: 17px;
-  height: 34px;
+  height: 38px;
   z-index: 2;
   position: relative;
 }
