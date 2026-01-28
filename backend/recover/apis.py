@@ -6,6 +6,7 @@ import random
 import secrets
 import string
 from threading import Thread
+import time
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Session
 import bcrypt
@@ -24,7 +25,10 @@ from .db import (
     Token,
 )
 from .config import (
-    VALID_API_KEYS, mongodb_url, GREETINGS
+    VALID_API_KEYS,
+    mongodb_url,
+    mongodb_client_kwargs,
+    GREETINGS,
 )
 from .openai_utils import conversation, key_questions, summary
 from pymongo import MongoClient
@@ -33,6 +37,29 @@ import logging
 # Cache for wearable data
 wearable_data_cache = {}  # Format: {alexa_user_id: {'timestamp': datetime, 'data': {...}}}
 CACHE_EXPIRY_MINUTES = 60  # Cache expires after 60 minutes
+
+MONGO_BACKOFF_SECONDS = 30
+_mongo_unavailable_until = 0.0
+
+
+def _get_mongo_client():
+    global _mongo_unavailable_until
+    now = time.time()
+    if now < _mongo_unavailable_until:
+        return None
+    client = None
+    try:
+        client = MongoClient(mongodb_url, **mongodb_client_kwargs)
+        client.admin.command("ping")
+        return client
+    except Exception:
+        _mongo_unavailable_until = now + MONGO_BACKOFF_SECONDS
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        return None
 
 def get_cached_wearable_data(alexa_user_id):
     """Get wearable data from cache if it exists and is not expired"""
@@ -398,7 +425,9 @@ def _mongo_wearable_stats(
 ):
     if not participant_id:
         return {"mean": None, "max": None, "min": None}
-    client = MongoClient(mongodb_url)
+    client = _get_mongo_client()
+    if client is None:
+        return {"mean": None, "max": None, "min": None}
     try:
         db2 = client[db_name]
         cursor = db2[collection_name].find(
@@ -442,7 +471,9 @@ def _mongo_latest_value(
 ):
     if not participant_id:
         return None
-    client = MongoClient(mongodb_url)
+    client = _get_mongo_client()
+    if client is None:
+        return None
     try:
         db2 = client[db_name]
         doc = (
@@ -483,7 +514,9 @@ def _mongo_has_any(
 ):
     if not participant_id:
         return False
-    client = MongoClient(mongodb_url)
+    client = _get_mongo_client()
+    if client is None:
+        return False
     try:
         db2 = client[db_name]
         doc = (
@@ -515,7 +548,9 @@ def _steps_max_since_reset(
 ):
     if not participant_id:
         return None
-    client = MongoClient(mongodb_url)
+    client = _get_mongo_client()
+    if client is None:
+        return None
     try:
         db2 = client[db_name]
         lookback_start = max(0, int(start_ts - reset_lookback_hours * 3600))
@@ -568,7 +603,9 @@ def _steps_total_for_window(
 ):
     if not participant_id:
         return None
-    client = MongoClient(mongodb_url)
+    client = _get_mongo_client()
+    if client is None:
+        return None
     try:
         db2 = client[db_name]
         cursor = db2["garmin_steps"].find(
@@ -617,7 +654,9 @@ def _step_resets(
 ):
     if not participant_id:
         return []
-    client = MongoClient(mongodb_url)
+    client = _get_mongo_client()
+    if client is None:
+        return []
     try:
         db2 = client[db_name]
         cursor = db2["garmin_steps"].find(

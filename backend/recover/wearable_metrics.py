@@ -1,7 +1,7 @@
 from datetime import datetime
 from pymongo import MongoClient, DESCENDING
 
-from .config import mongodb_url
+from .config import mongodb_url, mongodb_client_kwargs
 
 
 METRICS = {
@@ -80,7 +80,7 @@ def _latest_value(db, collection_name, patient_id, participant_id=None):
 
 
 def metrics_for_participant(patient_id, participant_id=None, db_name=None):
-    client = MongoClient(mongodb_url)
+    client = MongoClient(mongodb_url, **mongodb_client_kwargs)
     db = client[db_name or "study_db"]
     metrics = {}
     try:

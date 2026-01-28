@@ -27,7 +27,7 @@ from .db import Patient, User, ConversationLog, ReportSummary, Report
 from .apis import get_or_create_report
 from .symptoms import symptom_descriptions
 from .openai_utils import conversation as openai_conversation, key_questions, summary
-from .config import auto_create_patient, mongodb_url
+from .config import auto_create_patient, mongodb_url, mongodb_client_kwargs
 from pymongo import MongoClient
 
 logger = app.logger
@@ -181,7 +181,7 @@ def conversation(alexa_user_id: str, content: str):
         wearable_data = None
         if patient.participant_id:
             try:
-                client = MongoClient(mongodb_url)
+                client = MongoClient(mongodb_url, **mongodb_client_kwargs)
                 db2 = client["study_db"]
                 stress_value = _latest_field_value(
                     db2, "garmin_stress", patient.participant_id, "heart_rate"
