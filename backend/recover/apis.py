@@ -47,6 +47,19 @@ def _get_mongo_client():
     now = time.time()
     if now < _mongo_unavailable_until:
         return None
+    client = None
+    try:
+        client = MongoClient(mongodb_url, **mongodb_client_kwargs)
+        client.admin.command("ping")
+        return client
+    except Exception:
+        _mongo_unavailable_until = now + MONGO_BACKOFF_SECONDS
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        return None
 
 
 def _utc_midnight_window(days=1):
@@ -122,19 +135,80 @@ def _rmssd_ibi(db2, participant_id, start_ts, end_ts):
         return None
     mean_squared_diff = sum(squared_diffs) / len(squared_diffs)
     return math.sqrt(mean_squared_diff)
-    client = None
-    try:
-        client = MongoClient(mongodb_url, **mongodb_client_kwargs)
-        client.admin.command("ping")
-        return client
-    except Exception:
-        _mongo_unavailable_until = now + MONGO_BACKOFF_SECONDS
-        if client is not None:
-            try:
-                client.close()
-            except Exception:
-                pass
-        return None
+
+
+def _bucket_offset_expr(start_ts, interval_seconds, field="timestamp"):
+    diff_expr = {"$subtract": [f"${field}", start_ts]}
+    return {"$subtract": [diff_expr, {"$mod": [diff_expr, interval_seconds]}]}
+
+
+def _aggregate_avg_by_bin(
+    db2,
+    participant_id,
+    collection_name,
+    start_ts,
+    end_ts,
+    interval_seconds,
+    value_field,
+):
+    match_query = {
+        **_participant_filter(participant_id),
+        "timestamp": {"$gte": start_ts, "$lte": end_ts},
+        value_field: {"$gt": 0},
+    }
+    pipeline = [
+        {"$match": match_query},
+        {
+            "$group": {
+                "_id": _bucket_offset_expr(start_ts, interval_seconds),
+                "avg_value": {"$avg": f"${value_field}"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    results = db2[collection_name].aggregate(pipeline)
+    return {int(row["_id"]): row.get("avg_value") for row in results}
+
+
+def _aggregate_rmssd_by_bin(
+    db2,
+    participant_id,
+    start_ts,
+    end_ts,
+    interval_seconds,
+):
+    match_query = {
+        **_participant_filter(participant_id),
+        "timestamp": {"$gte": start_ts, "$lte": end_ts},
+        "value": {"$gt": 0},
+    }
+    pipeline = [
+        {"$match": match_query},
+        {
+            "$group": {
+                "_id": _bucket_offset_expr(start_ts, interval_seconds),
+                "values": {"$push": "$value"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    results = db2["garmin_ibi"].aggregate(pipeline)
+    out = {}
+    for row in results:
+        values = row.get("values") or []
+        clean = [v for v in values if isinstance(v, (int, float)) and v > 0 and math.isfinite(v)]
+        if len(clean) < 2:
+            out[int(row["_id"])] = None
+            continue
+        squared_diffs = []
+        for i in range(len(clean) - 1):
+            diff = clean[i + 1] - clean[i]
+            squared_diffs.append(diff ** 2)
+        if not squared_diffs:
+            out[int(row["_id"])] = None
+            continue
+        out[int(row["_id"])] = math.sqrt(sum(squared_diffs) / len(squared_diffs))
+    return out
 
 def get_cached_wearable_data(alexa_user_id):
     """Get wearable data from cache if it exists and is not expired"""
@@ -812,6 +886,7 @@ def get_patient(id):
 @login_required
 def get_patient_wearable_timeseries(id):
     try:
+        start_time = time.time()
         patient, error = _get_patient_for_user(id, g.current_user.id)
         if error:
             return error
@@ -836,11 +911,15 @@ def get_patient_wearable_timeseries(id):
         }
 
         participant_id = patient.participant_id
+        def finalize(payload):
+            payload["elapsed_ms"] = int((time.time() - start_time) * 1000)
+            return jsonify(payload)
+
         if not participant_id:
             series["heart_rate"] = [None] * len(labels)
             series["respiration"] = [None] * len(labels)
             series["heart_rate_variability"] = [None] * len(labels)
-            return jsonify(
+            return finalize(
                 {
                     "times": labels,
                     "series": series,
@@ -854,7 +933,7 @@ def get_patient_wearable_timeseries(id):
             series["heart_rate"] = [None] * len(labels)
             series["respiration"] = [None] * len(labels)
             series["heart_rate_variability"] = [None] * len(labels)
-            return jsonify(
+            return finalize(
                 {
                     "times": labels,
                     "series": series,
@@ -893,7 +972,7 @@ def get_patient_wearable_timeseries(id):
                 series["heart_rate"] = [None] * len(labels)
                 series["respiration"] = [None] * len(labels)
                 series["heart_rate_variability"] = [None] * len(labels)
-                return jsonify(
+                return finalize(
                     {
                         "times": labels,
                         "series": series,
@@ -906,44 +985,45 @@ def get_patient_wearable_timeseries(id):
                     }
                 )
 
+            hr_map = _aggregate_avg_by_bin(
+                db2,
+                participant_id,
+                "garmin_hr",
+                start_ts,
+                end_ts,
+                bin_seconds,
+                "heart_rate",
+            )
+            resp_map = _aggregate_avg_by_bin(
+                db2,
+                participant_id,
+                "garmin_respiration",
+                start_ts,
+                end_ts,
+                bin_seconds,
+                "respiration",
+            )
+            hrv_map = _aggregate_rmssd_by_bin(
+                db2,
+                participant_id,
+                start_ts,
+                end_ts,
+                bin_seconds,
+            )
             for i in range(len(labels)):
                 bin_start = start_ts + i * bin_seconds
-                bin_end = start_ts + (i + 1) * bin_seconds
                 if end_ts <= bin_start:
                     series["heart_rate"].append(None)
                     series["respiration"].append(None)
                     series["heart_rate_variability"].append(None)
                     continue
-                effective_end = min(bin_end, end_ts)
-                hr_value = _average_metric(
-                    db2,
-                    participant_id,
-                    "garmin_hr",
-                    bin_start,
-                    effective_end,
-                    "heart_rate",
-                )
-                resp_value = _average_metric(
-                    db2,
-                    participant_id,
-                    "garmin_respiration",
-                    bin_start,
-                    effective_end,
-                    "respiration",
-                )
-                hrv_value = _rmssd_ibi(
-                    db2,
-                    participant_id,
-                    bin_start,
-                    effective_end,
-                )
-                series["heart_rate"].append(hr_value)
-                series["respiration"].append(resp_value)
-                series["heart_rate_variability"].append(hrv_value)
+                series["heart_rate"].append(hr_map.get(i * bin_seconds))
+                series["respiration"].append(resp_map.get(i * bin_seconds))
+                series["heart_rate_variability"].append(hrv_map.get(i * bin_seconds))
         finally:
             client.close()
 
-        return jsonify(
+        return finalize(
             {
                 "times": labels,
                 "series": series,

@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import * as echarts from "echarts";
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useResizeObserver } from "@vueuse/core";
+import { getWearableTimeSeries, type WearableTimeSeries } from "@/api/patient";
+import Loading from "@/components/Loading.vue";
+
+const props = defineProps<{
+  patientId?: number;
+  range?: "24h" | "7d";
+}>();
 
 const chartEl = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
 let cleanupZrDrag: (() => void) | null = null;
 
-const times = [
+const defaultTimes = [
   "0:00",
   "3:00",
   "6:00",
@@ -18,51 +25,166 @@ const times = [
   "21:00",
   "24:00",
 ];
-const seriesDefs = [
+const times = ref<string[]>([...defaultTimes]);
+const rangeValue = computed(() => props.range ?? "24h");
+const seriesDefs = ref([
   {
     name: "Heart Rate",
     color: "#4bbfd1",
-    data: [70, 75, 80, 78, 90, 88, 85, 95, 92],
+    data: [] as Array<number | null>,
     yAxisIndex: 0,
     lineType: "solid",
   },
   {
     name: "Respiration",
     color: "#ec48d3",
-    data: [14, 15, 16, 15, 18, 19, 17, 16, 15],
+    data: [] as Array<number | null>,
     yAxisIndex: 1,
     lineType: "dashed",
   },
   {
     name: "SpO2",
     color: "#0fb54c",
-    data: [96, 97, 95, 94, 97, 98, 96, 97, 95],
+    data: [] as Array<number | null>,
     yAxisIndex: 2,
     lineType: [14, 3, 2, 3],
   },
   {
     name: "Heart Rate Variability",
     color: "#705ddd",
-    data: [40, 45, 42, 38, 50, 55, 48, 52, 49],
+    data: [] as Array<number | null>,
     yAxisIndex: 3,
     lineType: [14, 6],
     markLine: true,
   },
-];
+]);
 const selected = ref<Record<string, boolean>>(
-  Object.fromEntries(seriesDefs.map((item) => [item.name, true])),
+  Object.fromEntries(seriesDefs.value.map((item) => [item.name, true])),
 );
+const isLoading = ref(false);
 const markerTime = ref<string>("21:00");
 const markerPixel = ref<number | null>(null);
 const isDragging = ref(false);
+
+const normalizeSeriesLength = (data: Array<number | null>, size: number, fill: number | null) => {
+  if (data.length === size) return data;
+  if (data.length > size) return data.slice(0, size);
+  return data.concat(Array.from({ length: size - data.length }, () => fill));
+};
+
+const buildDefaultTimes = (nextRange: "24h" | "7d") => {
+  if (nextRange === "24h") {
+    return [
+      "0:00",
+      "3:00",
+      "6:00",
+      "9:00",
+      "12:00",
+      "15:00",
+      "18:00",
+      "21:00",
+      "24:00",
+    ];
+  }
+  const labels: string[] = [];
+  const now = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(now.getDate() - i);
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    labels.push(`${month}/${day}`);
+  }
+  return labels;
+};
+
+const applySeriesData = (payload?: WearableTimeSeries) => {
+  const standardTimes = buildDefaultTimes(rangeValue.value);
+  times.value = standardTimes;
+
+  if (!payload) {
+    seriesDefs.value.forEach((series) => {
+      series.data = normalizeSeriesLength([], standardTimes.length, null);
+    });
+    applyOption();
+    return;
+  }
+
+  const seriesMap: Record<string, Array<number | null>> = {
+    "Heart Rate": payload.series?.heart_rate ?? [],
+    Respiration: payload.series?.respiration ?? [],
+    "Heart Rate Variability": payload.series?.heart_rate_variability ?? [],
+  };
+
+  seriesDefs.value.forEach((series) => {
+    if (series.name in seriesMap) {
+      const next = seriesMap[series.name] ?? [];
+      series.data = normalizeSeriesLength(next, standardTimes.length, null);
+      return;
+    }
+    if (series.name === "SpO2") {
+      series.data = normalizeSeriesLength([], standardTimes.length, null);
+    }
+  });
+
+  if (!times.value.includes(markerTime.value)) {
+    markerTime.value =
+      times.value[Math.max(0, times.value.length - 2)] || times.value[0];
+  }
+  applyOption();
+};
+
+const fetchSeriesData = async (patientId?: number) => {
+  if (!patientId) {
+    applySeriesData();
+    return;
+  }
+  isLoading.value = true;
+  try {
+    const data = await getWearableTimeSeries(patientId, rangeValue.value);
+    applySeriesData(data);
+  } catch (error) {
+    console.error("Failed to fetch wearable series data", error);
+    applySeriesData();
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const formatXAxisLabel = (value: string) => {
+  if (rangeValue.value === "7d") {
+    if (!value.includes(" ")) {
+      return value;
+    }
+    if (value.endsWith("00:00")) {
+      return value.split(" ")[0];
+    }
+    return "";
+  }
+  return value;
+};
+
+const parseTimeLabel = (value: string) => {
+  const timePart = value.includes(" ") ? value.split(" ")[1] : value;
+  if (!timePart.includes(":")) return null;
+  const [hourText, minuteText] = timePart.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return { hour, minute };
+};
+
+const shouldShowLabel = (value: string) => {
+  return true;
+};
 
 const updateMarkerFromPixel = (centerX: number) => {
   if (!chart) return;
   const raw = chart.convertFromPixel({ xAxisIndex: 0 }, centerX);
   let next = markerTime.value;
   if (typeof raw === "number") {
-    const idx = Math.max(0, Math.min(times.length - 1, Math.round(raw)));
-    next = times[idx];
+    const idx = Math.max(0, Math.min(times.value.length - 1, Math.round(raw)));
+    next = times.value[idx];
   } else if (typeof raw === "string") {
     next = raw;
   }
@@ -102,8 +224,12 @@ const getXAxisAxisLabel = () => ({
   rotate: 45,
   fontSize: 12.5,
   fontFamily: "Arial Black",
-  formatter: (value: string) =>
-    value === markerTime.value ? `{active|${value}}` : `{normal|${value}}`,
+  interval: 0,
+  formatter: (value: string) => {
+    const label = formatXAxisLabel(value);
+    if (!label) return "";
+    return value === markerTime.value ? `{active|${label}}` : `{normal|${label}}`;
+  },
   rich: {
     active: {
       color: "#000000",
@@ -126,7 +252,7 @@ const buildOption = (): echarts.EChartsOption => ({
   xAxis: {
     type: "category",
     boundaryGap: false,
-    data: times,
+    data: times.value,
     name: "Time",
     nameLocation: "middle",
     nameGap: 50,
@@ -140,7 +266,6 @@ const buildOption = (): echarts.EChartsOption => ({
       ...getXAxisAxisLabel(),
       margin: 12,
       lineHeight: 16,
-      interval: 0,
     },
     axisTick: { show: false },
     axisLine: { show: true, lineStyle: { color: "#000000", width: 2 } },
@@ -181,7 +306,6 @@ const buildOption = (): echarts.EChartsOption => ({
       min: 94,
       max: 100,
       interval: 2,
-      nameTextStyle: { color: "#0fb54c", fontWeight: "bold" },
       axisLabel: {
         formatter: (value: number) => `${value}\n%`,
         color: "#0fb54c",
@@ -206,7 +330,7 @@ const buildOption = (): echarts.EChartsOption => ({
       axisTick: { show: false },
     },
   ],
-  series: seriesDefs.map((series) => {
+  series: seriesDefs.value.map((series) => {
     const isActive = selected.value[series.name];
     return {
       name: series.name,
@@ -214,6 +338,7 @@ const buildOption = (): echarts.EChartsOption => ({
       yAxisIndex: series.yAxisIndex,
       data: isActive ? series.data : [],
       smooth: true,
+      connectNulls: false,
       showSymbol: false,
       symbol: "none",
       symbolSize: 0,
@@ -356,6 +481,22 @@ onMounted(() => {
   bindDragEvents();
 });
 
+watch(
+  () => props.patientId,
+  (nextId) => {
+    fetchSeriesData(nextId);
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.range,
+  () => {
+    fetchSeriesData(props.patientId);
+  },
+  { immediate: false },
+);
+
 useResizeObserver(chartEl, () => {
   chart?.resize();
   updateMarkerGraphic();
@@ -395,7 +536,9 @@ onBeforeUnmount(() => {
         </svg>
       </button>
     </div>
-    <div class="chart" ref="chartEl"></div>
+    <Loading :loading="isLoading" :has-data="true" :debounce-ms="150">
+      <div class="chart" ref="chartEl"></div>
+    </Loading>
   </div>
 </template>
 
@@ -405,6 +548,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  min-height: 220px;
 }
 .chart-legend {
   display: flex;
