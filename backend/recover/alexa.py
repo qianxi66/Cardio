@@ -23,10 +23,8 @@ from ask_sdk_core.exceptions import SerializationException
 from ask_sdk_core.handler_input import HandlerInput
 from ask_sdk_core.skill_builder import SkillBuilder
 from .app import app, db
-from .db import Patient, User, ConversationLog, ReportSummary, Report
-from .apis import get_or_create_report
-from .symptoms import symptom_descriptions
-from .openai_utils import conversation as openai_conversation, key_questions, summary
+from .db import Patient, User, ConversationLog
+from .openai_utils import conversation as openai_conversation
 from .config import auto_create_patient, mongodb_url, mongodb_client_kwargs
 from pymongo import MongoClient
 
@@ -55,8 +53,6 @@ def getLastMessage(alexa_user_id: str):
                 alexa_user_id=alexa_user_id,
                 last_read_at=datetime.utcnow(),
                 participant_id="AUTO_" + participant_id,
-                reviewed=False,
-                state=0,
             )
             # allow all users to access this patient
             patient.users.extend(User.query.all())
@@ -64,17 +60,20 @@ def getLastMessage(alexa_user_id: str):
             db.session.commit()
         else:
             return {"message": "Patient not found."}, 404
-    report = get_or_create_report(patient.id)
-    messages = ConversationLog.query.filter_by(report_id=report.id).all()
+    messages = (
+        ConversationLog.query.filter_by(patient_id=patient.id)
+        .order_by(ConversationLog.date.asc())
+        .all()
+    )
     if len(messages) == 0:
         # create a new assistant message
         msg = "Hello, this is the Cardio research study chatbot assistant. Are you ready to start today's questions? This skill's content is not intended as a substitute for professional medical advice or treatment."
         message = ConversationLog(
             patient_id=patient.id,
-            report_id=report.id,
             role="assistant",
             chain_of_thoughts="",
             content=msg,
+            date=datetime.utcnow(),
         )
         db.session.add(message)
         db.session.commit()
@@ -102,58 +101,8 @@ def session_end_hook(alexa_user_id):
         logger.info("session_end_hook")
         patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
         logger.info(f"patient: {patient}")
-        report = get_or_create_report(patient.id)
-        logger.info(f"report: {report}")
-        messages = ConversationLog.query.filter_by(report_id=report.id).all()
-        messages = [message.as_dict() for message in messages]
-        messages = [
-            {
-                "id": message["id"],
-                "content": message["content"],
-                "role": message["role"],
-            }
-            for message in messages
-        ]
-        logger.info(f"messages: {messages}")
-        try:
-            response = key_questions(json.dumps(messages))
-            logger.info(f"response: {response}")
-            response = json.loads(response)
-        except Exception:
-            response = {}
-        logger.info(f"response: {response}")
-        for key in response:
-            setattr(report, f"{key}_state", response[key]["state"])
-            setattr(report, f"{key}_logs", json.dumps(response[key]["logs"]))
-            if "scale" in response[key]:
-                if hasattr(report, f"{key}_scale"):
-                    setattr(report, f"{key}_scale", response[key]["scale"])
-
-        db.session.add(report)
-        summaries = summary(json.dumps(messages), json.dumps(response))
-        logger.info(f"summaries: {summaries}")
-        try:
-            summaries = json.loads(summaries)["result"]
-            # firstly delete all old summaries
-            ReportSummary.query.filter_by(report_id=report.id).delete()
-            for summaryi in summaries:
-                report_summary = ReportSummary(
-                    report_id=report.id, highlight_keywords="", **summaryi
-                )
-                db.session.add(report_summary)
-            db.session.commit()
-        except Exception as e:
-            logger.error(f"Error processing summaries: {e}")
-        patient.state = max(
-            [
-                symptom_descriptions[symptom]["max_scale"]
-                if getattr(report, f"{symptom}_state") == 2
-                else getattr(report, f"{symptom}_state")
-                for symptom in symptom_descriptions.keys()
-            ]
-        )
-        db.session.add(patient)
-        db.session.commit()
+        if patient is None:
+            return jsonify({"message": "patient not found"}), 404
         logger.info("session end hook done")
         return jsonify({"message": "success"})
 
@@ -174,9 +123,6 @@ def conversation(alexa_user_id: str, content: str):
         patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
         if patient is None:
             raise PatientNotFound(f"Patient not found for alexa_user_id: {alexa_user_id}")
-        
-        # Get current report
-        current_report = get_or_create_report(patient.id)
         
         wearable_data = None
         if patient.participant_id:
@@ -213,22 +159,25 @@ def conversation(alexa_user_id: str, content: str):
         # Create conversation log for user message
         log = ConversationLog(
             patient_id=patient.id,
-            report_id=current_report.id,
             role="user",
             content=content,
-            created_at=datetime.utcnow(),
+            date=datetime.utcnow(),
         )
         db.session.add(log)
         db.session.commit()
         
-        # get all conversation logs for this report
-        conversation_logs = ConversationLog.query.filter_by(report_id=current_report.id).all()
+        # get all conversation logs for this patient
+        conversation_logs = (
+            ConversationLog.query.filter_by(patient_id=patient.id)
+            .order_by(ConversationLog.date.asc())
+            .all()
+        )
         conversation_logs = [log.as_dict() for log in conversation_logs]
         conversation_logs = [
             {
                 "content": log["content"]
                 if log["role"] == "user"
-                else log["chain_of_thoughts"] + "==============\n" + log["content"],
+                else (log.get("chain_of_thoughts") or "") + "==============\n" + log["content"],
                 "role": log["role"],
             }
             for log in conversation_logs
@@ -258,10 +207,10 @@ mood: not discussed
             pass
         log = ConversationLog(
             patient_id=patient.id,
-            report_id=current_report.id,
             role="assistant",
             content=assistant_message,
             chain_of_thoughts=chain_of_thoughts,
+            date=datetime.utcnow(),
         )
         db.session.add(log)
         db.session.commit()
@@ -506,23 +455,3 @@ skill_builder.add_request_handler(CancelOrStopIntentHandler())
 skill_builder.add_request_handler(ConversationHandler())
 skill_builder.add_request_handler(SessionEndedRequestHandler())
 skill_builder.add_exception_handler(CatchAllExceptionHandler())
-
-def format_report_for_llm(report):
-    report_text = f"""
-Report Date: {report.created_at}
-"""
-    for symptom in symptom_descriptions:
-        state = getattr(report, f"{symptom}_state")
-        state_description = [
-    'no information',
-    'normal',
-    'has this symptom'
-][state]
-        report_text += f"{symptom_descriptions[symptom]['display_name']} ({symptom_descriptions[symptom]['description']}): {state_description}\n"
-    
-    # Get report summaries
-    summaries = ReportSummary.query.filter_by(report_id=report.id).all()
-    for summary in summaries:
-        report_text += f"Conversation Summary: {summary.content}\n"
-    
-    return report_text

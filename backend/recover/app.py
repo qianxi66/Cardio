@@ -2,14 +2,13 @@ import json
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 from flask_migrate import Migrate
-from flask_sqlalchemy import SQLAlchemy
 from ask_sdk_core.serialize import DefaultSerializer
 from ask_sdk_core.skill import CustomSkill
 from ask_sdk_model import RequestEnvelope
 
 from . import config  # noqa
+from .db import db
 
-db = SQLAlchemy()
 # cors allow everyting
 
 

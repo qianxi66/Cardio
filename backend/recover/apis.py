@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 import bcrypt
 from flask import abort, current_app, jsonify, request, g
 from .app import app
-from .symptoms import symptom_descriptions
 from .db import (
     AlexaIDNote,
     ConversationLog,
+    Hospitalization,
     Patient,
-    Report,
     ReportNote,
-    ReportSummary,
+    Risk,
+    Summary,
     User,
     db,
     Token,
@@ -30,7 +30,7 @@ from .config import (
     mongodb_client_kwargs,
     GREETINGS,
 )
-from .openai_utils import conversation, key_questions, summary
+from .openai_utils import conversation
 from pymongo import MongoClient
 import logging
 
@@ -47,6 +47,81 @@ def _get_mongo_client():
     now = time.time()
     if now < _mongo_unavailable_until:
         return None
+
+
+def _utc_midnight_window(days=1):
+    now_utc = datetime.utcnow()
+    start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    if days > 1:
+        start_utc = start_utc - timedelta(days=days - 1)
+    return start_utc, now_utc
+
+
+def _build_labels(start_dt, end_dt, bin_seconds, label_style):
+    labels = []
+    cursor = start_dt
+    while cursor <= end_dt:
+        if label_style == "time":
+            labels.append(cursor.strftime("%-H:%M"))
+        else:
+            labels.append(cursor.strftime("%m/%d %H:%M"))
+        cursor += timedelta(seconds=bin_seconds)
+    return labels
+
+
+def _participant_filter(participant_id):
+    return {"$or": [{"uid": participant_id}, {"participant_id": participant_id}]}
+
+
+def _average_metric(db2, participant_id, collection, start_ts, end_ts, value_field):
+    values = []
+    cursor = db2[collection].find(
+        {
+            **_participant_filter(participant_id),
+            "timestamp": {"$gte": start_ts, "$lte": end_ts},
+        },
+        {value_field: 1},
+    )
+    for doc in cursor:
+        value = doc.get(value_field)
+        if not isinstance(value, (int, float)):
+            continue
+        if not math.isfinite(value):
+            continue
+        values.append(value)
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _rmssd_ibi(db2, participant_id, start_ts, end_ts):
+    ibi_values = []
+    cursor = db2["garmin_ibi"].find(
+        {
+            **_participant_filter(participant_id),
+            "timestamp": {"$gte": start_ts, "$lte": end_ts},
+        },
+        {"value": 1},
+    )
+    for doc in cursor:
+        value = doc.get("value")
+        if value is None or value <= 0:
+            continue
+        if not isinstance(value, (int, float)):
+            continue
+        if not math.isfinite(value):
+            continue
+        ibi_values.append(value)
+    if len(ibi_values) < 2:
+        return None
+    squared_diffs = []
+    for i in range(len(ibi_values) - 1):
+        diff = ibi_values[i + 1] - ibi_values[i]
+        squared_diffs.append(diff ** 2)
+    if not squared_diffs:
+        return None
+    mean_squared_diff = sum(squared_diffs) / len(squared_diffs)
+    return math.sqrt(mean_squared_diff)
     client = None
     try:
         client = MongoClient(mongodb_url, **mongodb_client_kwargs)
@@ -177,6 +252,43 @@ def login_required(f):
     return decorated_function
 
 
+def _columns_dict(model_obj):
+    return {c.name: getattr(model_obj, c.name) for c in model_obj.__table__.columns}
+
+
+def _user_dict(user):
+    data = _columns_dict(user)
+    data.pop("password", None)
+    return data
+
+
+def _get_patient_for_user(patient_id, user_id):
+    patient = Patient.query.get(patient_id)
+    if not patient:
+        return None, (jsonify({"message": "Patient not found"}), 404)
+    if not any(user.id == user_id for user in patient.users):
+        return None, (jsonify({"message": "Permission denied"}), 401)
+    return patient, None
+
+
+def _parse_datetime(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.utcfromtimestamp(value)
+        except Exception:
+            return None
+    if isinstance(value, str):
+        try:
+            if value.endswith("Z"):
+                value = value[:-1] + "+00:00"
+            return datetime.fromisoformat(value)
+        except Exception:
+            return None
+    return None
+
+
 @current_app.route("/get_user_info", methods=["GET"])
 def get_user_info():
     try:
@@ -206,35 +318,7 @@ def get_user_info():
 def get_patients():
     try:
         patients = g.current_user.patients
-
-        patients_dict = [patient.as_dict() for patient in patients]
-
-        for patient in patients_dict:
-            latest_report = (
-                Report.query.filter_by(patient_id=patient["id"])
-                .order_by(Report.created_at.desc())
-                .first()
-            )
-            if latest_report:
-                if patient["last_read_at"]:
-                    patient["read"] = (
-                        patient["last_read_at"] >= latest_report.created_at
-                    )
-                else:
-                    patient["read"] = False
-            else:
-                patient["state"] = 0
-                patient["read"] = True
-            if patient["state"] is None:
-                patient["state"] = 0
-                patient["read"] = True
-
-        patients_dict = sorted(
-            patients_dict,
-            key=lambda x: -1 if x["reviewed"] else (x["state"] if x["state"] else 0),
-            reverse=True,
-        )
-
+        patients_dict = [_columns_dict(patient) for patient in patients]
         return jsonify(patients_dict)
 
     except Exception as e:
@@ -249,64 +333,13 @@ def get_users():
         session: Session = db.session
         users = session.query(User).all()
 
-        users_dict = [
-            {k: v for k, v in user.as_dict().items() if k != "password"}
-            for user in users
-        ]
+        users_dict = [_user_dict(user) for user in users]
 
         return jsonify(users_dict)
 
     except Exception as e:
         logging.error(f"An error occurred: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred"}), 500
-
-
-def generate_report_for_patient(patient):
-    i = 1
-    symptom_kwargs = [
-        {
-            f"{symptom}_state": 0,
-            f"{symptom}_logs": "[]",
-        }
-        for symptom in symptom_descriptions.keys()
-    ]
-    symptom_kwargs_ = dict([(k, v) for d in symptom_kwargs for k, v in d.items()])
-
-    likerts = [
-        (
-            f"{symptom}_scale",
-            random.randint(1, 10) if symptom_kwargs_[f"{symptom}_state"] == 2 else 0,
-        )
-        for symptom, description in symptom_descriptions.items()
-        if description["likert"]
-    ]
-
-    symptom_kwargs = dict(
-        [(k, v) for d in symptom_kwargs for k, v in d.items()] + likerts
-    )
-    report = Report(
-        patient_id=patient.id,
-        **symptom_kwargs,
-    )
-    db.session.add(report)
-
-    reports = Report.query.filter_by(patient_id=patient.id).all()
-
-    for i, report in enumerate(reports):
-        report.created_at = datetime.utcnow() - timedelta(days=(i + 1))
-        db.session.add(report)
-
-    patient.state = max(
-        [
-            symptom_descriptions[symptom]["max_scale"]
-            if getattr(reports[0], f"{symptom}_state") == 2
-            else getattr(reports[0], f"{symptom}_state")
-            for symptom in symptom_descriptions.keys()
-        ]
-    )
-
-    db.session.add(patient)
-    db.session.commit()
 
 
 @current_app.route("/patients", methods=["POST"])
@@ -316,8 +349,7 @@ def create_patient():
         data = request.get_json()
         if not data:
             return jsonify({"message": "No input data provided"}), 400
-
-        required_fields = ["user"]
+        required_fields = ["user", "name"]
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
             return jsonify(
@@ -331,16 +363,17 @@ def create_patient():
             return jsonify({"message": "No valid users found"}), 400
 
         patient = Patient(
-            EHR_id=data.get("EHR_id"),
+            name=data.get("name"),
             age=data.get("age"),
             gender=data.get("gender"),
+            EHR_id=data.get("EHR_id") or data.get("ehr_id"),
+            alexa_user_id=data.get("alexa_user_id"),
             participant_id=data.get("participant_id"),
-            medical_history=data.get("medical_history", ""),
-            medication=data.get("medication", ""),
             garmin_id=data.get("garmin_id"),
+            cancer_type=data.get("cancer_type"),
+            cancer_stage=data.get("cancer_stage"),
+            treatment_type=data.get("treatment_type"),
             last_read_at=datetime.utcnow(),
-            reviewed=False,
-            state=0,
         )
 
         db.session.add(patient)
@@ -350,13 +383,11 @@ def create_patient():
 
         db.session.commit()
 
-        generate_report_for_patient(patient)
-
         return (
             jsonify(
                 {
                     "message": "Patient created successfully",
-                    "patient": patient.as_dict(),
+                    "patient": _columns_dict(patient),
                 }
             ),
             201,
@@ -372,6 +403,9 @@ def update_patient(id):
         data = request.get_json()
         if not data:
             return jsonify({"message": "No input data provided"}), 400
+        if "ehr_id" in data and "EHR_id" not in data:
+            data["EHR_id"] = data["ehr_id"]
+            data.pop("ehr_id", None)
 
         patient = Patient.query.get(id)
         if not patient:
@@ -519,17 +553,17 @@ def _mongo_has_any(
         return False
     try:
         db2 = client[db_name]
-        doc = (
-            db2[collection_name]
-            .find(
-                {
-                    id_field: participant_id,
-                    "timestamp": {"$gte": start_ts, "$lte": end_ts},
-                },
-                {"_id": 1},
-            )
-            .limit(1)
-        )
+        if id_field == "uid":
+            query = {
+                **_participant_filter(participant_id),
+                "timestamp": {"$gte": start_ts, "$lte": end_ts},
+            }
+        else:
+            query = {
+                id_field: participant_id,
+                "timestamp": {"$gte": start_ts, "$lte": end_ts},
+            }
+        doc = db2[collection_name].find(query, {"_id": 1}).limit(1)
         return next(doc, None) is not None
     finally:
         client.close()
@@ -741,199 +775,31 @@ def _day_window_from_steps_reset(
 @login_required
 def get_patient(id):
     try:
-        userid = g.current_user.id
-        patient = db.get(Patient, id)
-
-        if not any(user.id == userid for user in patient.users):
-            return jsonify({"message": "Permission denied"}), 401
-
-        # Ensure today's report exists so the dashboard shows current day.
-        get_or_create_report(patient.id)
+        patient, error = _get_patient_for_user(id, g.current_user.id)
+        if error:
+            return error
 
         patient.last_read_at = datetime.utcnow()
         db.session.add(patient)
         db.session.commit()
 
-        reports = (
-            Report.query.filter_by(patient_id=id)
-            .order_by(Report.created_at.desc())
-            .all()
-        )
-
-        patient_dict = patient.as_dict()
-        reports_dict = [report.as_dict() for report in reports]
-
-        for r in reports_dict:
-            for symptom in symptom_descriptions.keys():
-                raw_data = r.get(f"{symptom}_logs", "")
-                if raw_data:
-                    try:
-                        r[f"{symptom}_logs"] = json.loads(raw_data)
-                    except json.JSONDecodeError as e:
-                        logging.error(f"JSON decoding failed for {symptom}_logs: {e}")
-                        r[f"{symptom}_logs"] = []
-                else:
-                    r[f"{symptom}_logs"] = []
-
-            # Start of the day
-            start_of_day = r["created_at"].replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            end_of_day = r["created_at"].replace(
-                hour=23, minute=59, second=59, microsecond=0
-            )
-            if patient.participant_id:
-                try:
-                    report_day_start_ts = int(start_of_day.timestamp())
-                    report_day_end_ts = int(end_of_day.timestamp())
-                    has_steps_for_report_day = _mongo_has_any(
-                        patient.participant_id,
-                        "garmin_steps",
-                        report_day_start_ts,
-                        report_day_end_ts,
-                        db_name="study_db",
-                        id_field="uid",
-                    )
-                    has_hr_for_report_day = _mongo_has_any(
-                        patient.participant_id,
-                        "garmin_hr",
-                        report_day_start_ts,
-                        report_day_end_ts,
-                        db_name="study_db",
-                        id_field="uid",
-                    )
-                    has_stress_for_report_day = _mongo_has_any(
-                        patient.participant_id,
-                        "garmin_stress",
-                        report_day_start_ts,
-                        report_day_end_ts,
-                        db_name="study_db",
-                        id_field="uid",
-                    )
-                    start_ts = report_day_start_ts
-                    end_ts = report_day_end_ts
-                    if has_steps_for_report_day:
-                        day_window = _day_window_from_steps_reset(
-                            patient.participant_id,
-                            r["created_at"],
-                            db_name="study_db",
-                            id_field="uid",
-                            value_field="total_steps",
-                            min_value=0,
-                        )
-                        if day_window:
-                            start_ts, end_ts = day_window
-                    stress_stats = {"mean": None, "max": None, "min": None}
-                    hr_stats = {"max": None, "min": None}
-                    steps_stats = {"mean": None, "max": None, "min": None}
-                    steps_latest = None
-                    steps_total = None
-                    if has_stress_for_report_day:
-                        stress_stats = _mongo_wearable_stats(
-                            patient.participant_id,
-                            "garmin_stress",
-                            start_ts,
-                            end_ts,
-                            db_name="study_db",
-                            id_field="uid",
-                            value_field="heart_rate",
-                            min_value=0,
-                        )
-                    if has_hr_for_report_day:
-                        hr_stats = _mongo_wearable_stats(
-                            patient.participant_id,
-                            "garmin_hr",
-                            start_ts,
-                            end_ts,
-                            db_name="study_db",
-                            id_field="uid",
-                            value_field="heart_rate",
-                            min_value=1,
-                        )
-                    if has_steps_for_report_day:
-                        steps_stats = _mongo_wearable_stats(
-                            patient.participant_id,
-                            "garmin_steps",
-                            start_ts,
-                            end_ts,
-                            db_name="study_db",
-                            id_field="uid",
-                            value_field="total_steps",
-                            min_value=0,
-                        )
-                        steps_latest = _mongo_latest_value(
-                            patient.participant_id,
-                            "garmin_steps",
-                            start_ts,
-                            end_ts,
-                            db_name="study_db",
-                            id_field="uid",
-                            value_field="total_steps",
-                            min_value=0,
-                        )
-                        steps_total = _steps_total_for_window(
-                            patient.participant_id,
-                            start_ts,
-                            end_ts,
-                            db_name="study_db",
-                            id_field="uid",
-                            value_field="total_steps",
-                            min_value=0,
-                        )
-                    current_app.logger.info(
-                        "steps window pid=%s report_id=%s report_at=%s report_day_start=%s report_day_end=%s start_ts=%s end_ts=%s has_steps_day=%s has_hr_day=%s has_stress_day=%s steps_total=%s steps_latest=%s steps_max=%s steps_mean=%s",
-                        patient.participant_id,
-                        r.get("id"),
-                        r.get("created_at"),
-                        report_day_start_ts,
-                        report_day_end_ts,
-                        start_ts,
-                        end_ts,
-                        has_steps_for_report_day,
-                        has_hr_for_report_day,
-                        has_stress_for_report_day,
-                        steps_total,
-                        steps_latest,
-                        steps_stats["max"],
-                        steps_stats["mean"],
-                    )
-
-                    r["stress"] = {
-                        "avg_stress": (
-                            stress_stats["mean"] if has_stress_for_report_day else None
-                        )
-                    }
-                    r["heart_rate"] = {
-                        "max_hr": hr_stats["max"] if has_hr_for_report_day else None,
-                        "min_hr": hr_stats["min"] if has_hr_for_report_day else None,
-                    }
-                    steps_value = None
-                    if has_steps_for_report_day:
-                        steps_value = (
-                            steps_total
-                            if steps_total is not None
-                            else (
-                                steps_latest
-                                if steps_latest is not None
-                                else steps_stats["max"]
-                            )
-                        )
-                    r["steps"] = {"total_steps": steps_value}
-                except Exception as e:
-                    logging.error(f"Failed to fetch data from MongoDB: {e}")
-                    r["heart_rate"] = {"max_hr": None, "min_hr": None}
-                    r["steps"] = {"total_steps": None}
-                    r["stress"] = {"avg_stress": None}
-            else:
-                r["heart_rate"] = {"max_hr": None, "min_hr": None}
-                r["steps"] = {"total_steps": None}
-                r["stress"] = {"avg_stress": None}
-            
-        patient_dict["users"] = [
-            {k: v for k, v in user.as_dict().items() if k != "password"}
-            for user in patient.users
+        patient_dict = _columns_dict(patient)
+        patient_dict["users"] = [_user_dict(user) for user in patient.users]
+        patient_dict["hospitalizations"] = [
+            _columns_dict(item) for item in patient.hospitalizations
         ]
-        patient_dict["reports"] = reports_dict
+        patient_dict["summaries"] = [_columns_dict(item) for item in patient.summaries]
+        patient_dict["risks"] = [_columns_dict(item) for item in patient.risks]
+        patient_dict["conversation_logs"] = [
+            _columns_dict(item) for item in patient.conversation_logs
+        ]
+        patient_dict["report_notes"] = [
+            {
+                **_columns_dict(note),
+                "user": _user_dict(note.user) if note.user else None,
+            }
+            for note in patient.report_notes
+        ]
 
         return jsonify(patient_dict)
 
@@ -942,112 +808,361 @@ def get_patient(id):
         return jsonify({"error": "An internal error occurred"}), 500
 
 
-@current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["GET"])
+@current_app.route("/patients/<int:id>/wearable/timeseries", methods=["GET"])
 @login_required
-def get_patient_reports(id, report_id):
-    report = Report.query.filter_by(patient_id=id, id=report_id).first()
+def get_patient_wearable_timeseries(id):
+    try:
+        patient, error = _get_patient_for_user(id, g.current_user.id)
+        if error:
+            return error
 
-    if report is None:
-        return jsonify({"error": "Report not found"}), 404
+        range_param = request.args.get("range", "24h").strip().lower()
+        if range_param == "7d":
+            bin_seconds = 3 * 3600
+            start_dt, now_dt = _utc_midnight_window(days=7)
+            label_style = "date"
+        else:
+            bin_seconds = 30 * 60
+            start_dt, now_dt = _utc_midnight_window()
+            label_style = "time"
+        start_ts = int(start_dt.timestamp())
+        end_ts = int(now_dt.timestamp())
+        labels = _build_labels(start_dt, now_dt, bin_seconds, label_style)
 
-    report_dict = report.as_dict()
+        series = {
+            "heart_rate": [],
+            "respiration": [],
+            "heart_rate_variability": [],
+        }
 
-    conversation_logs = ConversationLog.query.filter_by(report_id=report_id).all()
-    report_dict["conversation_logs"] = [log.as_dict() for log in conversation_logs]
+        participant_id = patient.participant_id
+        if not participant_id:
+            series["heart_rate"] = [None] * len(labels)
+            series["respiration"] = [None] * len(labels)
+            series["heart_rate_variability"] = [None] * len(labels)
+            return jsonify(
+                {
+                    "times": labels,
+                    "series": series,
+                    "window": {"start_ts": start_ts, "end_ts": end_ts, "timezone": "UTC"},
+                    "range": range_param,
+                }
+            )
 
-    summaries = ReportSummary.query.filter_by(report_id=report_id).all()
-    report_dict["summary"] = [s.as_dict() for s in summaries]
+        client = _get_mongo_client()
+        if client is None:
+            series["heart_rate"] = [None] * len(labels)
+            series["respiration"] = [None] * len(labels)
+            series["heart_rate_variability"] = [None] * len(labels)
+            return jsonify(
+                {
+                    "times": labels,
+                    "series": series,
+                    "window": {"start_ts": start_ts, "end_ts": end_ts, "timezone": "UTC"},
+                    "range": range_param,
+                }
+            )
 
-    notes = (
-        ReportNote.query.options(joinedload(ReportNote.user))
-        .filter_by(report_id=report_id)
-        .all()
-    )
-    report_dict["notes"] = [note.as_dict() for note in notes]
+        try:
+            db2 = client["study_db"]
+            has_hr = _mongo_has_any(
+                participant_id,
+                "garmin_hr",
+                start_ts,
+                end_ts,
+                db_name="study_db",
+                id_field="uid",
+            )
+            has_resp = _mongo_has_any(
+                participant_id,
+                "garmin_respiration",
+                start_ts,
+                end_ts,
+                db_name="study_db",
+                id_field="uid",
+            )
+            has_ibi = _mongo_has_any(
+                participant_id,
+                "garmin_ibi",
+                start_ts,
+                end_ts,
+                db_name="study_db",
+                id_field="uid",
+            )
+            if not (has_hr or has_resp or has_ibi):
+                series["heart_rate"] = [None] * len(labels)
+                series["respiration"] = [None] * len(labels)
+                series["heart_rate_variability"] = [None] * len(labels)
+                return jsonify(
+                    {
+                        "times": labels,
+                        "series": series,
+                        "window": {
+                            "start_ts": start_ts,
+                            "end_ts": end_ts,
+                            "timezone": "UTC",
+                        },
+                        "range": range_param,
+                    }
+                )
 
-    return jsonify(report_dict)
+            for i in range(len(labels)):
+                bin_start = start_ts + i * bin_seconds
+                bin_end = start_ts + (i + 1) * bin_seconds
+                if end_ts <= bin_start:
+                    series["heart_rate"].append(None)
+                    series["respiration"].append(None)
+                    series["heart_rate_variability"].append(None)
+                    continue
+                effective_end = min(bin_end, end_ts)
+                hr_value = _average_metric(
+                    db2,
+                    participant_id,
+                    "garmin_hr",
+                    bin_start,
+                    effective_end,
+                    "heart_rate",
+                )
+                resp_value = _average_metric(
+                    db2,
+                    participant_id,
+                    "garmin_respiration",
+                    bin_start,
+                    effective_end,
+                    "respiration",
+                )
+                hrv_value = _rmssd_ibi(
+                    db2,
+                    participant_id,
+                    bin_start,
+                    effective_end,
+                )
+                series["heart_rate"].append(hr_value)
+                series["respiration"].append(resp_value)
+                series["heart_rate_variability"].append(hrv_value)
+        finally:
+            client.close()
 
-
-@current_app.route("/patients/<int:id>/report/<int:report_id>", methods=["PATCH"])
-@login_required
-def update_report(id, report_id):
-    patient = Patient.query.get(id)
-    data = request.get_json()
-    report = Report.query.get(report_id)
-    for key in data:
-        setattr(report, key, data[key])
-    db.session.add(report)
-    # If report is latest
-    latest_report = (
-        Report.query.filter_by(patient_id=id).order_by(Report.created_at.desc()).first()
-    )
-    if report.id == latest_report.id:
-        patient.state = max(
-            [
-                symptom_descriptions[symptom]["max_scale"]
-                if getattr(report, f"{symptom}_state") == 2
-                else getattr(report, f"{symptom}_state")
-                for symptom in symptom_descriptions.keys()
-            ]
+        return jsonify(
+            {
+                "times": labels,
+                "series": series,
+                "window": {"start_ts": start_ts, "end_ts": end_ts, "timezone": "UTC"},
+                "range": range_param,
+            }
         )
-        db.session.add(patient)
-    db.session.commit()
-    return jsonify({"message": "Report updated."})
+    except Exception as e:
+        logging.error(f"Failed to fetch wearable timeseries: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred"}), 500
 
 
-@current_app.route(
-    "/patients/<int:id>/report/<int:report_id>/note/<int:note_id>",
-    methods=["DELETE"],
-)
+@current_app.route("/patients/<int:id>/hospitalizations", methods=["GET"])
 @login_required
-def delete_report_note(id, report_id, note_id):
-    note = ReportNote.query.filter_by(id=note_id).first()
-    db.session.delete(note)
-    db.session.commit()
-    return jsonify({"message": "Note deleted."})
+def get_hospitalizations(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = Hospitalization.query.filter_by(patient_id=patient.id).order_by(
+        Hospitalization.date.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
 
 
-@current_app.route("/patients/<int:id>/report/<int:report_id>/note", methods=["POST"])
+@current_app.route("/patients/<int:id>/hospitalizations", methods=["POST"])
 @login_required
-def create_report_note(id, report_id):
-    data = request.get_json()
+def create_hospitalization(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    data = request.get_json() or {}
+    event = data.get("event")
+    if not event:
+        return jsonify({"message": "Missing fields: event"}), 400
+    date_value = _parse_datetime(data.get("date")) or datetime.utcnow()
+    hospitalization = Hospitalization(
+        patient_id=patient.id,
+        date=date_value,
+        event=event,
+    )
+    db.session.add(hospitalization)
+    db.session.commit()
+    return jsonify(_columns_dict(hospitalization)), 201
+
+
+@current_app.route("/patients/<int:id>/summaries", methods=["GET"])
+@login_required
+def get_summaries(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = Summary.query.filter_by(patient_id=patient.id).order_by(
+        Summary.date.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
+
+
+@current_app.route("/patients/<int:id>/summaries", methods=["POST"])
+@login_required
+def create_summary(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    data = request.get_json() or {}
+    date_value = _parse_datetime(data.get("date"))
+    summary = Summary(
+        patient_id=patient.id,
+        heart_rate_min=data.get("heart_rate_min"),
+        heart_rate_max=data.get("heart_rate_max"),
+        heart_rate_average=data.get("heart_rate_average"),
+        spo2_min=data.get("spo2_min"),
+        spo2_max=data.get("spo2_max"),
+        spo2_average=data.get("spo2_average"),
+        respiration_min=data.get("respiration_min"),
+        respiration_max=data.get("respiration_max"),
+        respiration_average=data.get("respiration_average"),
+        hrv_min=data.get("hrv_min"),
+        hrv_max=data.get("hrv_max"),
+        hrv_average=data.get("hrv_average"),
+        short_of_breath=data.get("short_of_breath"),
+        chest_discomfort=data.get("chest_discomfort"),
+        fatigue=data.get("fatigue"),
+        palpitation=data.get("palpitation"),
+        swelling=data.get("swelling"),
+        syncope=data.get("syncope"),
+        date=date_value or datetime.utcnow(),
+    )
+    db.session.add(summary)
+    db.session.commit()
+    return jsonify(_columns_dict(summary)), 201
+
+
+@current_app.route("/patients/<int:id>/risks", methods=["GET"])
+@login_required
+def get_risks(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = Risk.query.filter_by(patient_id=patient.id).order_by(
+        Risk.date.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
+
+
+@current_app.route("/patients/<int:id>/risks", methods=["POST"])
+@login_required
+def create_risk(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    data = request.get_json() or {}
+    if data.get("risk_score") is None:
+        return jsonify({"message": "Missing fields: risk_score"}), 400
+    date_value = _parse_datetime(data.get("date"))
+    risk = Risk(
+        patient_id=patient.id,
+        risk_score=data.get("risk_score"),
+        important_of_chest=data.get("important_of_chest"),
+        important_of_heart=data.get("important_of_heart"),
+        important_of_respiration=data.get("important_of_respiration"),
+        important_of_hrv=data.get("important_of_hrv"),
+        date=date_value or datetime.utcnow(),
+    )
+    db.session.add(risk)
+    db.session.commit()
+    return jsonify(_columns_dict(risk)), 201
+
+
+@current_app.route("/patients/<int:id>/conversation_logs", methods=["GET"])
+@login_required
+def get_conversation_logs(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = ConversationLog.query.filter_by(patient_id=patient.id).order_by(
+        ConversationLog.date.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
+
+
+@current_app.route("/patients/<int:id>/conversation_logs", methods=["POST"])
+@login_required
+def create_conversation_log_for_patient(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    data = request.get_json() or {}
+    role = data.get("role")
+    content = data.get("content")
+    if not role or not content:
+        return jsonify({"message": "Missing fields: role, content"}), 400
+    date_value = _parse_datetime(data.get("date"))
+    log = ConversationLog(
+        patient_id=patient.id,
+        role=role,
+        content=content,
+        chain_of_thoughts=data.get("chain_of_thoughts"),
+        symptoms_chest=data.get("symptoms_chest"),
+        symptoms_other=data.get("symptoms_other"),
+        date=date_value or datetime.utcnow(),
+    )
+    db.session.add(log)
+    db.session.commit()
+    return jsonify(_columns_dict(log)), 201
+
+
+@current_app.route("/patients/<int:id>/notes", methods=["GET"])
+@login_required
+def get_patient_notes(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    notes = ReportNote.query.options(joinedload(ReportNote.user)).filter_by(
+        patient_id=patient.id
+    ).order_by(ReportNote.created_at.desc()).all()
+    return jsonify(
+        [
+            {
+                **_columns_dict(note),
+                "user": _user_dict(note.user) if note.user else None,
+            }
+            for note in notes
+        ]
+    )
+
+
+@current_app.route("/patients/<int:id>/notes", methods=["POST"])
+@login_required
+def create_patient_note(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    data = request.get_json() or {}
+    content = data.get("content")
+    if not content:
+        return jsonify({"message": "Missing fields: content"}), 400
     note = ReportNote(
-        report_id=report_id,
+        patient_id=patient.id,
         user_id=g.current_user.id,
-        content=data["content"],
+        content=content,
+        created_at=datetime.utcnow(),
     )
     db.session.add(note)
     db.session.commit()
-    return jsonify({"message": "Note created."})
+    return jsonify(_columns_dict(note)), 201
 
 
-# helper function; get today's report (created_at >= today's begin) or create a new report for a user
-def get_or_create_report(patient_id):
-    # get last 4am, if pass 4am then today, otherwise yesterday
-    today = datetime.now().replace(hour=4, minute=0, second=0, microsecond=0)
-    if datetime.now() < today:
-        today -= timedelta(days=1)
-    report = (
-        Report.query.filter_by(patient_id=patient_id)
-        .filter(Report.created_at >= today)
-        .first()
-    )
-    if report is None:
-        symptom_kwargs = [
-            {
-                f"{symptom}_state": 0,
-                f"{symptom}_logs": "[]",
-            }
-            for symptom in symptom_descriptions.keys()
-        ]
-        symptom_kwargs = {k: v for d in symptom_kwargs for k, v in d.items()}
-        report = Report(patient_id=patient_id, **symptom_kwargs)
-        patient = Patient.query.get(patient_id)
-        patient.reviewed = False
-        db.session.add(patient)
-        db.session.add(report)
-        db.session.commit()
-    return report
+@current_app.route("/patients/<int:id>/notes/<int:note_id>", methods=["DELETE"])
+@login_required
+def delete_patient_note(id, note_id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    note = ReportNote.query.filter_by(id=note_id, patient_id=patient.id).first()
+    if not note:
+        return jsonify({"message": "Note not found"}), 404
+    db.session.delete(note)
+    db.session.commit()
+    return jsonify({"message": "Note deleted."})
 
 
 def fetch_day_sensor_data(participant_id, start, end):
@@ -1103,8 +1218,7 @@ def create_conversation_log(alexa_user_id):
     patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
     if patient is None:
         return jsonify({"message": "Patient not found."}), 404
-    report = get_or_create_report(patient.id)
-    
+
     # Get wearable data for today, yesterday and weeks
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     yesterday = today - timedelta(days=1)
@@ -1186,123 +1300,60 @@ def create_conversation_log(alexa_user_id):
         wearable_data = None
         print("No participant id")
     
-    data = request.get_json()["content"]
+    data = request.get_json() or {}
+    content = data.get("content")
+    if not content:
+        return jsonify({"message": "Missing fields: content"}), 400
     log = ConversationLog(
         patient_id=patient.id,
-        report_id=report.id,
         role="user",
-        content=data,
-        created_at=datetime.utcnow(),
+        content=content,
+        date=datetime.utcnow(),
     )
     
     db.session.add(log)
     db.session.commit()
     
-    conversation_logs = ConversationLog.query.filter_by(report_id=report.id).all()
-    conversation_logs = [log.as_dict() for log in conversation_logs]
+    conversation_logs = (
+        ConversationLog.query.filter_by(patient_id=patient.id)
+        .order_by(ConversationLog.date.asc())
+        .all()
+    )
+    conversation_logs = [_columns_dict(log) for log in conversation_logs]
     conversation_logs = [
         {
             "content": log["content"]
             if log["role"] == "user"
-            else log["chain_of_thoughts"] + "==============\n" + log["content"],
+            else (log.get("chain_of_thoughts") or "") + "==============\n" + log["content"],
             "role": log["role"],
         }
         for log in conversation_logs
     ]
-    # TODO: get the most recent N reports of the current patient, 
-    # Get the summary of the N reports, and use it as the context of the conversation
-    recent_reports = Report.query.filter_by(patient_id=patient.id).order_by(Report.created_at.desc()).limit(10).all()
-    recent_reports_summaries = ReportSummary.query.filter(ReportSummary.report_id.in_([r.id for r in recent_reports])).all()
-    recent_reports_summaries = [recent_reports_summary.as_dict() for recent_reports_summary in recent_reports_summaries]
-    recent_reports_summaries =[
-        {
-            "content": r["content"],
-            "created_at": r["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-        }
-        for r in recent_reports_summaries
-    ]
-    
-    assistant_message = conversation(conversation_logs, wearable_data, recent_reports_summaries)
+    assistant_message = conversation(conversation_logs, wearable_data, None)
     try:
         chain_of_thoughts, assistant_message = assistant_message.split(
             "==============", 1
         )
         assistant_message = assistant_message.strip()
     except ValueError:
-        chain_of_thoughts = """physical: not discussed
-stress: not discussed
-mood: not discussed
-misc: not discussed
-"""
+        chain_of_thoughts = ""
     log = ConversationLog(
         patient_id=patient.id,
-        report_id=report.id,
         role="assistant",
         content=assistant_message,
         chain_of_thoughts=chain_of_thoughts,
+        date=datetime.utcnow(),
     )
     db.session.add(log)
     db.session.commit()
-    return jsonify(log.as_dict())
+    return jsonify(_columns_dict(log))
 
 
 def session_end_hook(alexa_user_id):
     with app.app_context():
         patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
-        report = get_or_create_report(patient.id)
-        messages = ConversationLog.query.filter_by(report_id=report.id).all()
-        messages = [message.as_dict() for message in messages]
-        messages = [
-            {
-                "id": message["id"],
-                "content": message["content"],
-                "role": message["role"],
-            }
-            for message in messages
-        ]
-        try:
-            response = key_questions(json.dumps(messages))
-            response = json.loads(response)
-        except Exception:
-            response = {}
-        for key in response:
-            setattr(report, f"{key}_state", response[key]["state"])
-            setattr(report, f"{key}_logs", json.dumps(response[key]["logs"]))
-            if "scale" in response[key]:
-                if hasattr(report, f"{key}_scale"):
-                    setattr(report, f"{key}_scale", response[key]["scale"])
-                    if response[key]["scale"] == 0:
-                        pass
-                    elif 1 <= response[key]["scale"] <= 3:
-                        setattr(report, f"{key}_state", 2)
-                    elif 4 <= response[key]["scale"] <= 6:
-                        setattr(report, f"{key}_state", 3)
-                    elif 7 <= response[key]["scale"] <= 10:
-                        setattr(report, f"{key}_state", 4)
-
-        db.session.add(report)
-        summaries = summary(json.dumps(messages), json.dumps(response))
-        try:
-            summaries = json.loads(summaries)["result"]
-            ReportSummary.query.filter_by(report_id=report.id).delete()
-            for summaryi in summaries:
-                report_summary = ReportSummary(
-                    report_id=report.id, highlight_keywords="", **summaryi
-                )
-                db.session.add(report_summary)
-            db.session.commit()
-        except Exception as e:
-            logging.error(f"An error occurred while summarizing: {e}")
-        patient.state = max(
-            [
-                symptom_descriptions[symptom]["max_scale"]
-                if getattr(report, f"{symptom}_state") == 2
-                else getattr(report, f"{symptom}_state")
-                for symptom in symptom_descriptions.keys()
-            ]
-        )
-        db.session.add(patient)
-        db.session.commit()
+        if patient is None:
+            return
 
 
 @current_app.route("/alexa_user/<alexa_user_id>/session_end", methods=["POST"])
@@ -1322,8 +1373,11 @@ def get_last_message(alexa_user_id):
     patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
     if patient is None:
         return jsonify({"message": "Patient not found."}), 404
-    report = get_or_create_report(patient.id)
-    messages = ConversationLog.query.filter_by(report_id=report.id).all()
+    messages = (
+        ConversationLog.query.filter_by(patient_id=patient.id)
+        .order_by(ConversationLog.date.asc())
+        .all()
+    )
     if len(messages) == 0:
         msg = (
             "Hello, thanks for checking in for our study. "
@@ -1331,41 +1385,28 @@ def get_last_message(alexa_user_id):
         )
         message = ConversationLog(
             patient_id=patient.id,
-            report_id=report.id,
             role="assistant",
             chain_of_thoughts="",
             content=msg,
+            date=datetime.utcnow(),
         )
         db.session.add(message)
         db.session.commit()
-        return jsonify({"message": "success", "last_message": message.as_dict()})
-    messages = [message.as_dict() for message in messages]
+        return jsonify({"message": "success", "last_message": _columns_dict(message)})
+    messages = [_columns_dict(message) for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
     if "CONVERSATION_END" in messages[-1]["content"]:
         msg = random.choice(GREETINGS)
-        symptom_kwargs = [
-            {
-                f"{symptom}_state": 0,
-                f"{symptom}_logs": "[]",
-            }
-            for symptom in symptom_descriptions.keys()
-        ]
-        symptom_kwargs = {k: v for d in symptom_kwargs for k, v in d.items()}
-        report = Report(patient_id=patient.id, **symptom_kwargs)
-        patient = Patient.query.get(patient.id)
-        patient.reviewed = False
-        db.session.add(patient)
-        db.session.add(report)
         message = ConversationLog(
             patient_id=patient.id,
-            report_id=report.id,
             role="assistant",
             chain_of_thoughts="",
             content=msg,
+            date=datetime.utcnow(),
         )
         db.session.add(message)
         db.session.commit()
-        return jsonify({"message": "success", "last_message": message.as_dict()})
+        return jsonify({"message": "success", "last_message": _columns_dict(message)})
     else:
         return jsonify({"message": "success", "last_message": messages[-1]})
 

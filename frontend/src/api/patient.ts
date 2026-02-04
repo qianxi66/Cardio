@@ -2,10 +2,13 @@ import type { CancelToken } from "axios";
 import api from ".";
 import {
   type Patient,
-  type Report,
-  type creatPatientresp,
-  type updatePatientreq,
-  type updatePatientresp,
+  type CreatePatientRequest,
+  type UpdatePatientRequest,
+  type UpdatePatientResponse,
+  type Summary,
+  type Risk,
+  type ConversationLog,
+  type ReportNote,
 } from "./types";
 
 export const getPatients = async () => {
@@ -23,65 +26,84 @@ export const getPatient = async (id: number, cancelToken?: CancelToken) => {
   })) as Patient;
 };
 
-export const updatePatient = async (id: number, data: updatePatientreq) => {
+export const updatePatient = async (id: number, data: UpdatePatientRequest) => {
   return (await api({
     url: `/patients/${id}`,
     method: "PATCH",
     data,
-  })) as updatePatientresp;
+  })) as UpdatePatientResponse;
 };
 
-export const createPatient = async (data: creatPatientresp) => {
+export const createPatient = async (data: CreatePatientRequest) => {
   return (await api({
     url: `/patients`,
     method: "POST",
     data,
-  })) as creatPatientresp;
+  })) as CreatePatientRequest;
 };
 
-export const updateReport = async (
-  patient_id: number,
-  report_id: number,
-  data: Partial<Report>,
-) => {
-  return await api({
-    url: `/patients/${patient_id}/report/${report_id}`,
-    method: "PATCH",
-    data,
-  });
+export type WearableTimeSeries = {
+  times: string[];
+  series: {
+    heart_rate: Array<number | null>;
+    respiration: Array<number | null>;
+    heart_rate_variability: Array<number | null>;
+  };
+  window: {
+    start_ts: number;
+    end_ts: number;
+    timezone: string;
+  };
+  range?: string;
 };
 
-export const getReport = async (
-  patient_id: number,
-  report_id: number,
-  cancelToken?: CancelToken,
-) => {
+export const getWearableTimeSeries = async (id: number, range = "24h") => {
   return (await api({
-    url: `/patients/${patient_id}/report/${report_id}`,
+    url: `/patients/${id}/wearable/timeseries`,
+    params: { range },
     method: "GET",
-    cancelToken,
-  })) as Report;
+  })) as WearableTimeSeries;
 };
 
-export const deleteNote = async (
-  patient_id: number,
-  report_id: number,
-  note_id: number,
-) => {
-  return await api({
-    url: `/patients/${patient_id}/report/${report_id}/note/${note_id}`,
-    method: "DELETE",
-  });
+export const getSummaries = async (patient_id: number) => {
+  return (await api({
+    url: `/patients/${patient_id}/summaries`,
+    method: "GET",
+  })) as Summary[];
 };
 
-export const createNote = async (
-  patient_id: number,
-  report_id: number,
-  content: string,
-) => {
+export const getRisks = async (patient_id: number) => {
+  return (await api({
+    url: `/patients/${patient_id}/risks`,
+    method: "GET",
+  })) as Risk[];
+};
+
+export const getConversationLogs = async (patient_id: number) => {
+  return (await api({
+    url: `/patients/${patient_id}/conversation_logs`,
+    method: "GET",
+  })) as ConversationLog[];
+};
+
+export const getNotes = async (patient_id: number) => {
+  return (await api({
+    url: `/patients/${patient_id}/notes`,
+    method: "GET",
+  })) as ReportNote[];
+};
+
+export const createNote = async (patient_id: number, content: string) => {
   return await api({
-    url: `/patients/${patient_id}/report/${report_id}/note`,
+    url: `/patients/${patient_id}/notes`,
     method: "POST",
     data: { content },
+  });
+};
+
+export const deleteNote = async (patient_id: number, note_id: number) => {
+  return await api({
+    url: `/patients/${patient_id}/notes/${note_id}`,
+    method: "DELETE",
   });
 };

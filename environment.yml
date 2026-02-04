@@ -1,4 +1,4 @@
-name: recover
+name: cardio
 channels:
   - conda-forge
 dependencies:

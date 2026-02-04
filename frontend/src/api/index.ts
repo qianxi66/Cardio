@@ -53,7 +53,9 @@ const api = (req: AxiosRequestConfig<unknown>) =>
       req.headers = {};
     }
     const token = localStorage.getItem("token");
-    req.headers["Authorization"] = "Bearer " + token;
+    if (!req.headers["Authorization"] && token) {
+      req.headers["Authorization"] = "Bearer " + token;
+    }
     request(req)
       .then((resp) => {
         resolve(resp);

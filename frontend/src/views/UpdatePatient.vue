@@ -14,15 +14,17 @@ const patient_id = useRouteParams("patient_id", 0, {
 
 const loading = ref(true);
 const formData = ref({
+  name: "",
   EHR_id: "",
-  medication: "",
   user: [],
   participant_id: "",
-  medical_history: "",
   alexa_user_id: "",
   gender: "",
   age: null,
   garmin_id: "",
+  cancer_type: "",
+  cancer_stage: "",
+  treatment_type: "",
 });
 
 onMounted(async () => {
@@ -32,15 +34,17 @@ onMounted(async () => {
 
   try {
     patient.value = await getPatient(patient_id.value);
+    formData.value.name = patient.value.name;
     formData.value.EHR_id = patient.value.EHR_id;
-    formData.value.medication = patient.value.medication;
     formData.value.user = patient.value.users.map((user) => user.id);
-    formData.value.medical_history = patient.value.medical_history;
     formData.value.gender = patient.value.gender;
     formData.value.age = patient.value.age;
     formData.value.participant_id = patient.value.participant_id;
     formData.value.alexa_user_id = patient.value.alexa_user_id;
     formData.value.garmin_id = patient.value.garmin_id;
+    formData.value.cancer_type = patient.value.cancer_type;
+    formData.value.cancer_stage = patient.value.cancer_stage;
+    formData.value.treatment_type = patient.value.treatment_type;
   } catch (error) {
     console.error("An error occurred while fetching patient info:", error);
     patient.value = null;

@@ -1,12 +1,124 @@
 <script setup lang="tsx">
-import { ref } from "vue";
+import { ref, computed, watch } from "vue";
 import ColoredCard from "@/components/ColoredCard.vue";
 import AiRiskTrendChart from "@/components/AiRiskTrendChart.vue";
 import AiRiskGauge from "@/components/AiRiskGauge.vue";
+import { useRouteParams } from "@vueuse/router";
+import { getConversationLogs, getRisks } from "@/api/patient";
+import type { ConversationLog, Risk } from "@/api/types";
+import { format } from "date-fns";
 
 const conversationDate = ref<number | null>(Date.now());
 const riskDate = ref<number | null>(Date.now());
-const riskScore = ref(70);
+const patient_id = useRouteParams("patient_id");
+const risks = ref<Risk[]>([]);
+const conversationLogs = ref<ConversationLog[]>([]);
+const loading = ref(true);
+
+const parseDateValue = (value?: string | Date) => {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+};
+
+const dateKey = (value: Date) => format(value, "yyyy-MM-dd");
+
+watch(
+  patient_id,
+  async () => {
+    if (!patient_id.value) {
+      risks.value = [];
+      conversationLogs.value = [];
+      return;
+    }
+    loading.value = true;
+    const id = parseInt(patient_id.value as string);
+    risks.value = await getRisks(id);
+    conversationLogs.value = await getConversationLogs(id);
+    loading.value = false;
+  },
+  { immediate: true },
+);
+
+const riskForDate = computed(() => {
+  if (!risks.value.length) {
+    return null;
+  }
+  const target = riskDate.value ? new Date(riskDate.value) : null;
+  if (target) {
+    const targetKey = dateKey(target);
+    const match = risks.value.find((risk) => {
+      const parsed = parseDateValue(risk.date);
+      return parsed ? dateKey(parsed) === targetKey : false;
+    });
+    if (match) {
+      return match;
+    }
+  }
+  return risks.value[0];
+});
+
+const normalizePercent = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return 0;
+  }
+  const normalized = value <= 1 ? value * 100 : value;
+  return Math.round(Math.max(0, Math.min(100, normalized)));
+};
+
+const riskScore = computed(() => normalizePercent(riskForDate.value?.risk_score));
+
+const featureImportance = computed(() => {
+  const risk = riskForDate.value;
+  if (!risk) {
+    return [];
+  }
+  return [
+    { label: "Chest Discomfort", value: normalizePercent(risk.important_of_chest) },
+    { label: "Heart Rate", value: normalizePercent(risk.important_of_heart) },
+    { label: "Respiration", value: normalizePercent(risk.important_of_respiration) },
+    { label: "HRV", value: normalizePercent(risk.important_of_hrv) },
+  ];
+});
+
+const logsForDate = computed(() => {
+  if (!conversationLogs.value.length) {
+    return [];
+  }
+  const target = conversationDate.value ? new Date(conversationDate.value) : null;
+  if (target) {
+    const targetKey = dateKey(target);
+    const matches = conversationLogs.value.filter((log) => {
+      const parsed = parseDateValue(log.date);
+      return parsed ? dateKey(parsed) === targetKey : false;
+    });
+    if (matches.length) {
+      return matches;
+    }
+  }
+  return conversationLogs.value;
+});
+
+const detailSymptoms = computed(() => {
+  const source = logsForDate.value.find(
+    (log) => log.symptoms_chest || log.symptoms_other,
+  );
+  if (!source) {
+    return {
+      chest: "n/a",
+      other: "n/a",
+    };
+  }
+  return {
+    chest: source.symptoms_chest || "n/a",
+    other: source.symptoms_other || "n/a",
+  };
+});
 </script>
 <template>
   <div class="report-detail">
@@ -28,8 +140,7 @@ const riskScore = ref(70);
                 <AiRiskGauge :value="riskScore" />
               </div>
               <div class="risk-desc">
-                The score predicts the 6-month risk of cardiovascular complications based on EHR data,
-                wearable sensors, and self-reported symptoms.
+                (The score predicts the <span style="font-weight: bold; color: #555555;">6-month</span> risk of cardiovascular complications based on <span style="font-weight: bold;"> EHR data, wearable sensors</span>, and <span style="font-weight: bold;"> self-reported symptoms</span>.)
               </div>
             </div>
           </div>
@@ -37,33 +148,23 @@ const riskScore = ref(70);
             <div class="ai-risk-title">Feature Importance</div>
             <div class="feature-box">
               <div class="feature-list">
-                <div class="feature-item">
-                  <span class="feature-label">Chest Discomfort</span>
+                <div
+                  class="feature-item"
+                  v-for="item in featureImportance"
+                  :key="item.label"
+                >
+                  <span class="feature-label">{{ item.label }}</span>
                   <div class="feature-bar">
-                    <div class="feature-fill" style="width: 75%"></div>
+                    <div class="feature-fill" :style="{ width: `${item.value}%` }"></div>
                   </div>
-                  <span class="feature-val">75%</span>
+                  <span class="feature-val">{{ Math.round(item.value) }}%</span>
                 </div>
-                <div class="feature-item">
-                  <span class="feature-label">Heart Rate</span>
+                <div v-if="featureImportance.length === 0" class="feature-item">
+                  <span class="feature-label">n/a</span>
                   <div class="feature-bar">
-                    <div class="feature-fill" style="width: 50%"></div>
+                    <div class="feature-fill" style="width: 0%"></div>
                   </div>
-                  <span class="feature-val">50%</span>
-                </div>
-                <div class="feature-item">
-                  <span class="feature-label">Respiration</span>
-                  <div class="feature-bar">
-                    <div class="feature-fill" style="width: 15%"></div>
-                  </div>
-                  <span class="feature-val">15%</span>
-                </div>
-                <div class="feature-item">
-                  <span class="feature-label">SpO2</span>
-                  <div class="feature-bar">
-                    <div class="feature-fill" style="width: 15%"></div>
-                  </div>
-                  <span class="feature-val">15%</span>
+                  <span class="feature-val">0%</span>
                 </div>
               </div>
             </div>
@@ -90,12 +191,57 @@ const riskScore = ref(70);
       </template>
       <div class="conversation-panel conversation-left">
         <div class="conversation-title">Details Symptoms from Log</div>
-        <div class="conversation-box"></div>
+        <div class="conversation-box conversation-detail">
+          <div class="detail-row">
+            <div class="detail-label">Chest Discomfort</div>
+            <div class="detail-value">{{ detailSymptoms.chest }}</div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Other Discomfort</div>
+            <div class="detail-value">{{ detailSymptoms.other }}</div>
+          </div>
+        </div>
       </div>
       <div class="conversation-panel conversation-right">
         <div class="conversation-title">Log History</div>
         <div class="conversation-box conversation-log">
-          <div class="log-row log-agent">
+          <div class="conversation-scroll">
+            <div
+              class="log-row"
+              :class="log.role === 'assistant' ? 'log-agent' : 'log-user'"
+              v-for="log in logsForDate"
+              :key="log.id"
+            >
+              <div class="log-avatar" v-if="log.role === 'assistant'">
+                <svg
+                  width="800"
+                  height="800"
+                  viewBox="0 -64 640 640"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M32,224H64V416H32A31.96166,31.96166,0,0,1,0,384V256A31.96166,31.96166,0,0,1,32,224Zm512-48V448a64.06328,64.06328,0,0,1-64,64H160a64.06328,64.06328,0,0,1-64-64V176a79.974,79.974,0,0,1,80-80H288V32a32,32,0,0,1,64,0V96H464A79.974,79.974,0,0,1,544,176ZM264,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,264,256Zm-8,128H192v32h64Zm96,0H288v32h64ZM456,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,456,256Zm-8,128H384v32h64ZM640,256V384a31.96166,31.96166,0,0,1-32,32H576V224h32A31.96166,31.96166,0,0,1,640,256Z"
+                    fill="#7892b5"
+                  />
+                </svg>
+              </div>
+              <div
+                class="log-bubble"
+                :class="log.role === 'assistant' ? 'log-agent-bubble' : 'log-user-bubble'"
+              >
+                {{ log.content }}
+              </div>
+              <div class="log-avatar" v-if="log.role !== 'assistant'">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div v-if="logsForDate.length === 0" class="log-row log-agent">
             <div class="log-avatar">
               <svg
                 width="800"
@@ -109,49 +255,7 @@ const riskScore = ref(70);
                 />
               </svg>
             </div>
-            <div class="log-bubble log-agent-bubble">
-              Is there anything else you would like to mention?
-            </div>
-          </div>
-          <div class="log-row log-user">
-            <div class="log-bubble log-user-bubble">I feel very sleepy today.</div>
-            <div class="log-avatar">
-              <svg viewBox="0 0 24 24">
-                <path
-                  d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
-                  fill="currentColor"
-                />
-              </svg>
-            </div>
-          </div>
-          <div class="log-row log-agent">
-            <div class="log-avatar">
-              <svg
-                width="800"
-                height="800"
-                viewBox="0 -64 640 640"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M32,224H64V416H32A31.96166,31.96166,0,0,1,0,384V256A31.96166,31.96166,0,0,1,32,224Zm512-48V448a64.06328,64.06328,0,0,1-64,64H160a64.06328,64.06328,0,0,1-64-64V176a79.974,79.974,0,0,1,80-80H288V32a32,32,0,0,1,64,0V96H464A79.974,79.974,0,0,1,544,176ZM264,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,264,256Zm-8,128H192v32h64Zm96,0H288v32h64ZM456,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,456,256Zm-8,128H384v32h64ZM640,256V384a31.96166,31.96166,0,0,1-32,32H576V224h32A31.96166,31.96166,0,0,1,640,256Z"
-                  fill="#7892b5"
-                />
-              </svg>
-            </div>
-            <div class="log-bubble log-agent-bubble">Have you passed out?</div>
-          </div>
-          <div class="log-row log-user">
-            <div class="log-bubble log-user-bubble">
-              No, I have not passed out, but I feel very bad at that time.
-            </div>
-            <div class="log-avatar">
-              <svg viewBox="0 0 24 24">
-                <path
-                  d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
-                  fill="currentColor"
-                />
-              </svg>
-            </div>
+            <div class="log-bubble log-agent-bubble">n/a</div>
           </div>
         </div>
       </div>
@@ -253,7 +357,7 @@ const riskScore = ref(70);
   color: #808080;  
 }
 .risk-desc {
-  color: #777;
+  color: #808080;
   font-size: 12px;
   line-height: 1.4;
   flex: 1 1 auto;
@@ -322,9 +426,41 @@ const riskScore = ref(70);
   background-color: #f3f3f3;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+}
+.conversation-scroll {
+  height: 100%;
+  overflow: auto;
+  padding-right: 6px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.conversation-detail {
+  padding: 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detail-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #555555;
+}
+.detail-value {
+  font-size: 14px;
+  color: #808080;
+  white-space: pre-wrap;
 }
 .conversation-log {
-  padding: 16px;
+  padding: 12px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;

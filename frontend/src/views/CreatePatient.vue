@@ -17,13 +17,17 @@ import { useRouter } from "vue-router";
 
 import { getUserInfo } from "@/api/user";
 const formData = ref({
+  name: null,
   EHR_id: null,
-  medication: null,
   user: null,
-  medical_history: null,
   participant_id: null,
   gender: null,
   age: null,
+  cancer_type: null,
+  cancer_stage: null,
+  treatment_type: null,
+  alexa_user_id: null,
+  garmin_id: null,
 });
 const fetchUserInfo = async () => {
   try {

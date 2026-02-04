@@ -26,10 +26,9 @@ const userList = ref<{ label: string; value: number }[]>([]);
 const { model } = toRefs(props);
 let input = ref("");
 const rules = ref({
+  name: { required: true, trigger: ["blur", "input"] },
   EHR_id: { required: false, trigger: ["blur", "input"] },
-  participant_id: { required: true, trigger: ["blur", "input"] },
-  medical_history: { required: false, trigger: ["blur", "input"] },
-  medication: { required: false, trigger: ["blur", "input"] },
+  participant_id: { required: false, trigger: ["blur", "input"] },
   user: { type: "array", required: false, trigger: ["blur", "change"] },
   gender: { type: "string", required: false, trigger: ["blur", "change"] },
   age: { type: "number", required: false, trigger: ["blur", "change"] },
@@ -43,6 +42,9 @@ const rules = ref({
     required: false,
     trigger: ["blur", "change"],
   },
+  cancer_type: { required: false, trigger: ["blur", "input"] },
+  cancer_stage: { required: false, trigger: ["blur", "input"] },
+  treatment_type: { required: false, trigger: ["blur", "input"] },
 });
 
 const fetchUser = async () => {
@@ -133,6 +135,14 @@ onMounted(async () => {
   <n-card class="create-patient">
     <n-form ref="formRef" :model="model" :rules="rules" label-placement="top">
       <n-grid :cols="24" :x-gap="24">
+        <n-form-item-gi :span="12" label="Name" path="name">
+          <n-input
+            :disabled="loading"
+            :loading="loading"
+            v-model:value="model.name"
+            placeholder="Input"
+          />
+        </n-form-item-gi>
         <n-form-item-gi :span="12" label="Age" path="age">
           <n-input-number
             :disabled="loading"
@@ -207,28 +217,28 @@ onMounted(async () => {
             placeholder="Input"
           />
         </n-form-item-gi>
-        <n-form-item-gi
-          :disabled="loading"
-          :loading="loading"
-          :span="12"
-          label="Medical History"
-          path="medical_history"
-        >
+        <n-form-item-gi :span="12" label="Cancer Type" path="cancer_type">
           <n-input
-            v-model:value="model.medical_history"
-            type="textarea"
+            v-model:value="model.cancer_type"
             :disabled="loading"
             :loading="loading"
-            :autosize="{ minRows: 3, maxRows: 5 }"
+            placeholder="Input"
           />
         </n-form-item-gi>
-        <n-form-item-gi :span="12" label="Medication" path="medication">
+        <n-form-item-gi :span="12" label="Cancer Stage" path="cancer_stage">
           <n-input
-            v-model:value="model.medication"
-            type="textarea"
-            :autosize="{ minRows: 3, maxRows: 5 }"
+            v-model:value="model.cancer_stage"
             :disabled="loading"
             :loading="loading"
+            placeholder="Input"
+          />
+        </n-form-item-gi>
+        <n-form-item-gi :span="12" label="Treatment Type" path="treatment_type">
+          <n-input
+            v-model:value="model.treatment_type"
+            :disabled="loading"
+            :loading="loading"
+            placeholder="Input"
           />
         </n-form-item-gi>
         <n-gi :span="24">

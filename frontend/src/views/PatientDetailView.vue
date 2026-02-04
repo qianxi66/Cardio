@@ -3,17 +3,14 @@ import { useRouteParams } from "@vueuse/router";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
-import * as config from "@/symptoms";
-import { computed, watch, type Ref, ref, inject } from "vue";
+import { computed, watch, ref, inject } from "vue";
 import { useResizeObserver } from "@vueuse/core";
-import type { Patient, Report } from "@/api/types";
-import { getPatient } from "@/api/patient";
+import type { Patient, Summary } from "@/api/types";
+import { getPatient, getSummaries } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 import { format } from "date-fns";
-import router from "@/router";
 import type { CancelTokenSource } from "axios";
 import axios from "axios";
-import { getUserInfo } from "@/api/user";
 
 type HospitalizationEntry = {
   date?: string;
@@ -23,31 +20,25 @@ type HospitalizationEntry = {
 
 const refreshPatients = inject("refreshPatients");
 const patient_id = useRouteParams("patient_id");
-const report_id = useRouteParams("report_id");
-let user_Id = 0;
-
-const report = ref<Report | null>(null);
 
 const patient = ref<Patient | null>(null);
+const summaries = ref<Summary[]>([]);
 const loading = ref(true);
 const cancelToken = ref<CancelTokenSource | null>(null);
 const dailySummaryDate = ref<number | null>(Date.now());
-const symptomsLeft = ref([
-  { label: "Shortness of Breath", state: 1 },
-  { label: "Chest Discomfort", state: 1 },
-  { label: "Fatigue", state: 1 },
-]);
-const symptomsRight = ref([
-  { label: "Palpitation", state: 2 },
-  { label: "Swelling", state: 1 },
-  { label: "Syncope", state: 2 },
-]);
+const wearableRange = ref<"24h" | "7d">("24h");
 const patientName = computed(() => {
   const data = patient.value as (Patient & { patient_name?: string; name?: string }) | null;
   return data?.patient_name || data?.name || data?.users?.[0]?.name || "n/a";
 });
 const participantIdLabel = computed(() => {
   return patient.value?.participant_id || "n/a";
+});
+const patientIdParam = computed(() => {
+  const raw = patient_id.value;
+  if (!raw) return undefined;
+  const parsed = parseInt(raw as string, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
 });
 const cancerType = computed(() => {
   return (patient.value as { cancer_type?: string } | null)?.cancer_type || "n/a";
@@ -67,7 +58,7 @@ const hospitalizations = computed(() => {
   return raw
     .map((entry) => ({
       date: entry?.date || "",
-      therapy: entry?.therapy || entry?.treatment || "",
+      therapy: entry?.therapy || entry?.treatment || entry?.event || "",
     }))
     .filter((entry) => entry.date || entry.therapy);
 });
@@ -102,75 +93,123 @@ watch(
       parseInt(patient_id.value as string),
       cancelToken.value.token,
     );
+    summaries.value = await getSummaries(parseInt(patient_id.value as string));
     loading.value = false;
   },
   { immediate: true },
 );
 
-const fetchUserInfo = async () => {
-  try {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      console.error("Token not found");
-      return;
-    }
-    const userInfoResponse = await getUserInfo(token);
-    if (userInfoResponse.user_id) {
-      user_Id = userInfoResponse.user_id;
-      console.log(user_Id);
-    }
-  } catch (error: any) {
-    console.error("An error occurred while fetching user info:", error);
+const parseDateValue = (value?: string | Date) => {
+  if (!value) {
+    return null;
   }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
 };
 
-fetchUserInfo();
+const dateKey = (value: Date) => format(value, "yyyy-MM-dd");
 
-const jumpToReport = (report: Report, symptom: string | undefined) => {
-  router.push({
-    name: "patient.report.detail",
-    params: { patient_id: patient_id.value, report_id: report.id },
-    query: {
-      ...(symptom
-        ? {
-            symptom: symptom,
-            logs: report[
-              (symptom + "_logs") as keyof Report
-            ] as unknown as number[],
-            state:
-              report[symptom + "_state"] == 2
-                ? config.symptoms[symptom].max_scale
-                : report[symptom + "_state"],
-          }
-        : {}),
+const summaryForDate = computed(() => {
+  if (!summaries.value.length) {
+    return null;
+  }
+  const target = dailySummaryDate.value ? new Date(dailySummaryDate.value) : null;
+  if (target) {
+    const targetKey = dateKey(target);
+    const match = summaries.value.find((summary) => {
+      const parsed = parseDateValue(summary.date);
+      return parsed ? dateKey(parsed) === targetKey : false;
+    });
+    if (match) {
+      return match;
+    }
+  }
+  return summaries.value[0];
+});
+
+const formatMetric = (value?: number | null, digits = 1) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "n/a";
+  }
+  return Number(value).toFixed(digits);
+};
+
+const wearableOverviewRows = computed(() => {
+  const summary = summaryForDate.value;
+  if (!summary) {
+    return [];
+  }
+  return [
+    {
+      label: "Heart rate",
+      unit: "BPM",
+      average: formatMetric(summary.heart_rate_average),
+      max: formatMetric(summary.heart_rate_max),
+      min: formatMetric(summary.heart_rate_min),
     },
-  });
-};
+    {
+      label: "SpO2",
+      unit: "%",
+      average: formatMetric(summary.spo2_average),
+      max: formatMetric(summary.spo2_max),
+      min: formatMetric(summary.spo2_min),
+    },
+    {
+      label: "Respiration",
+      unit: "BPM",
+      average: formatMetric(summary.respiration_average),
+      max: formatMetric(summary.respiration_max),
+      min: formatMetric(summary.respiration_min),
+    },
+    {
+      label: "HRV",
+      unit: "ms",
+      average: formatMetric(summary.hrv_average),
+      max: formatMetric(summary.hrv_max),
+      min: formatMetric(summary.hrv_min),
+    },
+  ];
+});
 
-watch(patient, () => {
-  // get the latest report id
-  if (patient.value) {
-    const latestReport = patient.value.reports[0];
-    if (latestReport) {
-      const most_severe_symptom = Object.keys(config.symptoms).reduce(
-        (acc: { state: number; symptom: string }, symptom: string) => {
-          if (
-            (latestReport[(symptom + "_state") as keyof Report] as number) >
-            acc.state
-          ) {
-            acc.state = latestReport[
-              (symptom + "_state") as keyof Report
-            ] as number;
-            acc.symptom = symptom;
-          }
-          return acc;
-        },
-        { state: 0, symptom: "" },
-      );
-      console.log(most_severe_symptom);
-      jumpToReport(latestReport, most_severe_symptom.symptom);
-    }
-  }
+const symptomState = (value?: boolean | null) => (value ? 2 : 1);
+
+const symptomsLeft = computed(() => {
+  const summary = summaryForDate.value;
+  return [
+    {
+      label: "Shortness of Breath",
+      state: summary ? symptomState(summary.short_of_breath) : 0,
+    },
+    {
+      label: "Chest Discomfort",
+      state: summary ? symptomState(summary.chest_discomfort) : 0,
+    },
+    {
+      label: "Fatigue",
+      state: summary ? symptomState(summary.fatigue) : 0,
+    },
+  ];
+});
+
+const symptomsRight = computed(() => {
+  const summary = summaryForDate.value;
+  return [
+    {
+      label: "Palpitation",
+      state: summary ? symptomState(summary.palpitation) : 0,
+    },
+    {
+      label: "Swelling",
+      state: summary ? symptomState(summary.swelling) : 0,
+    },
+    {
+      label: "Syncope",
+      state: summary ? symptomState(summary.syncope) : 0,
+    },
+  ];
 });
 
 const right = ref<Component | null>(null);
@@ -297,14 +336,20 @@ useResizeObserver(navEl, () => {
             <div class="box-group">
               <div class="title">Hospitalizations</div>
               <div class="box hospitalizations-box">
-                <div class="hospitalizations">
-                  <div class="hospitalization-entry">
-                    <span class="date">07/20/2023</span>
-                    <span class="therapy">Chemotherapy Initiation</span>
+                <div class="hospitalizations-scroll">
+                  <div class="hospitalizations">
+                  <div
+                    class="hospitalization-entry"
+                    v-for="(entry, index) in hospitalizations"
+                    :key="`${entry.date}-${index}`"
+                  >
+                    <span class="date">{{ formatHospitalizationDate(entry.date) }}</span>
+                    <span class="therapy">{{ entry.therapy || "n/a" }}</span>
                   </div>
-                  <div class="hospitalization-entry">
-                    <span class="date">08/22/2023</span>
-                    <span class="therapy">Chemotherapy Complications</span>
+                  <div v-if="hospitalizations.length === 0" class="hospitalization-entry">
+                    <span class="date">n/a</span>
+                    <span class="therapy">n/a</span>
+                  </div>
                   </div>
                 </div>
               </div>
@@ -329,7 +374,34 @@ useResizeObserver(navEl, () => {
         <div class="daily-summary-content">
           <div class="overview-panel">
             <div class="panel-title">Wearable Sensor Data Overview</div>
-            <div class="overview-box"></div>
+            <div class="overview-box">
+              <div class="overview-box-content">
+                <div
+                  class="overview-row"
+                  v-for="item in wearableOverviewRows"
+                  :key="item.label"
+                >
+                  <div class="overview-label">{{ item.label }}</div>
+                  <div class="overview-metrics-group">
+                    <span class="overview-metric">
+                      <b>{{ item.average }}</b> {{ item.unit }} (average);
+                    </span>
+                    <span class="overview-metric">
+                      <b>{{ item.max }}</b> {{ item.unit }} (max);
+                    </span>
+                    <span class="overview-metric">
+                      <b>{{ item.min }}</b> {{ item.unit }} (min)
+                    </span>
+                  </div>
+                </div>
+                <div v-if="wearableOverviewRows.length === 0" class="overview-row-empty">
+                  <div class="overview-label">n/a</div>
+                  <div class="overview-metrics-group">
+                    <span class="overview-metric">n/a</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="overview-panel">
             <div class="panel-title">Symptoms Overview</div>
@@ -340,11 +412,7 @@ useResizeObserver(navEl, () => {
                   v-for="(item, index) in symptomsLeft"
                   :key="item.label"
                 >
-                  <Dot
-                    :state="item.state"
-                    editable
-                    @update:state="(val) => (symptomsLeft[index].state = val)"
-                  />
+                  <Dot :state="item.state" />
                   <span>{{ item.label }}</span>
                 </div>
               </div>
@@ -354,11 +422,7 @@ useResizeObserver(navEl, () => {
                   v-for="(item, index) in symptomsRight"
                   :key="item.label"
                 >
-                  <Dot
-                    :state="item.state"
-                    editable
-                    @update:state="(val) => (symptomsRight[index].state = val)"
-                  />
+                  <Dot :state="item.state" />
                   <span>{{ item.label }}</span>
                 </div>
               </div>
@@ -372,8 +436,32 @@ useResizeObserver(navEl, () => {
         color="#5171AB"
         rounded
       >
+      <template #title-extra>
+        <div class="wearable-range-toggle">
+          <button
+            class="wearable-range-btn"
+            :class="{ active: wearableRange === '24h' }"
+            type="button"
+            @click="wearableRange = '24h'"
+          >
+            Last 24 Hrs
+          </button>
+          
+          <button
+            class="wearable-range-btn"
+            :class="{ active: wearableRange === '7d' }"
+            type="button"
+            @click="wearableRange = '7d'"
+          >
+            Last 7 days
+          </button>
+        </div>
+      </template>
         <div class="chart-wrapper">
-          <DetailedWearableChart />
+          <DetailedWearableChart
+            :patient-id="patientIdParam ?? patient?.id"
+            :range="wearableRange"
+          />
         </div>
       </ColoredCard>
     </div>
@@ -412,6 +500,50 @@ useResizeObserver(navEl, () => {
   align-items: center;
   column-gap: 12px;
   width: 100%;
+}
+.wearable-range-toggle {
+  display: inline-flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.wearable-range-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  
+  display: flex;
+  align-items: center;
+  gap: 8px; 
+  
+  color: rgba(255, 255, 255, 0.9); 
+  font-size: 14px; 
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.wearable-range-btn::before {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-sizing: border-box;
+  transition: all 0.2s;
+}
+
+
+.wearable-range-btn.active {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.wearable-range-btn.active::before {
+  background-color: #ffffff; 
+  
+  box-shadow: inset 0 0 0 3px #5171ab; 
 }
 .patient-avatar {
   width: 32px;
@@ -550,6 +682,12 @@ useResizeObserver(navEl, () => {
   row-gap: 4px;
   font-size: 12px;
 }
+.hospitalizations-scroll {
+  height: 100%;
+  overflow: auto;
+  padding-right: 4px;
+  box-sizing: border-box;
+}
 .hospitalization-entry {
   display: flex;
   column-gap: 8px;
@@ -576,7 +714,8 @@ useResizeObserver(navEl, () => {
 .hospitalizations-box {
   background-color: #f3f3f3;
   font-size: 12px !important;
-  padding: 6px 12px;
+  padding: 6px 10px 6px 12px;
+  overflow: hidden;
 }
 .patient-info-box {
   background-color: #fff;
@@ -624,7 +763,57 @@ useResizeObserver(navEl, () => {
   flex: 1 1 0;
   min-height: 0;
   background-color: #f3f3f3;
+  padding: 12px 10px 12px 12px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
+.overview-box-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  row-gap: 8px;
+  overflow: auto;
+  padding-right: 4px;
+  box-sizing: border-box;
+}
+.overview-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1;
+  margin-bottom: 16px;
+}
+
+.overview-row-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.overview-label {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #333;
+}
+
+.overview-metrics-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #555;
+}
+
+.overview-metric {
+  white-space: nowrap;
+}
+
+.overview-metric b {
+  font-weight: 800;
+}
+
 .symptoms-box {
   flex: 1 1 0;
   background-color: #fff;
@@ -685,6 +874,11 @@ useResizeObserver(navEl, () => {
   justify-content: flex-start;
   padding: 0 12px;
   border-radius: 0;
+}
+.full-title-bar :deep(.roundtag__extra) {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
 }
 .full-title-bar :deep(.roundtag__round) {
   display: none;

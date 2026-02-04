@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
-import { getPatients, updatePatient } from "@/api/patient";
+import { getPatients } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 import { ref, watch, computed, provide, onMounted } from "vue";
 import { useRouteParams } from "@vueuse/router";
@@ -32,7 +32,12 @@ const filteredPatients = computed(() => {
 
 const loadPatient = () =>
   getPatients().then((res) => {
-    patients.value = res;
+    patients.value = res.map((item) => ({
+      ...item,
+      read: !!item.last_read_at,
+      state: 0,
+      reviewed: false,
+    }));
     loading.value = false;
     console.log(res);
     console.log(patient_id.value);
@@ -68,20 +73,6 @@ watch(patient_id, () => {
   }
 });
 
-const updateState = (id: number, state: number) => {
-  const patient = patients.value!.find((p) => p.id == id);
-  if (patient) {
-    if (state >= 0) {
-      patient.state = state;
-      patient.reviewed = false;
-      updatePatient(id, { state, reviewed: false });
-    } else {
-      patient.reviewed = true;
-      updatePatient(id, { reviewed: true });
-    }
-    setTimeout(loadPatient, 100);
-  }
-};
 </script>
 
 <template>
@@ -142,12 +133,7 @@ const updateState = (id: number, state: number) => {
           :key="p.id"
         >
           <div class="dot-holder">
-            <Dot
-              @update:state="updateState(p.id, $event)"
-              :state="p.reviewed ? -1 : p.state"
-              editable
-              reviewable
-            ></Dot>
+            <Dot :state="p.reviewed ? -1 : p.state"></Dot>
           </div>
           <component
             :is="p.id == patient_id ? 'div' : 'router-link'"
@@ -158,7 +144,7 @@ const updateState = (id: number, state: number) => {
             class="patient-info"
           >
             <div class="name">
-              {{ p.patient_name || p.users?.[0]?.name || "n/a" }}
+              {{ p.name || p.users?.[0]?.name || "n/a" }}
             </div>
             <div class="age-sex">
               <span v-if="p.age">{{ p.age }} y.o.</span>
