@@ -5,14 +5,25 @@ import { useResizeObserver } from "@vueuse/core";
 import { getWearableTimeSeries, type WearableTimeSeries } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 
-const props = defineProps<{
-  patientId?: number;
-  range?: "24h" | "7d";
+const props = withDefaults(
+  defineProps<{
+    patientId?: number;
+    range?: "24h" | "7d";
+    showLegend?: boolean;
+    selectedSeries?: Record<string, boolean>;
+  }>(),
+  {
+    showLegend: true,
+  },
+);
+const emit = defineEmits<{
+  (e: "toggle-series", name: string): void;
 }>();
 
 const chartEl = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
 let cleanupZrDrag: (() => void) | null = null;
+let cleanupWindowResize: (() => void) | null = null;
 
 const defaultTimes = [
   "0:00",
@@ -62,6 +73,12 @@ const seriesDefs = ref([
 const selected = ref<Record<string, boolean>>(
   Object.fromEntries(seriesDefs.value.map((item) => [item.name, true])),
 );
+const getSeriesSelected = (name: string) => {
+  if (props.selectedSeries && name in props.selectedSeries) {
+    return !!props.selectedSeries[name];
+  }
+  return !!selected.value[name];
+};
 const isLoading = ref(false);
 const markerTime = ref<string>("21:00");
 const markerPixel = ref<number | null>(null);
@@ -186,6 +203,19 @@ const mapBackendDataToDateSlots = (
   });
 };
 
+const roundSeriesValue = (seriesName: string, value: number | null): number | null => {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return null;
+  }
+  if (seriesName === "Heart Rate") {
+    return Math.round(value);
+  }
+  return Math.round(value * 10) / 10;
+};
+
+const roundSeriesData = (seriesName: string, data: Array<number | null>) =>
+  data.map((value) => roundSeriesValue(seriesName, value));
+
 const applySeriesData = (payload?: WearableTimeSeries) => {
   windowRef.value = payload?.window ?? null;
 
@@ -218,20 +248,23 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
     if (series.name in seriesMap) {
       const raw = seriesMap[series.name] ?? [];
       if (useDense24h) {
-        series.data =
+        const mapped =
           backendTimes.length > 0
             ? mapBackendDataToDense24h(backendTimes, raw, denseTimes)
             : normalizeSeriesLength([], denseTimes.length, null);
+        series.data = roundSeriesData(series.name, mapped);
       } else if (useDense7d) {
-        series.data =
+        const mapped =
           backendTimes.length > 0
             ? normalizeSeriesLength(raw, times.value.length, null)
             : normalizeSeriesLength([], times.value.length, null);
+        series.data = roundSeriesData(series.name, mapped);
       } else {
-        series.data =
+        const mapped =
           backendTimes.length > 0
             ? mapBackendDataToDateSlots(backendTimes, raw, standardTimes)
             : normalizeSeriesLength([], standardTimes.length, null);
+        series.data = roundSeriesData(series.name, mapped);
       }
       return;
     }
@@ -410,14 +443,51 @@ const getXAxisAxisLabel = () => ({
   },
 });
 
+const getTooltipPosition = (
+  point: number[],
+  _params: unknown,
+  _dom: unknown,
+  _rect: unknown,
+  size: { contentSize: number[]; viewSize: number[] },
+): [number, number] => {
+  const [mouseX, mouseY] = point;
+  const [contentWidth, contentHeight] = size.contentSize;
+  const [viewWidth, viewHeight] = size.viewSize;
+  const gap = 10;
+
+  let x = mouseX + gap;
+  let y = mouseY - contentHeight - gap;
+
+  if (x + contentWidth > viewWidth - gap) {
+    x = mouseX - contentWidth - gap;
+  }
+  if (x < gap) {
+    x = gap;
+  }
+
+  if (y < gap) {
+    y = mouseY + gap;
+  }
+  if (y + contentHeight > viewHeight - gap) {
+    y = Math.max(gap, viewHeight - contentHeight - gap);
+  }
+
+  return [x, y];
+};
+
 const buildOption = (): echarts.EChartsOption => ({
   grid: { left: 0, right: 20, top: 20, bottom: 20, containLabel: true },
-  tooltip: { trigger: "axis" },
+  tooltip: {
+    trigger: "axis",
+    confine: true,
+    appendToBody: false,
+    position: getTooltipPosition,
+  },
   xAxis: {
     type: "category",
     boundaryGap: false,
     data: times.value,
-    name: "Time",
+    name: rangeValue.value === "24h" ? "Last 24 Hrs" : "Last 7 days",
     nameLocation: "middle",
     nameGap: 50,
     nameTextStyle: {
@@ -495,7 +565,7 @@ const buildOption = (): echarts.EChartsOption => ({
     },
   ],
   series: seriesDefs.value.map((series) => {
-    const isActive = selected.value[series.name];
+    const isActive = getSeriesSelected(series.name);
     return {
       name: series.name,
       type: "line",
@@ -518,11 +588,16 @@ const buildOption = (): echarts.EChartsOption => ({
 
 const applyOption = () => {
   chart?.setOption(buildOption(), true);
+  chart?.resize();
   updateMarkerGraphic();
 };
 
 const toggleSeries = (name: string) => {
-  selected.value[name] = !selected.value[name];
+  if (props.selectedSeries) {
+    emit("toggle-series", name);
+  } else {
+    selected.value[name] = !selected.value[name];
+  }
   applyOption();
 };
 
@@ -691,6 +766,14 @@ onMounted(() => {
   applyOption();
   bindDragEvents();
   startNowMarkerInterval();
+  const handleWindowResize = () => {
+    chart?.resize();
+    updateMarkerGraphic();
+  };
+  window.addEventListener("resize", handleWindowResize);
+  cleanupWindowResize = () => {
+    window.removeEventListener("resize", handleWindowResize);
+  };
 });
 
 watch(
@@ -710,6 +793,13 @@ watch(
   },
   { immediate: false },
 );
+watch(
+  () => props.selectedSeries,
+  () => {
+    applyOption();
+  },
+  { deep: true },
+);
 
 useResizeObserver(chartEl, () => {
   chart?.resize();
@@ -719,6 +809,7 @@ useResizeObserver(chartEl, () => {
 onBeforeUnmount(() => {
   stopNowMarkerInterval();
   cleanupZrDrag?.();
+  cleanupWindowResize?.();
   chart?.dispose();
   chart = null;
 });
@@ -726,12 +817,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="chart-wrapper">
-    <div class="chart-legend">
+    <div v-if="props.showLegend !== false" class="chart-legend">
       <button
         v-for="item in seriesDefs"
         :key="item.name"
         class="legend-item"
-        :class="{ active: selected[item.name] }"
+        :class="{ active: getSeriesSelected(item.name) }"
         @click="toggleSeries(item.name)"
       >
         <span class="legend-box" :style="{ '--color': item.color }"></span>

@@ -1,21 +1,14 @@
 <script setup lang="tsx">
 import { ref, computed, watch, nextTick } from "vue";
 import ColoredCard from "@/components/ColoredCard.vue";
-import AiRiskTrendChart from "@/components/AiRiskTrendChart.vue";
-import AiRiskGauge from "@/components/AiRiskGauge.vue";
+import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import { useRouteParams, useRouteQuery } from "@vueuse/router";
-import { getConversationLogs, getRisks } from "@/api/patient";
-import type { ConversationLog, Risk } from "@/api/types";
+import { getConversationLogs } from "@/api/patient";
+import type { ConversationLog } from "@/api/types";
 import { format } from "date-fns";
 
 const selectedDate = ref<number | null>(Date.now());
 const conversationDate = computed<number | null>({
-  get: () => selectedDate.value,
-  set: (value) => {
-    selectedDate.value = value;
-  },
-});
-const riskDate = computed<number | null>({
   get: () => selectedDate.value,
   set: (value) => {
     selectedDate.value = value;
@@ -77,7 +70,6 @@ const scrollToLogs = () => {
 };
 watch(select_log_ids, () => nextTick(scrollToLogs));
 const patient_id = useRouteParams("patient_id");
-const risks = ref<Risk[]>([]);
 const conversationLogs = ref<ConversationLog[]>([]);
 const loading = ref(true);
 
@@ -98,59 +90,35 @@ watch(
   patient_id,
   async () => {
     if (!patient_id.value) {
-      risks.value = [];
       conversationLogs.value = [];
       return;
     }
     loading.value = true;
     const id = parseInt(patient_id.value as string);
-    risks.value = await getRisks(id);
     conversationLogs.value = await getConversationLogs(id);
     loading.value = false;
   },
   { immediate: true },
 );
 
-const riskForDate = computed(() => {
-  if (!risks.value.length) {
-    return null;
-  }
-  const target = riskDate.value ? new Date(riskDate.value) : null;
-  if (target) {
-    const targetKey = dateKey(target);
-    const match = risks.value.find((risk) => {
-      const parsed = parseDateValue(risk.date);
-      return parsed ? dateKey(parsed) === targetKey : false;
-    });
-    if (match) {
-      return match;
-    }
-  }
-  return risks.value[0];
+const patientIdParam = computed(() => {
+  const raw = patient_id.value;
+  if (!raw) return undefined;
+  const parsed = parseInt(raw as string, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
 });
-
-const normalizePercent = (value?: number | null) => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return 0;
-  }
-  const normalized = value <= 1 ? value * 100 : value;
-  return Math.round(Math.max(0, Math.min(100, normalized)));
+const selectedSeries = ref<Record<string, boolean>>({
+  "Heart Rate": true,
+  Respiration: true,
+  SpO2: true,
+  "Heart Rate Variability": true,
+});
+const toggleSeries = (name: string) => {
+  selectedSeries.value = {
+    ...selectedSeries.value,
+    [name]: !selectedSeries.value[name],
+  };
 };
-
-const riskScore = computed(() => normalizePercent(riskForDate.value?.risk_score));
-
-const featureImportance = computed(() => {
-  const risk = riskForDate.value;
-  if (!risk) {
-    return [];
-  }
-  return [
-    { label: "Chest Discomfort", value: normalizePercent(risk.important_of_chest) },
-    { label: "Heart Rate", value: normalizePercent(risk.important_of_heart) },
-    { label: "Respiration", value: normalizePercent(risk.important_of_respiration) },
-    { label: "HRV", value: normalizePercent(risk.important_of_hrv) },
-  ];
-});
 
 const logsForDate = computed(() => {
   if (!conversationLogs.value.length) {
@@ -191,53 +159,29 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
     <ColoredCard
       color="#5171AB"
       rounded
-      title="AI Risk Prediction"
-      class="summary-card ai-risk-card indigo-title full-title-bar"
+      title="Detailed Wearable Sensor Data"
+      class="summary-card detailed-wearable-card indigo-title full-title-bar"
     >
-      <template #title-extra>
-        <n-date-picker v-model:value="riskDate" type="date" size="small" clearable />
-      </template>
-      <div class="ai-risk-content">
-        <div class="ai-risk-top">
-          <div class="ai-risk-panel left-panel">
-            <div class="ai-risk-title">Cardiotoxicity Risk Score</div>
-            <div class="risk-score">
-              <div class="risk-gauge">
-                <AiRiskGauge :value="riskScore" />
-              </div>
-              <div class="risk-desc">
-                (The score predicts the <span style="font-weight: bold; color: #555555;">6-month</span> risk of cardiovascular complications based on <span style="font-weight: bold;"> EHR data, wearable sensors</span>, and <span style="font-weight: bold;"> self-reported symptoms</span>.)
-              </div>
-            </div>
-          </div>
-          <div class="ai-risk-panel right-panel">
-            <div class="ai-risk-title">Feature Importance</div>
-            <div class="feature-box">
-              <div class="feature-list">
-                <div
-                  class="feature-item"
-                  v-for="item in featureImportance"
-                  :key="item.label"
-                >
-                  <span class="feature-label">{{ item.label }}</span>
-                  <div class="feature-bar">
-                    <div class="feature-fill" :style="{ width: `${item.value}%` }"></div>
-                  </div>
-                  <span class="feature-val">{{ Math.round(item.value) }}%</span>
-                </div>
-                <div v-if="featureImportance.length === 0" class="feature-item">
-                  <span class="feature-label">n/a</span>
-                  <div class="feature-bar">
-                    <div class="feature-fill" style="width: 0%"></div>
-                  </div>
-                  <span class="feature-val">0%</span>
-                </div>
-              </div>
-            </div>
+      <div class="wearable-dual-chart">
+        <div class="chart-section">
+          <div class="chart-wrapper">
+            <DetailedWearableChart
+              :patient-id="patientIdParam ?? undefined"
+              range="24h"
+              :selected-series="selectedSeries"
+              @toggle-series="toggleSeries"
+            />
           </div>
         </div>
-        <div class="ai-risk-bottom">
-          <AiRiskTrendChart />
+        <div class="chart-section">
+          <div class="chart-wrapper">
+            <DetailedWearableChart
+              :patient-id="patientIdParam ?? undefined"
+              range="7d"
+              :show-legend="false"
+              :selected-series="selectedSeries"
+            />
+          </div>
         </div>
       </div>
     </ColoredCard>
@@ -258,13 +202,15 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
       <div class="conversation-panel conversation-left">
         <div class="conversation-title">Details Symptoms from Log</div>
         <div class="conversation-box conversation-detail">
-          <div class="detail-row">
-            <div class="detail-label">Chest Discomfort</div>
-            <div class="detail-value">{{ detailSymptoms.chest }}</div>
-          </div>
-          <div class="detail-row">
-            <div class="detail-label">Other Discomfort</div>
-            <div class="detail-value">{{ detailSymptoms.other }}</div>
+          <div class="conversation-detail-scroll">
+            <div class="detail-row">
+              <div class="detail-label">Chest Discomfort</div>
+              <div class="detail-value">{{ detailSymptoms.chest }}</div>
+            </div>
+            <div class="detail-row">
+              <div class="detail-label">Other Discomfort</div>
+              <div class="detail-value">{{ detailSymptoms.other }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -342,115 +288,39 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   flex: 1 1 0;
   min-height: 0;
 }
-.report-detail .ai-risk-card {
-  flex: 0 1 55%;
+.report-detail .detailed-wearable-card {
+  flex: 0 1 68%;
 }
 .report-detail .conversation-card {
-  flex: 0 1 45%;
+  flex: 0 1 32%;
 }
-.ai-risk-content {
+.detailed-wearable-card :deep(.n-card__content) {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   height: 100%;
   min-height: 0;
-  min-width: 0;
 }
-.ai-risk-top {
-  display: flex;
-  gap: 16px;
-  flex: 1 1 0;
-  min-height: 0;
-  min-width: 0;
-}
-.ai-risk-bottom {
-  flex: 1 1 0;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-.ai-risk-panel {
-  flex: 1 1 0;
-  min-height: 0;
-}
-.ai-risk-panel.right-panel {
+.wearable-dual-chart {
   display: flex;
   flex-direction: column;
-  min-height: 0;
-}
-.feature-box {
-  background-color: #f3f3f3;
-  padding: 12px;
-  box-sizing: border-box;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.ai-risk-title {
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 12px;
-}
-.risk-score {
-  display: flex;
   gap: 8px;
-  align-items: stretch;
-  flex: 1 1 auto;
-  min-height: 0;
-  min-width: 50;
-}
-.risk-gauge {
-  width: 200px;
   height: 100%;
-  position: relative;
-  flex: 0 0 auto;
+  min-height: 0;
 }
-.feature-label{
-  text-align: right;
-  padding-right: 12px;
-  font-weight: 700;
-  font-family: "Arial";
-  color: #808080;  
-}
-.risk-desc {
-  color: #808080;
-  font-size: 12px;
-  line-height: 1.4;
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: none;
-  align-self: center;
-  overflow-wrap: anywhere;
-}
-.feature-list {
+.chart-section {
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 6px;
 }
-.feature-item {
-  display: grid;
-  grid-template-columns: 130px 1fr 48px;
-  align-items: center;
-}
-.feature-bar {
-  height: 14px;
-  background: #ffffff;
-  border-radius: 4px;
+.chart-wrapper {
+  flex: 1 1 0;
+  min-height: 180px;
+  min-width: 0;
   overflow: hidden;
-  width: 80%;
 }
-.feature-fill {
-  height: 100%;
-  background: #5574aa;
-}
-.feature-val {
-  font-weight: 700;
-  color: #555;
+.chart-wrapper :deep(.chart) {
+  min-height: 180px;
 }
 .conversation-card :deep(.n-card__content) {
   display: flex;
@@ -486,7 +356,8 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   overflow: hidden;
 }
 .conversation-scroll {
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
   padding-right: 6px;
   padding-left: 6px;
@@ -496,11 +367,23 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   gap: 8px;
 }
 .conversation-detail {
-  padding: 16px;
+  padding: 12px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.conversation-detail-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  padding-right: 6px;
+  padding-left: 6px;
+  box-sizing: border-box;
 }
 .detail-row {
   display: flex;
@@ -522,8 +405,8 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  overflow-y: auto;
+  overflow: hidden;
+  min-height: 0;
 }
 .log-row {
   display: flex;
@@ -678,8 +561,6 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   }
   &.assistant {
     background-color: #f5f5f5;
-  }
-  &.user {
   }
 }
 .note-time {

@@ -4,7 +4,7 @@ import { useRouteQuery } from "@vueuse/router";
 import { useRouter } from "vue-router";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
-import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
+import ReportDetailView from "@/views/ReportDetailView.vue";
 import { computed, watch, ref, inject, type Component } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import type { Patient, Summary } from "@/api/types";
@@ -30,7 +30,6 @@ const summaries = ref<Summary[]>([]);
 const loading = ref(true);
 const cancelToken = ref<CancelTokenSource | null>(null);
 const dailySummaryDate = ref<number | null>(Date.now());
-const wearableRange = ref<"24h" | "7d">("24h");
 const patientName = computed(() => {
   const data = patient.value as (Patient & { patient_name?: string; name?: string }) | null;
   return data?.patient_name || data?.name || data?.users?.[0]?.name || "n/a";
@@ -176,9 +175,9 @@ const wearableOverviewRows = computed(() => {
     {
       label: "Heart rate",
       unit: "BPM",
-      average: formatMetric(summary.heart_rate_average),
-      max: formatMetric(summary.heart_rate_max),
-      min: formatMetric(summary.heart_rate_min),
+      average: formatMetric(summary.heart_rate_average, 0),
+      max: formatMetric(summary.heart_rate_max, 0),
+      min: formatMetric(summary.heart_rate_min, 0),
     },
     {
       label: "SpO2",
@@ -262,6 +261,65 @@ const symptomsRight = computed(() => {
     },
   ];
 });
+
+const dayOverviewSymptoms = [
+  {
+    key: "short_of_breath",
+    display_name: "Breath",
+    description: "Shortness of Breath (Dyspnea)",
+  },
+  {
+    key: "chest_discomfort",
+    display_name: "Chest",
+    description: "Chest Discomfort or Pain",
+  },
+  {
+    key: "fatigue",
+    display_name: "Fatigue",
+    description: "Fatigue or Tiredness",
+  },
+  {
+    key: "palpitation",
+    display_name: "Palpitation",
+    description: "Heart Palpitations",
+  },
+  {
+    key: "swelling",
+    display_name: "Swelling",
+    description: "Swelling (Edema)",
+  },
+  {
+    key: "syncope",
+    display_name: "Faint",
+    description: "Fainting or Syncope",
+  },
+] as const;
+
+const dayOverviewRows = computed(() => {
+  const selectedKey = dailySummaryDate.value
+    ? dateKey(new Date(dailySummaryDate.value))
+    : null;
+  return summaries.value
+    .map((summary) => {
+      const parsed = parseDateValue(summary.date);
+      const summaryKey = parsed ? dateKey(parsed) : null;
+      return {
+        id: summary.id,
+        summary,
+        timestamp: parsed ? parsed.getTime() : null,
+        dateLabel: parsed ? format(parsed, "yyyy-MM-dd") : "n/a",
+        isSelected: !!selectedKey && !!summaryKey && selectedKey === summaryKey,
+      };
+    })
+    .sort((a, b) => (b.timestamp ?? Number.MIN_SAFE_INTEGER) - (a.timestamp ?? Number.MIN_SAFE_INTEGER));
+});
+
+const selectDayOverview = (timestamp: number | null) => {
+  if (timestamp === null) {
+    return;
+  }
+  dailySummaryDate.value = timestamp;
+};
 
 const jumpToSummary = (summary: Summary, symptom: string) => {
   const logsRaw = (summary as Record<string, unknown>)[
@@ -523,44 +581,56 @@ useResizeObserver(navEl, () => {
         </div>
       </ColoredCard>
       <ColoredCard
-        class="detailed-wearable indigo-title full-title-bar"
-        title="Detailed Wearable Sensor Data"
+        class="day-navigator indigo-title full-title-bar"
+        title="Daily Symptom Overview"
         color="#5171AB"
         rounded
       >
-      <template #title-extra>
-        <div class="wearable-range-toggle">
-          <button
-            class="wearable-range-btn"
-            :class="{ active: wearableRange === '24h' }"
-            type="button"
-            @click="wearableRange = '24h'"
-          >
-            Last 24 Hrs
-          </button>
-          
-          <button
-            class="wearable-range-btn"
-            :class="{ active: wearableRange === '7d' }"
-            type="button"
-            @click="wearableRange = '7d'"
-          >
-            Last 7 days
-          </button>
-        </div>
-      </template>
-        <div class="chart-wrapper">
-          <DetailedWearableChart
-            :patient-id="patientIdParam ?? patient?.id"
-            :range="wearableRange"
-          />
+        <div class="day-navigator-content">
+          <div class="day-overview-table">
+            <div class="table-row day-overview-header">
+              <div class="date">Date</div>
+              <div
+                class="symptom"
+                v-for="symptom in dayOverviewSymptoms"
+                :key="symptom.key"
+              >
+                {{ symptom.display_name }}
+              </div>
+            </div>
+
+            <div class="day-overview-scroll">
+              <div
+                class="table-row table-row-block day-overview-row"
+                v-for="(row, index) in dayOverviewRows"
+                :key="row.id"
+                :class="{
+                  odd: index % 2 === 1,
+                  selected: row.isSelected,
+                }"
+                @click="selectDayOverview(row.timestamp)"
+              >
+                <div class="date">{{ row.dateLabel }}</div>
+                <div
+                  class="symptom"
+                  v-for="symptom in dayOverviewSymptoms"
+                  :key="`${row.id}-${symptom.key}`"
+                >
+                  <Dot :state="symptomState(row.summary, symptom.key)" />
+                </div>
+              </div>
+              <div v-if="dayOverviewRows.length === 0" class="day-overview-empty">
+                No daily summaries
+              </div>
+            </div>
+          </div>
         </div>
       </ColoredCard>
     </div>
       <div class="col side-col">
         <div class="side-content">
           <router-view v-slot="{ Component }">
-            <component :is="Component" ref="right" />
+            <component :is="Component || ReportDetailView" ref="right" />
           </router-view>
         </div>
       </div>
@@ -593,49 +663,9 @@ useResizeObserver(navEl, () => {
   column-gap: 12px;
   width: 100%;
 }
-.wearable-range-toggle {
-  display: inline-flex;
-  gap: 20px;
-  align-items: center;
-}
-
-.wearable-range-btn {
-  background: transparent;
-  border: none;
-  padding: 0;
-  
-  display: flex;
-  align-items: center;
-  gap: 8px; 
-  
-  color: rgba(255, 255, 255, 0.9); 
-  font-size: 14px; 
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.wearable-range-btn::before {
-  content: '';
-  display: block;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid #ffffff;
-  box-sizing: border-box;
-  transition: all 0.2s;
-}
-
-
-.wearable-range-btn.active {
-  color: #ffffff;
-  font-weight: 700;
-}
-
-.wearable-range-btn.active::before {
-  background-color: #ffffff; 
-  
-  box-shadow: inset 0 0 0 3px #5171ab; 
+.information {
+  flex: 1.2 1 0;
+  min-height: 0;
 }
 .patient-avatar {
   width: 32px;
@@ -835,6 +865,82 @@ useResizeObserver(navEl, () => {
   flex: 2 1 0;
   min-height: 0;
 }
+.day-navigator {
+  flex: 0 0 280px;
+  min-height: 140px;
+}
+.day-navigator :deep(.n-card__content) {
+  height: 100%;
+  min-height: 0;
+}
+.day-navigator-content {
+  height: 100%;
+  min-height: 0;
+  background-color: #ffffff;
+  box-sizing: border-box;
+  padding: 0px 0px;
+}
+.day-overview-table {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+.day-overview-table .table-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+.day-overview-table .date {
+  flex: 0 0 98px;
+  padding-left: 8px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+.day-overview-table .symptom {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+.day-overview-table .symptom :deep(.n-icon) {
+  font-size: 12px;
+}
+.day-overview-header {
+  flex: 0 0 38px;
+  font-weight: 700;
+  border-bottom: 1px solid #d9d9d9;
+}
+.day-overview-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+.day-overview-row {
+  height: 36px;
+  cursor: pointer;
+  background: #ffffff;
+}
+.day-overview-row.odd {
+  background: #f3f3f3;
+}
+.day-overview-row:hover {
+  background: #e9edf5;
+}
+.day-overview-row.selected {
+  outline: none;
+}
+.day-overview-empty {
+  height: 100%;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999999;
+}
 .daily-summary-content {
   display: flex;
   column-gap: 12px;
@@ -940,22 +1046,6 @@ useResizeObserver(navEl, () => {
 .symptom-row.clickable:hover {
   opacity: 0.8;
 }
-.detailed-wearable {
-  flex: 3 1 0;
-  min-height: 0;
-  :deep(.n-card__content) {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-}
-.chart-wrapper {
-  flex: 1 1 0;
-  min-height: 0;
-}
-.chart-wrapper :deep(.chart) {
-  min-height: 220px;
-}
 .indigo-title :deep(.roundtag__label) {
   background-color: #5171AB !important;
   color: #fff;
@@ -992,7 +1082,7 @@ useResizeObserver(navEl, () => {
   cursor: pointer;
 }
 .information {
-  flex: 1 1 0;
+  flex: 1.2 1 0;
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;
