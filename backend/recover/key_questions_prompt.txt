@@ -1,16 +1,24 @@
 Symptom Keys and Descriptions:
 
-physical: "Physical Well-Being", likert: false
-stress: "Managing Stress", likert: false
-mood: "Feeling Down or Depressed", likert: false
+short_of_breath: "Shortness of Breath (Dyspnea)", likert: false
+chest_discomfort: "Chest Discomfort or Pain", likert: false
+fatigue: "Fatigue or Tiredness", likert: false
+palpitation: "Heart Palpitations", likert: false
+swelling: "Swelling (Edema)", likert: false
+syncope: "Fainting or Syncope", likert: false
 misc: "Other Symptoms", likert: false
 
 For each symptom listed above, perform the following tasks:
 
-Identify Relevant Messages: Locate and categorize all messages that pertain to each symptom listed. This includes the assistant asking questions (e.g., "How have your daily activities been going?") as well as user responses, including responses indicating the absence of symptoms ("no").
+Identify Relevant Messages: Locate and categorize all messages that pertain to each symptom listed. This includes the assistant asking questions (e.g., "Are you having difficulty breathing?") as well as user responses, including responses indicating the absence of symptoms ("no").
 EACH SYMPTOM SHOULD HAVE AT LEAST TWO MESSAGE (QUESTION AND RESPOND).
 
-Assess state: determine whether the patient reported to this symptom. if the patient didn't talked about the symptom, echo 0. If the patient mentioned that they have the symptom, write 2. otherwise write 1.
+Assess state: for each symptom, output state as an integer:
+- 0: Patient did NOT discuss this symptom at all
+- 1: Patient discussed and does NOT have this symptom (e.g. said "no" or "none")
+- 2: Patient HAS this symptom (reported yes, e.g. "yes I have shortness of breath")
+
+IMPORTANT: Use 2 (not 1) when the patient reports having the symptom. Use 1 only when they explicitly do NOT have it.
 
 Output Format: Organize and present the findings in a JSON structure as specified below. Ensure the symptom keys in the output JSON match exactly with those from the provided list:
 {

@@ -1,14 +1,28 @@
 import json
 from pathlib import Path
 from datetime import datetime
-import openai
+from openai import OpenAI, AzureOpenAI
 
-from .config import openai_key
+from .config import (
+    openai_key,
+    use_azure_openai,
+    azure_openai_endpoint,
+    azure_openai_api_key,
+    azure_openai_deployment,
+    azure_openai_api_version,
+)
 from .symptoms import symptom_descriptions
 
-# client = openai.AzureOpenAI(**openai_config, max_retries=0)
-client = openai.OpenAI(api_key=openai_key)
-
+if use_azure_openai:
+    client = AzureOpenAI(
+        api_version=azure_openai_api_version,
+        azure_endpoint=azure_openai_endpoint.rstrip("/"),
+        api_key=azure_openai_api_key,
+    )
+    _model = azure_openai_deployment
+else:
+    client = OpenAI(api_key=openai_key)
+    _model = "gpt-4o"
 
 prompt_path = Path(__file__).with_name("prompt.txt")
 conversation_system_prompt = open(prompt_path, "r").read(10000000)
@@ -18,10 +32,15 @@ summary_prompt_path = Path(__file__).with_name("summary_prompt.txt")
 summary_prompt = open(summary_prompt_path, "r").read(10000000)
 
 
-def gpt_inference(client: openai.OpenAI, messages, stop=None, model="gpt-4o", **argv):
-    response = client.chat.completions.create(
-        model=model, messages=messages, max_tokens=512, stop=stop, **argv
-    )
+def gpt_inference(client, messages, stop=None, model=None, **argv):
+    model = model or _model
+    kwargs = dict(messages=messages, model=model, stop=stop, **argv)
+    if use_azure_openai:
+        kwargs.pop("max_tokens", None)
+        kwargs["extra_body"] = {"max_completion_tokens": 512}
+    else:
+        kwargs.setdefault("max_tokens", 512)
+    response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content
 
 
@@ -58,7 +77,7 @@ def key_questions(messages):
             {"role": "system", "content": key_questions_prompt},
             {"role": "user", "content": messages},
         ],
-        model="gpt-4o",
+        model=_model,
         response_format={"type": "json_object"},
     )
 
@@ -76,6 +95,6 @@ def summary(messages, key_questions):
             {"role": "user", "content": "messages: " + messages},
             {"role": "user", "content": "symptoms: " + key_questions},
         ],
-        model="gpt-4o",
+        model=_model,
         response_format={"type": "json_object"},
     )

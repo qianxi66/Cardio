@@ -129,6 +129,18 @@ export type Summary = {
   palpitation?: boolean;
   swelling?: boolean;
   syncope?: boolean;
+  short_of_breath_state?: number;
+  short_of_breath_logs?: string;
+  chest_discomfort_state?: number;
+  chest_discomfort_logs?: string;
+  fatigue_state?: number;
+  fatigue_logs?: string;
+  palpitation_state?: number;
+  palpitation_logs?: string;
+  swelling_state?: number;
+  swelling_logs?: string;
+  syncope_state?: number;
+  syncope_logs?: string;
   date: Date | string;
 };
 

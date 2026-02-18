@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 # Assuming 'app' and 'db' are defined in .app and .db respectively
 from .app import app
+from .apis import process_patient_summary
 from .db import (
     AlexaIDNote,
     ConversationLog,
@@ -142,6 +143,8 @@ def create_hospitalizations_cmd():
 def create_summaries_cmd():
     """Creates one summary record for each existing patient."""
     with app.app_context():
+        from .symptoms import symptom_descriptions
+
         print("Creating summary records for all patients...")
         patients = Patient.query.all()
         for patient in patients:
@@ -159,14 +162,11 @@ def create_summaries_cmd():
                 hrv_min=generate_random_float(20, 40),
                 hrv_max=generate_random_float(60, 80),
                 hrv_average=generate_random_float(40, 60),
-                short_of_breath=bool(random.getrandbits(1)), # 0 or 1
-                chest_discomfort=bool(random.getrandbits(1)),
-                fatigue=bool(random.getrandbits(1)),
-                palpitation=bool(random.getrandbits(1)),
-                swelling=bool(random.getrandbits(1)),
-                syncope=bool(random.getrandbits(1)),
-                date=create_random_datetime()
+                date=create_random_datetime(),
             )
+            for symptom_name in symptom_descriptions:
+                setattr(summary, f"{symptom_name}_state", random.randint(0, 2))
+                setattr(summary, f"{symptom_name}_logs", "[]")
             db.session.add(summary)
         db.session.commit()
         print("Summaries created successfully.")
@@ -198,35 +198,138 @@ def create_risks_cmd():
 
 @app.cli.command("generate-conversation-logs")
 def generate_conversation_logs_cmd():
-    """Generates 5 conversation logs for each patient."""
+    def simulate_conversation(patient_id):
+        has_symptoms = random.random() < 0.3
+        active_symptoms = []
+        if has_symptoms:
+            possible_symptoms = ["breath", "chest", "palpitation", "swelling", "fatigue", "syncope"]
+            active_symptoms = random.sample(possible_symptoms, k=random.randint(1, 2))
+        
+        checklist = ["breath", "chest", "palpitation", "swelling", "fatigue", "syncope"]
+        random.shuffle(checklist)
+        
+        messages = []
+        
+        messages.append(("assistant", "Hello, this is the RECOVER research study chatbot assistant developed by Northeastern University Human-centered AI lab. Are you ready to start today's questions?"))
+        messages.append(("user", "Yes, I am ready."))
+
+        extracted_symptoms_chest = None
+        extracted_symptoms_other = []
+
+        for item in checklist:
+            question_map = {
+                "breath": "Are you having difficulty breathing or feeling short of breath?",
+                "chest": "Are you experiencing any chest pain, pressure, or discomfort?",
+                "palpitation": "Have you felt like your heart is racing, pounding, fluttering, or skipping beats?",
+                "swelling": "Have you noticed any new or worsening swelling, particularly in your legs, ankles, or feet?",
+                "fatigue": "Have you been feeling unusually tired, weak, or fatigued?",
+                "syncope": "Have you fainted, passed out, or felt very dizzy like you might pass out?"
+            }
+            
+            agent_q = question_map[item]
+            messages.append(("assistant", agent_q))
+
+            if item in active_symptoms:
+                if item == "breath":
+                    messages.append(("user", "Yes, a little bit."))
+                    messages.append(("assistant", "Tell me about your shortness of breath, when does it usually happen?"))
+                    messages.append(("user", "Mostly when I walk up the stairs."))
+                    messages.append(("assistant", "On a scale of 1 to 10, with 10 being the most difficult, how would you rate it?"))
+                    messages.append(("user", "About a 4."))
+                    extracted_symptoms_other.append("shortness of breath (4/10)")
+                
+                elif item == "chest":
+                    messages.append(("user", "Yes, I feel some pressure."))
+                    messages.append(("assistant", "I'm sorry to hear that. Can you describe exactly where you feel the pain and what it feels like?"))
+                    messages.append(("user", "It's on the left side, kind of a dull ache."))
+                    messages.append(("assistant", "On a scale of 1 to 10, how would you rate your chest discomfort?"))
+                    messages.append(("user", "It's a 3, not too bad."))
+                    extracted_symptoms_chest = "left side dull ache (3/10)"
+                
+                elif item == "palpitation":
+                    messages.append(("user", "Yes, sometimes."))
+                    messages.append(("assistant", "How often are you noticing this, and when did it start?"))
+                    messages.append(("user", "Started this morning, happens every hour."))
+                    messages.append(("assistant", "Does this happen when you are resting or only when you are active?"))
+                    messages.append(("user", "Even when resting."))
+                    extracted_symptoms_other.append("palpitations (resting)")
+
+                elif item == "swelling":
+                    messages.append(("user", "Yes, my ankles look puffy."))
+                    messages.append(("assistant", "Tell me more about the swelling. Is it in one leg or both?"))
+                    messages.append(("user", "Both ankles."))
+                    messages.append(("assistant", "On a scale of 1 to 10, how would you rate it?"))
+                    messages.append(("user", "Maybe a 2."))
+                    extracted_symptoms_other.append("swelling in ankles")
+
+                elif item == "fatigue":
+                    messages.append(("user", "Yes, I'm very tired."))
+                    messages.append(("assistant", "Can you tell me more about this? Is it preventing you from doing your normal daily activities?"))
+                    messages.append(("user", "Yes, I just want to sleep all day."))
+                    messages.append(("assistant", "On a scale of 1 to 10, how would you rate your fatigue?"))
+                    messages.append(("user", "8."))
+                    extracted_symptoms_other.append("severe fatigue (8/10)")
+
+                elif item == "syncope":
+                    messages.append(("user", "Yes, I felt dizzy earlier."))
+                    messages.append(("assistant", "That sounds concerning. Did you actually lose consciousness or fall down?"))
+                    messages.append(("user", "No, just dizzy."))
+                    messages.append(("assistant", "What were you doing when this happened?"))
+                    messages.append(("user", "I stood up too fast."))
+                    extracted_symptoms_other.append("dizziness (stood up fast)")
+            else:
+                messages.append(("user", "No."))
+
+        messages.append(("assistant", "Is there anything else you'd like to comment on that I haven't asked about?"))
+        messages.append(("user", "No, that's all."))
+
+        messages.append(("assistant", "CONVERSATION_END Thank you for your time to provide information today. We'll talk again tomorrow."))
+
+        cot_simulation = "breath: discussed\nchest: discussed\npalpitation: discussed\nswelling: discussed\nfatigue: discussed\nsyncope: discussed\nmisc: discussed\n==============\nAll checks completed. Proceeding to wrap up."
+        symptoms_other_str = ", ".join(extracted_symptoms_other) if extracted_symptoms_other else None
+
+        return {
+            "messages": messages,
+            "chain_of_thoughts": cot_simulation,
+            "symptoms_chest": extracted_symptoms_chest,
+            "symptoms_other": symptoms_other_str,
+        }
+
     with app.app_context():
         print("Generating conversation logs for all patients...")
         patients = Patient.query.all()
-        dialogues = [
-            ("user", "I'm feeling a bit short of breath today."),
-            ("assistant", "Could you describe the chest discomfort you're experiencing?"),
-            ("user", "Yes, there's a dull ache in my left chest, and I feel very tired."),
-            ("assistant", "Have you noticed any swelling in your legs or ankles?"),
-            ("user", "Sometimes, especially in the evening. I also feel palpitations."),
-            ("assistant", "Thank you for the information. We'll update your records."),
-        ]
-        
+
         for patient in patients:
-            for _ in range(5): # Generate 5 logs per patient
-                role, content = random.choice(dialogues)
-                log = ConversationLog(
-                    patient_id=patient.id,
-                    role=role,
-                    content=content,
-                    chain_of_thoughts=f"Internal reasoning for {role} response.", # Example
-                    symptoms_chest="dull ache, tightness" if "chest" in content.lower() else None,
-                    symptoms_other="tiredness, swelling, palpitations" if ("tired" in content.lower() or "swelling" in content.lower() or "palpitations" in content.lower()) else None,
-                    date=create_random_datetime()
-                )
-                db.session.add(log)
+            for i in range(5):
+                log_date = datetime.now() - timedelta(days=5 - i)
+                log_data = simulate_conversation(patient.id)
+                messages = log_data["messages"]
+                cot = log_data["chain_of_thoughts"]
+                symptoms_chest = log_data["symptoms_chest"]
+                symptoms_other = log_data["symptoms_other"]
+
+                for idx, (role, content) in enumerate(messages):
+                    is_last = idx == len(messages) - 1
+                    log = ConversationLog(
+                        patient_id=patient.id,
+                        role=role,
+                        content=content,
+                        chain_of_thoughts=cot if is_last else None,
+                        symptoms_chest=symptoms_chest if is_last else None,
+                        symptoms_other=symptoms_other if is_last else None,
+                        date=log_date,
+                    )
+                    db.session.add(log)
+        
         db.session.commit()
         print("Conversation logs generated successfully.")
-
+        
+        print("Running process_patient_summary for each patient/date...")
+        for patient in patients:
+            for i in range(5):
+                log_date = datetime.now() - timedelta(days=5 - i)
+                process_patient_summary(patient.id, log_date)
+        print("Summary processing complete.")
 
 @app.cli.command("create-user")
 @click.option("--username", required=True, type=str, help="Username for the new user")

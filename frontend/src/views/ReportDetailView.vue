@@ -1,15 +1,81 @@
 <script setup lang="tsx">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import ColoredCard from "@/components/ColoredCard.vue";
 import AiRiskTrendChart from "@/components/AiRiskTrendChart.vue";
 import AiRiskGauge from "@/components/AiRiskGauge.vue";
-import { useRouteParams } from "@vueuse/router";
+import { useRouteParams, useRouteQuery } from "@vueuse/router";
 import { getConversationLogs, getRisks } from "@/api/patient";
 import type { ConversationLog, Risk } from "@/api/types";
 import { format } from "date-fns";
 
-const conversationDate = ref<number | null>(Date.now());
-const riskDate = ref<number | null>(Date.now());
+const selectedDate = ref<number | null>(Date.now());
+const conversationDate = computed<number | null>({
+  get: () => selectedDate.value,
+  set: (value) => {
+    selectedDate.value = value;
+  },
+});
+const riskDate = computed<number | null>({
+  get: () => selectedDate.value,
+  set: (value) => {
+    selectedDate.value = value;
+  },
+});
+
+const select_log_ids_ = useRouteQuery<string | string[]>("logs");
+const select_log_ids = computed(() => {
+  const val = select_log_ids_.value;
+  if (!val) return [];
+  const arr = Array.isArray(val) ? val : [val];
+  return arr
+    .map((id) => parseInt(String(id), 10))
+    .filter((n) => !Number.isNaN(n));
+});
+
+const query_date_ = useRouteQuery<string | undefined>("date");
+watch(
+  query_date_,
+  (dateStr) => {
+    if (dateStr) {
+      const ts = parseInt(dateStr, 10);
+      if (!Number.isNaN(ts)) {
+        selectedDate.value = ts;
+      }
+    }
+  },
+  { immediate: true },
+);
+
+watch(selectedDate, (value) => {
+  if (value === null) {
+    if (query_date_.value !== undefined) {
+      query_date_.value = undefined;
+    }
+    return;
+  }
+  const nextValue = String(value);
+  if (query_date_.value !== nextValue) {
+    query_date_.value = nextValue;
+  }
+});
+
+const conversationRefs = ref<Record<number, HTMLElement | null>>({});
+const setLogRef = (el: unknown, id: number) => {
+  if (el instanceof HTMLElement) {
+    conversationRefs.value[id] = el;
+  }
+};
+
+const scrollToLogs = () => {
+  if (select_log_ids.value.length > 0) {
+    const minId = Math.min(...select_log_ids.value);
+    const el = conversationRefs.value[minId];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+};
+watch(select_log_ids, () => nextTick(scrollToLogs));
 const patient_id = useRouteParams("patient_id");
 const risks = ref<Risk[]>([]);
 const conversationLogs = ref<ConversationLog[]>([]);
@@ -97,9 +163,7 @@ const logsForDate = computed(() => {
       const parsed = parseDateValue(log.date);
       return parsed ? dateKey(parsed) === targetKey : false;
     });
-    if (matches.length) {
-      return matches;
-    }
+    return matches;
   }
   return conversationLogs.value;
 });
@@ -119,6 +183,8 @@ const detailSymptoms = computed(() => {
     other: source.symptoms_other || "n/a",
   };
 });
+
+watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 </script>
 <template>
   <div class="report-detail">
@@ -205,10 +271,14 @@ const detailSymptoms = computed(() => {
       <div class="conversation-panel conversation-right">
         <div class="conversation-title">Log History</div>
         <div class="conversation-box conversation-log">
-          <div class="conversation-scroll">
+          <div class="conversation-scroll" v-if="logsForDate.length > 0 || !conversationDate">
             <div
+              :ref="(el) => setLogRef(el, log.id)"
               class="log-row"
-              :class="log.role === 'assistant' ? 'log-agent' : 'log-user'"
+              :class="[
+                log.role === 'assistant' ? 'log-agent' : 'log-user',
+                { 'log-selected': select_log_ids.includes(log.id) },
+              ]"
               v-for="log in logsForDate"
               :key="log.id"
             >
@@ -241,21 +311,8 @@ const detailSymptoms = computed(() => {
               </div>
             </div>
           </div>
-          <div v-if="logsForDate.length === 0" class="log-row log-agent">
-            <div class="log-avatar">
-              <svg
-                width="800"
-                height="800"
-                viewBox="0 -64 640 640"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M32,224H64V416H32A31.96166,31.96166,0,0,1,0,384V256A31.96166,31.96166,0,0,1,32,224Zm512-48V448a64.06328,64.06328,0,0,1-64,64H160a64.06328,64.06328,0,0,1-64-64V176a79.974,79.974,0,0,1,80-80H288V32a32,32,0,0,1,64,0V96H464A79.974,79.974,0,0,1,544,176ZM264,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,264,256Zm-8,128H192v32h64Zm96,0H288v32h64ZM456,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,456,256Zm-8,128H384v32h64ZM640,256V384a31.96166,31.96166,0,0,1-32,32H576V224h32A31.96166,31.96166,0,0,1,640,256Z"
-                  fill="#7892b5"
-                />
-              </svg>
-            </div>
-            <div class="log-bubble log-agent-bubble">n/a</div>
+          <div v-else-if="logsForDate.length === 0 && conversationDate" class="log-empty-message">
+            No conversation logs for this date
           </div>
         </div>
       </div>
@@ -432,6 +489,7 @@ const detailSymptoms = computed(() => {
   height: 100%;
   overflow: auto;
   padding-right: 6px;
+  padding-left: 6px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -471,6 +529,27 @@ const detailSymptoms = computed(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  scroll-margin-top: 8px;
+  position: relative;
+}
+.log-row.log-selected::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 2px solid #5171ab;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.log-row.log-agent.log-selected > .log-bubble.log-agent-bubble {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.log-row.log-user.log-selected {
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 .log-agent {
   justify-content: flex-start;
@@ -509,6 +588,18 @@ const detailSymptoms = computed(() => {
   background: #ffffff;
   color: #222;
   box-shadow: 0 0 0 1px #e6e6e6 inset;
+}
+.log-empty-message {
+  color: #999999;
+  font-size: 12px;
+  text-align: center;
+  padding: 16px;
+  font-style: italic;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 .summary {
   .title {

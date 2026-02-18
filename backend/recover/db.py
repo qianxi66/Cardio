@@ -4,13 +4,14 @@ import types
 import typing as t
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Column, Table, Float, Boolean, Date # Import Date
+from sqlalchemy import ForeignKey, Column, Table, Float, Boolean, Date, Integer, String
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.collections import InstrumentedList
 from typing import List, Optional # Import Optional
+from .symptoms import symptom_descriptions
 
 db = SQLAlchemy()
 # from .symptoms import symptom_descriptions # This is no longer needed if Report model is removed
@@ -140,36 +141,40 @@ class Hospitalization(db.Model):
     event: Mapped[str] = mapped_column(db.String(500), nullable=False) # Description of the event/reason
 
 
+
 class Summary(db.Model):
-    __tablename__ = "summary" # Explicitly define table name
-    __relationship_keys__ = ["patient"]
+    __tablename__ = "summary"
+    
     id: Mapped[int] = mapped_column(primary_key=True)
-    patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patient.id"), nullable=False)
     patient: Mapped["Patient"] = relationship(back_populates="summaries")
 
     # Vital signs summary (float for more precision)
     heart_rate_min: Mapped[Optional[float]] = mapped_column(Float)
     heart_rate_max: Mapped[Optional[float]] = mapped_column(Float)
     heart_rate_average: Mapped[Optional[float]] = mapped_column(Float)
+    
     spo2_min: Mapped[Optional[float]] = mapped_column(Float)
     spo2_max: Mapped[Optional[float]] = mapped_column(Float)
     spo2_average: Mapped[Optional[float]] = mapped_column(Float)
+    
     respiration_min: Mapped[Optional[float]] = mapped_column(Float)
     respiration_max: Mapped[Optional[float]] = mapped_column(Float)
     respiration_average: Mapped[Optional[float]] = mapped_column(Float)
+    
     hrv_min: Mapped[Optional[float]] = mapped_column(Float)
     hrv_max: Mapped[Optional[float]] = mapped_column(Float)
     hrv_average: Mapped[Optional[float]] = mapped_column(Float)
 
-    # Symptom states (Boolean for presence/absence, or Integer for state codes)
-    short_of_breath: Mapped[Optional[bool]] = mapped_column(Boolean) # Assuming true/false for presence
-    chest_discomfort: Mapped[Optional[bool]] = mapped_column(Boolean)
-    fatigue: Mapped[Optional[bool]] = mapped_column(Boolean) # Corrected typo from fatiue
-    palpitation: Mapped[Optional[bool]] = mapped_column(Boolean)
-    swelling: Mapped[Optional[bool]] = mapped_column(Boolean)
-    syncope: Mapped[Optional[bool]] = mapped_column(Boolean)
+    date: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
 
-    date: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow) # When this summary was generated/recorded
+for symptom_name in symptom_descriptions:
+    setattr(Summary, f"{symptom_name}_state", mapped_column(Integer, nullable=True))
+    
+    setattr(Summary, f"{symptom_name}_logs", mapped_column(String, nullable=True))
+    
+    if symptom_descriptions[symptom_name].get("likert", False):
+        setattr(Summary, f"{symptom_name}_scale", mapped_column(Integer, nullable=True))
 
 
 class Risk(db.Model):

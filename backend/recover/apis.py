@@ -30,7 +30,8 @@ from .config import (
     mongodb_client_kwargs,
     GREETINGS,
 )
-from .openai_utils import conversation
+from .openai_utils import conversation, key_questions
+from .symptoms import symptom_descriptions
 from pymongo import MongoClient
 import logging
 
@@ -150,24 +151,57 @@ def _aggregate_avg_by_bin(
     end_ts,
     interval_seconds,
     value_field,
+    *,
+    min_value=0,
 ):
-    match_query = {
-        **_participant_filter(participant_id),
-        "timestamp": {"$gte": start_ts, "$lte": end_ts},
-        value_field: {"$gt": 0},
-    }
     pipeline = [
-        {"$match": match_query},
+        {"$match": {**_participant_filter(participant_id)}},
+        {
+            "$addFields": {
+                "_ts": {
+                    "$convert": {
+                        "input": "$timestamp",
+                        "to": "long",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                },
+                "_val": {
+                    "$convert": {
+                        "input": f"${value_field}",
+                        "to": "double",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                },
+            }
+        },
+        {
+            "$match": {
+                "_ts": {"$gte": start_ts, "$lte": end_ts},
+                "_val": {"$gt": min_value},
+            }
+        },
         {
             "$group": {
-                "_id": _bucket_offset_expr(start_ts, interval_seconds),
-                "avg_value": {"$avg": f"${value_field}"},
+                "_id": _bucket_offset_expr(start_ts, interval_seconds, field="_ts"),
+                "avg_value": {"$avg": "$_val"},
             }
         },
         {"$sort": {"_id": 1}},
     ]
     results = db2[collection_name].aggregate(pipeline)
-    return {int(row["_id"]): row.get("avg_value") for row in results}
+    out = {}
+    for row in results:
+        value = row.get("avg_value")
+        if not isinstance(value, (int, float)):
+            continue
+        if not math.isfinite(value):
+            continue
+        if value <= min_value:
+            continue
+        out[int(row["_id"])] = value
+    return out
 
 
 def _aggregate_rmssd_by_bin(
@@ -176,18 +210,64 @@ def _aggregate_rmssd_by_bin(
     start_ts,
     end_ts,
     interval_seconds,
+    *,
+    time_field="timestamp",
+    value_field="value",
 ):
-    match_query = {
-        **_participant_filter(participant_id),
-        "timestamp": {"$gte": start_ts, "$lte": end_ts},
-        "value": {"$gt": 0},
-    }
     pipeline = [
-        {"$match": match_query},
+        {"$match": {**_participant_filter(participant_id)}},
+        {
+            "$addFields": {
+                "_ts_primary": {
+                    "$convert": {
+                        "input": f"${time_field}",
+                        "to": "long",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                },
+                "_ts_fallback": {
+                    "$convert": {
+                        "input": "$processed_at",
+                        "to": "long",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                },
+                "_val_primary": {
+                    "$convert": {
+                        "input": f"${value_field}",
+                        "to": "double",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                },
+                "_val_fallback": {
+                    "$convert": {
+                        "input": "$bbi",
+                        "to": "double",
+                        "onError": None,
+                        "onNull": None,
+                    }
+                },
+            }
+        },
+        {
+            "$addFields": {
+                "_ts": {"$ifNull": ["$_ts_primary", "$_ts_fallback"]},
+                "_val": {"$ifNull": ["$_val_primary", "$_val_fallback"]},
+            }
+        },
+        {
+            "$match": {
+                "_ts": {"$gte": start_ts, "$lte": end_ts},
+                "_val": {"$gt": 0},
+            }
+        },
         {
             "$group": {
-                "_id": _bucket_offset_expr(start_ts, interval_seconds),
-                "values": {"$push": "$value"},
+                "_id": _bucket_offset_expr(start_ts, interval_seconds, field="_ts"),
+                "values": {"$push": "$_val"},
             }
         },
         {"$sort": {"_id": 1}},
@@ -897,7 +977,7 @@ def get_patient_wearable_timeseries(id):
             start_dt, now_dt = _utc_midnight_window(days=7)
             label_style = "date"
         else:
-            bin_seconds = 30 * 60
+            bin_seconds = 5 * 60   #aggregated by 5 minutes
             start_dt, now_dt = _utc_midnight_window()
             label_style = "time"
         start_ts = int(start_dt.timestamp())
@@ -993,6 +1073,7 @@ def get_patient_wearable_timeseries(id):
                 end_ts,
                 bin_seconds,
                 "heart_rate",
+                min_value=0,
             )
             resp_map = _aggregate_avg_by_bin(
                 db2,
@@ -1002,6 +1083,7 @@ def get_patient_wearable_timeseries(id):
                 end_ts,
                 bin_seconds,
                 "respiration",
+                min_value=0,
             )
             hrv_map = _aggregate_rmssd_by_bin(
                 db2,
@@ -1009,6 +1091,8 @@ def get_patient_wearable_timeseries(id):
                 start_ts,
                 end_ts,
                 bin_seconds,
+                time_field="processed_at",
+                value_field="bbi",
             )
             for i in range(len(labels)):
                 bin_start = start_ts + i * bin_seconds
@@ -1429,11 +1513,73 @@ def create_conversation_log(alexa_user_id):
     return jsonify(_columns_dict(log))
 
 
+def _date_midnight(dt):
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def get_or_create_summary(patient_id, target_date):
+    day_start = _date_midnight(target_date)
+    day_end = day_start + timedelta(days=1)
+    summary = (
+        Summary.query.filter_by(patient_id=patient_id)
+        .filter(Summary.date >= day_start, Summary.date < day_end)
+        .first()
+    )
+    if summary is None:
+        summary = Summary(patient_id=patient_id, date=day_start)
+        for symptom in symptom_descriptions:
+            setattr(summary, f"{symptom}_state", 0)
+            setattr(summary, f"{symptom}_logs", "[]")
+        db.session.add(summary)
+        db.session.commit()
+    return summary
+
+
+def process_patient_summary(patient_id, target_date):
+    """
+    Process conversation logs for a patient on target_date: run key_questions
+    and write symptom state/logs to Summary.
+    """
+    with app.app_context():
+        day_start = _date_midnight(target_date)
+        day_end = day_start + timedelta(days=1)
+        logs = (
+            ConversationLog.query.filter_by(patient_id=patient_id)
+            .filter(ConversationLog.date >= day_start, ConversationLog.date < day_end)
+            .order_by(ConversationLog.date.asc())
+            .all()
+        )
+        if not logs:
+            return
+        messages = [
+            {"id": log.id, "content": log.content, "role": log.role}
+            for log in logs
+        ]
+        try:
+            response = key_questions(json.dumps(messages))
+            response = json.loads(response)
+        except Exception as e:
+            logging.warning("key_questions failed: %s", e)
+            return
+        summary = get_or_create_summary(patient_id, target_date)
+        for key in response:
+            if key not in symptom_descriptions:
+                continue
+            setattr(summary, f"{key}_state", response[key].get("state", 0))
+            setattr(summary, f"{key}_logs", json.dumps(response[key].get("logs", [])))
+            if "scale" in response[key] and hasattr(summary, f"{key}_scale"):
+                setattr(summary, f"{key}_scale", response[key]["scale"])
+        db.session.add(summary)
+        db.session.commit()
+        logging.info("process_patient_summary done for patient_id=%s date=%s", patient_id, target_date)
+
+
 def session_end_hook(alexa_user_id):
     with app.app_context():
         patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
         if patient is None:
             return
+        process_patient_summary(patient.id, datetime.utcnow())
 
 
 @current_app.route("/alexa_user/<alexa_user_id>/session_end", methods=["POST"])

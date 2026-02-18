@@ -1,30 +1,44 @@
 symptom_descriptions = {
-    "physical": {
-        "description": "Physical Well-Being",
-        "display_name": "Physical",
-        "max_scale": 2,
-        "color": "#f9d965",
+    "short_of_breath": {
+        "description": "Shortness of Breath (Dyspnea)",
+        "display_name": "Breath",
+        "max_scale": 4,
+        "color": "#eb4c44", 
         "likert": False,
     },
-    "stress": {
-        "description": "Managing Stress",
-        "display_name": "Stress",
-        "max_scale": 2,
-        "color": "#f9d965",
+    "chest_discomfort": {
+        "description": "Chest Discomfort or Pain",
+        "display_name": "Chest",
+        "max_scale": 4,
+        "color": "#eb4c44", 
         "likert": False,
     },
-    "mood": {
-        "description": "Feeling Down or Depressed",
-        "display_name": "Emotion",
+    "fatigue": {
+        "description": "Fatigue or Tiredness",
+        "display_name": "Fatigue",
         "max_scale": 2,
-        "color": "#f9d965",
+        "color": "#6283ac", 
         "likert": False,
     },
-    "misc": {
-        "description": "Other Symptoms",
-        "display_name": "Misc",
-        "max_scale": 2,
-        "color": "#ff33db",
+    "palpitation": {
+        "description": "Heart Palpitations",
+        "display_name": "Palpitation",
+        "max_scale": 3,
+        "color": "#f9d965",  
+        "likert": False,
+    },
+    "swelling": {
+        "description": "Swelling (Edema)",
+        "display_name": "Swelling",
+        "max_scale": 3,
+        "color": "#f9d965", 
+        "likert": False,
+    },
+    "syncope": {
+        "description": "Fainting or Syncope",
+        "display_name": "Faint",
+        "max_scale": 4,
+        "color": "#eb4c44", 
         "likert": False,
     },
 }

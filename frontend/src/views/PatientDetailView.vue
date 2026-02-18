@@ -1,9 +1,11 @@
 <script setup lang="tsx">
 import { useRouteParams } from "@vueuse/router";
+import { useRouteQuery } from "@vueuse/router";
+import { useRouter } from "vue-router";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
-import { computed, watch, ref, inject } from "vue";
+import { computed, watch, ref, inject, type Component } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import type { Patient, Summary } from "@/api/types";
 import { getPatient, getSummaries } from "@/api/patient";
@@ -16,10 +18,12 @@ type HospitalizationEntry = {
   date?: string;
   therapy?: string;
   treatment?: string;
+  event?: string;
 };
 
 const refreshPatients = inject("refreshPatients");
 const patient_id = useRouteParams("patient_id");
+const query_date_ = useRouteQuery<string | undefined>("date");
 
 const patient = ref<Patient | null>(null);
 const summaries = ref<Summary[]>([]);
@@ -99,6 +103,32 @@ watch(
   { immediate: true },
 );
 
+watch(
+  query_date_,
+  (dateStr) => {
+    if (dateStr) {
+      const ts = parseInt(dateStr, 10);
+      if (!Number.isNaN(ts) && dailySummaryDate.value !== ts) {
+        dailySummaryDate.value = ts;
+      }
+    }
+  },
+  { immediate: true },
+);
+
+watch(dailySummaryDate, (value) => {
+  if (value === null) {
+    if (query_date_.value !== undefined) {
+      query_date_.value = undefined;
+    }
+    return;
+  }
+  const nextValue = String(value);
+  if (query_date_.value !== nextValue) {
+    query_date_.value = nextValue;
+  }
+});
+
 const parseDateValue = (value?: string | Date) => {
   if (!value) {
     return null;
@@ -174,22 +204,40 @@ const wearableOverviewRows = computed(() => {
   ];
 });
 
-const symptomState = (value?: boolean | null) => (value ? 2 : 1);
+const router = useRouter();
+const symptomState = (
+  summary: Summary | null,
+  symptomKey: string,
+): number => {
+  if (!summary) return 0;
+  const raw = (summary as Record<string, unknown>)[`${symptomKey}_state`];
+  const stateVal = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isNaN(stateVal) && stateVal > 0) {
+    return Math.min(4, Math.max(1, Math.round(stateVal)));
+  }
+  const boolVal = (summary as Record<string, unknown>)[symptomKey] as
+    | boolean
+    | undefined;
+  return boolVal ? 2 : 1;
+};
 
 const symptomsLeft = computed(() => {
   const summary = summaryForDate.value;
   return [
     {
       label: "Shortness of Breath",
-      state: summary ? symptomState(summary.short_of_breath) : 0,
+      symptom: "short_of_breath",
+      state: symptomState(summary, "short_of_breath"),
     },
     {
       label: "Chest Discomfort",
-      state: summary ? symptomState(summary.chest_discomfort) : 0,
+      symptom: "chest_discomfort",
+      state: symptomState(summary, "chest_discomfort"),
     },
     {
       label: "Fatigue",
-      state: summary ? symptomState(summary.fatigue) : 0,
+      symptom: "fatigue",
+      state: symptomState(summary, "fatigue"),
     },
   ];
 });
@@ -199,18 +247,49 @@ const symptomsRight = computed(() => {
   return [
     {
       label: "Palpitation",
-      state: summary ? symptomState(summary.palpitation) : 0,
+      symptom: "palpitation",
+      state: symptomState(summary, "palpitation"),
     },
     {
       label: "Swelling",
-      state: summary ? symptomState(summary.swelling) : 0,
+      symptom: "swelling",
+      state: symptomState(summary, "swelling"),
     },
     {
       label: "Syncope",
-      state: summary ? symptomState(summary.syncope) : 0,
+      symptom: "syncope",
+      state: symptomState(summary, "syncope"),
     },
   ];
 });
+
+const jumpToSummary = (summary: Summary, symptom: string) => {
+  const logsRaw = (summary as Record<string, unknown>)[
+    `${symptom}_logs`
+  ] as string | undefined;
+  const logsArr: number[] =
+    typeof logsRaw === "string"
+      ? (JSON.parse(logsRaw || "[]") as number[])
+      : Array.isArray(logsRaw)
+        ? (logsRaw as number[])
+        : [];
+  const dateVal = summary.date;
+  const dateTs =
+    typeof dateVal === "string"
+      ? new Date(dateVal).getTime()
+      : dateVal instanceof Date
+        ? dateVal.getTime()
+        : null;
+  router.push({
+    name: "patient.detail",
+    params: { patient_id: patient_id.value },
+    query: {
+      symptom,
+      logs: logsArr,
+      ...(dateTs != null && { date: String(dateTs) }),
+    },
+  });
+};
 
 const right = ref<Component | null>(null);
 const navEl = ref<HTMLDivElement | null>(null);
@@ -374,6 +453,7 @@ useResizeObserver(navEl, () => {
         <div class="daily-summary-content">
           <div class="overview-panel">
             <div class="panel-title">Wearable Sensor Data Overview</div>
+
             <div class="overview-box">
               <div class="overview-box-content">
                 <div
@@ -381,16 +461,16 @@ useResizeObserver(navEl, () => {
                   v-for="item in wearableOverviewRows"
                   :key="item.label"
                 >
-                  <div class="overview-label">{{ item.label }}</div>
+                  <div> <b>{{ item.label }}</b> ({{ item.unit }})</div>
                   <div class="overview-metrics-group">
                     <span class="overview-metric">
-                      <b>{{ item.average }}</b> {{ item.unit }} (average);
+                      <b>{{ item.average }}</b> (average);
                     </span>
                     <span class="overview-metric">
-                      <b>{{ item.max }}</b> {{ item.unit }} (max);
+                      <b>{{ item.max }}</b> (max);
                     </span>
                     <span class="overview-metric">
-                      <b>{{ item.min }}</b> {{ item.unit }} (min)
+                      <b>{{ item.min }}</b> (min)
                     </span>
                   </div>
                 </div>
@@ -411,6 +491,12 @@ useResizeObserver(navEl, () => {
                   class="symptom-row"
                   v-for="(item, index) in symptomsLeft"
                   :key="item.label"
+                  :class="{ clickable: item.state !== 0 && summaryForDate }"
+                  @click="
+                    item.state !== 0 &&
+                      summaryForDate &&
+                      jumpToSummary(summaryForDate, item.symptom)
+                  "
                 >
                   <Dot :state="item.state" />
                   <span>{{ item.label }}</span>
@@ -421,6 +507,12 @@ useResizeObserver(navEl, () => {
                   class="symptom-row"
                   v-for="(item, index) in symptomsRight"
                   :key="item.label"
+                  :class="{ clickable: item.state !== 0 && summaryForDate }"
+                  @click="
+                    item.state !== 0 &&
+                      summaryForDate &&
+                      jumpToSummary(summaryForDate, item.symptom)
+                  "
                 >
                   <Dot :state="item.state" />
                   <span>{{ item.label }}</span>
@@ -771,7 +863,7 @@ useResizeObserver(navEl, () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  row-gap: 8px;
+  row-gap: 0;
   overflow: auto;
   padding-right: 4px;
   box-sizing: border-box;
@@ -804,6 +896,7 @@ useResizeObserver(navEl, () => {
   flex-wrap: wrap;
   gap: 8px;
   color: #555;
+  margin-top: 8px;
 }
 
 .overview-metric {
@@ -840,6 +933,12 @@ useResizeObserver(navEl, () => {
   column-gap: 8px;
   row-gap: 8px;
   font-size: 14px;
+}
+.symptom-row.clickable {
+  cursor: pointer;
+}
+.symptom-row.clickable:hover {
+  opacity: 0.8;
 }
 .detailed-wearable {
   flex: 3 1 0;

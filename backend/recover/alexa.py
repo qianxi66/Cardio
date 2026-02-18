@@ -50,6 +50,7 @@ def getLastMessage(alexa_user_id: str):
         if auto_create_patient:
             participant_id = alexa_user_id.split("@")[0]
             patient = Patient(
+                name="Alexa User",
                 alexa_user_id=alexa_user_id,
                 last_read_at=datetime.utcnow(),
                 participant_id="AUTO_" + participant_id,
