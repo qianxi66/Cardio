@@ -34,6 +34,7 @@ from .openai_utils import conversation, key_questions
 from .symptoms import symptom_descriptions
 from pymongo import MongoClient
 import logging
+from sqlalchemy.exc import OperationalError
 
 # Cache for wearable data
 wearable_data_cache = {}  # Format: {alexa_user_id: {'timestamp': datetime, 'data': {...}}}
@@ -380,19 +381,28 @@ def login_required(f):
 
         if not token:
             abort(401)
+        now = datetime.utcnow()
         # Token expired
-        if not token.rememberme and datetime.utcnow() - token.updated_at > timedelta(
+        if not token.rememberme and now - token.updated_at > timedelta(
             hours=TOKEN_EXPIRATION_HOURS
         ):
             abort(401)
         # Remember me expired
-        if token.rememberme and datetime.utcnow() - token.updated_at > timedelta(
+        if token.rememberme and now - token.updated_at > timedelta(
             hours=REMEMBERME_EXPIRATION_HOURS
         ):
             abort(401)
-        token.updated_at = datetime.utcnow()
-        db.session.add(token)
-        db.session.commit()
+        # Avoid writing on every request to reduce SQLite lock contention.
+        if now - token.updated_at > timedelta(minutes=10):
+            token.updated_at = now
+            db.session.add(token)
+            try:
+                db.session.commit()
+            except OperationalError:
+                db.session.rollback()
+                current_app.logger.warning(
+                    "Skipping token updated_at write due to DB lock"
+                )
         # Get user
         user = User.query.filter_by(id=token.userid).first()
         if user:
@@ -1091,7 +1101,7 @@ def get_patient_wearable_timeseries(id):
                 start_ts,
                 end_ts,
                 bin_seconds,
-                time_field="processed_at",
+                time_field="timestamp",
                 value_field="bbi",
             )
             for i in range(len(labels)):

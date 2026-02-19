@@ -588,8 +588,15 @@ const buildOption = (): echarts.EChartsOption => ({
 
 const applyOption = () => {
   chart?.setOption(buildOption(), true);
-  chart?.resize();
-  updateMarkerGraphic();
+  scheduleResize();
+};
+
+const scheduleResize = () => {
+  if (!chart) return;
+  requestAnimationFrame(() => {
+    chart?.resize();
+    updateMarkerGraphic();
+  });
 };
 
 const toggleSeries = (name: string) => {
@@ -767,13 +774,13 @@ onMounted(() => {
   bindDragEvents();
   startNowMarkerInterval();
   const handleWindowResize = () => {
-    chart?.resize();
-    updateMarkerGraphic();
+    scheduleResize();
   };
   window.addEventListener("resize", handleWindowResize);
   cleanupWindowResize = () => {
     window.removeEventListener("resize", handleWindowResize);
   };
+  scheduleResize();
 });
 
 watch(
@@ -802,8 +809,7 @@ watch(
 );
 
 useResizeObserver(chartEl, () => {
-  chart?.resize();
-  updateMarkerGraphic();
+  scheduleResize();
 });
 
 onBeforeUnmount(() => {
@@ -855,21 +861,26 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   min-height: 220px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 .chart-legend {
   display: flex;
-  flex-wrap: nowrap;
-  justify-content: space-between;
-  column-gap: 0;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  column-gap: 12px;
   row-gap: 8px;
   margin-bottom: 8px;
   width: 100%;
+  min-width: 0;
 }
 .legend-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
+  min-width: 0;
   background: none;
   border: none;
   padding: 0;
@@ -916,5 +927,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 </style>

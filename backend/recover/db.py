@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import types
 import typing as t
+import sqlite3
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Column, Table, Float, Boolean, Date, Integer, String
+from sqlalchemy import ForeignKey, Column, Table, Float, Boolean, Date, Integer, String, event
+from sqlalchemy.engine import Engine
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
 
@@ -49,6 +51,17 @@ def as_dict(self, _visited=None):
 db.Model.as_dict = as_dict
 # Initialize __relationship_keys__ for all models
 db.Model.__relationship_keys__ = []
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("PRAGMA synchronous=NORMAL;")
+    cursor.execute("PRAGMA busy_timeout=30000;")
+    cursor.close()
 
 
 class NotFound(Exception):

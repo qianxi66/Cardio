@@ -269,6 +269,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 .n-card {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   :deep(.n-card__content) {
     overflow: overlay;
     margin-top: 4px;
@@ -281,6 +282,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   row-gap: 16px;
   flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
   padding-right: 16px;
   box-sizing: border-box;
 }
@@ -299,6 +301,8 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 .wearable-dual-chart {
   display: flex;
@@ -306,10 +310,12 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   gap: 8px;
   height: 100%;
   min-height: 0;
+  min-width: 0;
 }
 .chart-section {
   flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -498,7 +504,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 }
 .summary-card {
   :deep(.n-card__content) {
-    padding: 8px 12px;
+    padding: 16px 16px;
   }
 }
 // .input{

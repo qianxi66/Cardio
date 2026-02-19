@@ -641,6 +641,7 @@ useResizeObserver(navEl, () => {
 <style scoped lang="scss">
 .row {
   flex-grow: 1;
+  min-width: 0;
   .col {
     min-width: 0;
     flex-grow: 1;
@@ -654,6 +655,7 @@ useResizeObserver(navEl, () => {
 .main-col,
 .side-col {
   flex: 1 1 0;
+  min-width: 0;
   padding-bottom: 16px;
   box-sizing: border-box;
 }
@@ -859,11 +861,13 @@ useResizeObserver(navEl, () => {
 .side-content {
   flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
   display: flex;
 }
 .daily-summary {
   flex: 2 1 0;
   min-height: 0;
+  min-width: 0;
 }
 .day-navigator {
   flex: 0 0 280px;

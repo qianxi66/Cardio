@@ -15,6 +15,11 @@ from .db import db
 app = Flask(__name__)
 cors = CORS()
 app.config["SQLALCHEMY_DATABASE_URI"] = config.db_url
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "connect_args": {
+        "timeout": 30,
+    }
+}
 migrate = Migrate(app, db, render_as_batch=True)
 
 cors.init_app(app)

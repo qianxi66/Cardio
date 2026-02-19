@@ -57,12 +57,40 @@ export type WearableTimeSeries = {
   range?: string;
 };
 
+const wearableTimeseriesInFlight = new Map<string, Promise<WearableTimeSeries>>();
+const wearableTimeseriesCache = new Map<
+  string,
+  { data: WearableTimeSeries; cachedAt: number }
+>();
+const WEARABLE_CACHE_TTL_MS = 10_000;
+
 export const getWearableTimeSeries = async (id: number, range = "24h") => {
-  return (await api({
+  const key = `${id}:${range}`;
+  const now = Date.now();
+  const cached = wearableTimeseriesCache.get(key);
+  if (cached && now - cached.cachedAt < WEARABLE_CACHE_TTL_MS) {
+    return cached.data;
+  }
+  const inFlight = wearableTimeseriesInFlight.get(key);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const req = (api({
     url: `/patients/${id}/wearable/timeseries`,
     params: { range },
     method: "GET",
-  })) as WearableTimeSeries;
+  }) as Promise<WearableTimeSeries>)
+    .then((data) => {
+      wearableTimeseriesCache.set(key, { data, cachedAt: Date.now() });
+      return data;
+    })
+    .finally(() => {
+      wearableTimeseriesInFlight.delete(key);
+    });
+
+  wearableTimeseriesInFlight.set(key, req);
+  return req;
 };
 
 export const getSummaries = async (patient_id: number) => {
