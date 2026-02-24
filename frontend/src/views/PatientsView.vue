@@ -183,14 +183,16 @@ watch(patient_id, () => {
 <style scoped lang="scss">
 .header {
   display: flex;
-  height: 50px;
+  align-items: center;
+  min-height: 30px;
+  margin-bottom: 8px;
 }
 .title {
   flex-grow: 1;
-  font-size: 20px;
-  height: 28px;
-  margin-bottom: 8px;
-  margin-left: 0px;
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 700;
+  margin: 0;
 }
 .holder {
   flex: 1;
@@ -215,7 +217,21 @@ watch(patient_id, () => {
   overflow: overlay;
 }
 .filterpart {
-  margin-left: 0px;
+  margin-left: 0;
+}
+.patient-list:deep(.n-card-header) {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.patient-list:deep(.n-card-header__main) {
+  width: 100%;
+}
+.patient-list:deep(.n-input) {
+  margin-top: 0;
+}
+.header :deep(.n-button) {
+  width: 28px;
+  height: 28px;
 }
 .icon-button {
   background: none;
@@ -255,7 +271,7 @@ watch(patient_id, () => {
   flex: 1;
   color: black;
   .name {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 500;
   }
 }

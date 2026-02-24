@@ -113,6 +113,7 @@ const selectedSeries = ref<Record<string, boolean>>({
   SpO2: true,
   "Heart Rate Variability": true,
 });
+const wearableRange = ref<"24h" | "7d">("24h");
 const toggleSeries = (name: string) => {
   selectedSeries.value = {
     ...selectedSeries.value,
@@ -156,49 +157,55 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 </script>
 <template>
   <div class="report-detail">
-    <ColoredCard
-      color="#5171AB"
-      rounded
-      title="Detailed Wearable Sensor Data"
-      class="summary-card detailed-wearable-card indigo-title full-title-bar"
-    >
-      <div class="wearable-dual-chart">
-        <div class="chart-section">
-          <div class="chart-wrapper">
-            <DetailedWearableChart
-              :patient-id="patientIdParam ?? undefined"
-              range="24h"
-              :selected-series="selectedSeries"
-              @toggle-series="toggleSeries"
-            />
+    <slot name="top-card">
+      <ColoredCard
+        color="#5171AB"
+        rounded
+        title="Detailed Wearable Sensor Data"
+        class="summary-card detailed-wearable-card indigo-title full-title-bar"
+      >
+        <template #title-extra>
+          <div class="wearable-range-switch">
+            <button
+              type="button"
+              class="range-btn"
+              :class="{ active: wearableRange === '24h' }"
+              @click="wearableRange = '24h'"
+            >
+              <span class="range-dot" aria-hidden="true"></span>
+              <span>Last 24 Hrs</span>
+            </button>
+            <button
+              type="button"
+              class="range-btn"
+              :class="{ active: wearableRange === '7d' }"
+              @click="wearableRange = '7d'"
+            >
+              <span class="range-dot" aria-hidden="true"></span>
+              <span>Last 7 days</span>
+            </button>
+          </div>
+        </template>
+        <div class="wearable-dual-chart">
+          <div class="chart-section">
+            <div class="chart-wrapper">
+              <DetailedWearableChart
+                :patient-id="patientIdParam ?? undefined"
+                :range="wearableRange"
+                :selected-series="selectedSeries"
+                @toggle-series="toggleSeries"
+              />
+            </div>
           </div>
         </div>
-        <div class="chart-section">
-          <div class="chart-wrapper">
-            <DetailedWearableChart
-              :patient-id="patientIdParam ?? undefined"
-              range="7d"
-              :show-legend="false"
-              :selected-series="selectedSeries"
-            />
-          </div>
-        </div>
-      </div>
-    </ColoredCard>
+      </ColoredCard>
+    </slot>
     <ColoredCard
       color="#5171AB"
       rounded
       title="Conversational Log"
       class="conversation-card indigo-title full-title-bar"
     >
-      <template #title-extra>
-        <n-date-picker
-          v-model:value="conversationDate"
-          type="date"
-          size="small"
-          clearable
-        />
-      </template>
       <div class="conversation-panel conversation-left">
         <div class="conversation-title">Details Symptoms from Log</div>
         <div class="conversation-box conversation-detail">
@@ -291,10 +298,11 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   min-height: 0;
 }
 .report-detail .detailed-wearable-card {
-  flex: 0 1 68%;
+  flex: 0 1 50%;
 }
 .report-detail .conversation-card {
-  flex: 0 1 32%;
+  flex: 1 1 0;
+  min-height: 0;
 }
 .detailed-wearable-card :deep(.n-card__content) {
   display: flex;
@@ -303,6 +311,54 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+.wearable-range-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  margin-right: 6px;
+}
+.range-btn {
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  height: 24px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 24px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.9;
+  transition: opacity 0.15s ease;
+}
+.range-btn:hover {
+  opacity: 1;
+}
+.range-dot {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-sizing: border-box;
+  position: relative;
+  flex: 0 0 14px;
+}
+.range-btn.active {
+  opacity: 1;
+}
+.range-btn.active .range-dot::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 .wearable-dual-chart {
   display: flex;

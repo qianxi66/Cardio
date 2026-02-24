@@ -1,6 +1,6 @@
 import json
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import random
 import secrets
@@ -35,6 +35,7 @@ from .symptoms import symptom_descriptions
 from pymongo import MongoClient
 import logging
 from sqlalchemy.exc import OperationalError
+from zoneinfo import ZoneInfo
 
 # Cache for wearable data
 wearable_data_cache = {}  # Format: {alexa_user_id: {'timestamp': datetime, 'data': {...}}}
@@ -42,6 +43,7 @@ CACHE_EXPIRY_MINUTES = 60  # Cache expires after 60 minutes
 
 MONGO_BACKOFF_SECONDS = 30
 _mongo_unavailable_until = 0.0
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 
 def _get_mongo_client():
@@ -65,11 +67,13 @@ def _get_mongo_client():
 
 
 def _utc_midnight_window(days=1):
-    now_utc = datetime.utcnow()
-    start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Keep function name for compatibility; window now follows Eastern day boundary.
+    now_utc = datetime.now(timezone.utc)
+    now_et = now_utc.astimezone(EASTERN_TZ)
+    start_utc = now_et.replace(hour=0, minute=0, second=0, microsecond=0)
     if days > 1:
         start_utc = start_utc - timedelta(days=days - 1)
-    return start_utc, now_utc
+    return start_utc, now_et
 
 
 def _build_labels(start_dt, end_dt, bin_seconds, label_style):
@@ -1013,7 +1017,11 @@ def get_patient_wearable_timeseries(id):
                 {
                     "times": labels,
                     "series": series,
-                    "window": {"start_ts": start_ts, "end_ts": end_ts, "timezone": "UTC"},
+                    "window": {
+                        "start_ts": start_ts,
+                        "end_ts": end_ts,
+                        "timezone": "America/New_York",
+                    },
                     "range": range_param,
                 }
             )
@@ -1027,7 +1035,11 @@ def get_patient_wearable_timeseries(id):
                 {
                     "times": labels,
                     "series": series,
-                    "window": {"start_ts": start_ts, "end_ts": end_ts, "timezone": "UTC"},
+                    "window": {
+                        "start_ts": start_ts,
+                        "end_ts": end_ts,
+                        "timezone": "America/New_York",
+                    },
                     "range": range_param,
                 }
             )
@@ -1069,7 +1081,7 @@ def get_patient_wearable_timeseries(id):
                         "window": {
                             "start_ts": start_ts,
                             "end_ts": end_ts,
-                            "timezone": "UTC",
+                            "timezone": "America/New_York",
                         },
                         "range": range_param,
                     }
@@ -1121,7 +1133,11 @@ def get_patient_wearable_timeseries(id):
             {
                 "times": labels,
                 "series": series,
-                "window": {"start_ts": start_ts, "end_ts": end_ts, "timezone": "UTC"},
+                "window": {
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "timezone": "America/New_York",
+                },
                 "range": range_param,
             }
         )

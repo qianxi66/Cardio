@@ -475,8 +475,17 @@ const getTooltipPosition = (
   return [x, y];
 };
 
-const buildOption = (): echarts.EChartsOption => ({
-  grid: { left: 0, right: 20, top: 20, bottom: 20, containLabel: true },
+const buildOption = (): echarts.EChartsOption => {
+  const isDense24h = rangeValue.value === "24h" && times.value.length > 300;
+  return {
+  grid: {
+    left: 0,
+    right: 20,
+    top: 20,
+    // Keep extra room for rotated ticks + axis name in dense 24h mode.
+    bottom: isDense24h ? 68 : 36,
+    containLabel: true,
+  },
   tooltip: {
     trigger: "axis",
     confine: true,
@@ -489,7 +498,7 @@ const buildOption = (): echarts.EChartsOption => ({
     data: times.value,
     name: rangeValue.value === "24h" ? "Last 24 Hrs" : "Last 7 days",
     nameLocation: "middle",
-    nameGap: 50,
+    nameGap: isDense24h ? 56 : 48,
     nameTextStyle: {
       color: "#000000",
       fontSize: 13,
@@ -514,6 +523,9 @@ const buildOption = (): echarts.EChartsOption => ({
       axisLabel: {
         color: "#4bbfd1",
         fontWeight: "bold",
+        showMinLabel: true,
+        showMaxLabel: true,
+        hideOverlap: false,
         formatter: (value: number) => (value === 0 ? `${value}\n(bpm)` : `${value}`),
       },
       axisLine: { show: true, lineStyle: { color: "#4bbfd1", width: 2 } },
@@ -529,6 +541,9 @@ const buildOption = (): echarts.EChartsOption => ({
       axisLabel: {
         color: "#ec48d3",
         fontWeight: "bold",
+        showMinLabel: true,
+        showMaxLabel: true,
+        hideOverlap: false,
         formatter: (value: number) => (value === 5 ? `${value}\n(bpm)` : `${value}`),
       },
       axisLine: { show: true, lineStyle: { color: "#ec48d3", width: 2 } },
@@ -544,6 +559,9 @@ const buildOption = (): echarts.EChartsOption => ({
         formatter: (value: number) => `${value}\n%`,
         color: "#0fb54c",
         fontWeight: "bold",
+        showMinLabel: true,
+        showMaxLabel: true,
+        hideOverlap: false,
       },
       axisLine: { show: true, lineStyle: { color: "#0fb54c", width: 2 } },
       axisTick: { show: false },
@@ -558,6 +576,9 @@ const buildOption = (): echarts.EChartsOption => ({
       axisLabel: {
         color: "#705ddd",
         fontWeight: "bold",
+        showMinLabel: true,
+        showMaxLabel: true,
+        hideOverlap: false,
         formatter: (value: number) => (value === 0 ? `${value}\n(ms)` : `${value}`),
       },
       axisLine: { show: true, lineStyle: { color: "#705ddd", width: 2 } },
@@ -584,7 +605,8 @@ const buildOption = (): echarts.EChartsOption => ({
       markLine: undefined,
     };
   }),
-});
+  };
+};
 
 const applyOption = () => {
   chart?.setOption(buildOption(), true);
@@ -929,5 +951,14 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+:deep(.n-spin),
+:deep(.n-spin-container),
+:deep(.n-spin-content) {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 </style>

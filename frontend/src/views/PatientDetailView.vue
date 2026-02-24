@@ -4,15 +4,16 @@ import { useRouteQuery } from "@vueuse/router";
 import { useRouter } from "vue-router";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
+import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
 import { computed, watch, ref, inject, type Component } from "vue";
-import { useResizeObserver } from "@vueuse/core";
 import type { Patient, Summary } from "@/api/types";
 import { getPatient, getSummaries } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 import { format } from "date-fns";
 import type { CancelTokenSource } from "axios";
 import axios from "axios";
+import { useDialog, useMessage } from "naive-ui";
 
 type HospitalizationEntry = {
   date?: string;
@@ -30,6 +31,20 @@ const summaries = ref<Summary[]>([]);
 const loading = ref(true);
 const cancelToken = ref<CancelTokenSource | null>(null);
 const dailySummaryDate = ref<number | null>(Date.now());
+const overallSummaryDraft = ref("");
+const wearableRange = ref<"24h" | "7d">("24h");
+const selectedSeries = ref<Record<string, boolean>>({
+  "Heart Rate": true,
+  Respiration: true,
+  SpO2: true,
+  "Heart Rate Variability": true,
+});
+const toggleSeries = (name: string) => {
+  selectedSeries.value = {
+    ...selectedSeries.value,
+    [name]: !selectedSeries.value[name],
+  };
+};
 const patientName = computed(() => {
   const data = patient.value as (Patient & { patient_name?: string; name?: string }) | null;
   return data?.patient_name || data?.name || data?.users?.[0]?.name || "n/a";
@@ -204,6 +219,8 @@ const wearableOverviewRows = computed(() => {
 });
 
 const router = useRouter();
+const dialog = useDialog();
+const message = useMessage();
 const symptomState = (
   summary: Summary | null,
   symptomKey: string,
@@ -219,48 +236,6 @@ const symptomState = (
     | undefined;
   return boolVal ? 2 : 1;
 };
-
-const symptomsLeft = computed(() => {
-  const summary = summaryForDate.value;
-  return [
-    {
-      label: "Shortness of Breath",
-      symptom: "short_of_breath",
-      state: symptomState(summary, "short_of_breath"),
-    },
-    {
-      label: "Chest Discomfort",
-      symptom: "chest_discomfort",
-      state: symptomState(summary, "chest_discomfort"),
-    },
-    {
-      label: "Fatigue",
-      symptom: "fatigue",
-      state: symptomState(summary, "fatigue"),
-    },
-  ];
-});
-
-const symptomsRight = computed(() => {
-  const summary = summaryForDate.value;
-  return [
-    {
-      label: "Palpitation",
-      symptom: "palpitation",
-      state: symptomState(summary, "palpitation"),
-    },
-    {
-      label: "Swelling",
-      symptom: "swelling",
-      state: symptomState(summary, "swelling"),
-    },
-    {
-      label: "Syncope",
-      symptom: "syncope",
-      state: symptomState(summary, "syncope"),
-    },
-  ];
-});
 
 const dayOverviewSymptoms = [
   {
@@ -321,6 +296,20 @@ const selectDayOverview = (timestamp: number | null) => {
   dailySummaryDate.value = timestamp;
 };
 
+const jumpToDayOverviewSummary = (
+  summary: Summary | null,
+  timestamp: number | null,
+  symptom: string,
+) => {
+  if (!summary) return;
+  const state = symptomState(summary, symptom);
+  if (state === 0) return;
+  if (timestamp !== null) {
+    selectDayOverview(timestamp);
+  }
+  jumpToSummary(summary, symptom);
+};
+
 const jumpToSummary = (summary: Summary, symptom: string) => {
   const logsRaw = (summary as Record<string, unknown>)[
     `${symptom}_logs`
@@ -350,31 +339,23 @@ const jumpToSummary = (summary: Summary, symptom: string) => {
 };
 
 const right = ref<Component | null>(null);
-const navEl = ref<HTMLDivElement | null>(null);
 
-const updateNavWidths = () => {
-  if (!navEl.value) return;
-  const buttons = Array.from(navEl.value.querySelectorAll<HTMLButtonElement>(".nav-btn"));
-  if (!buttons.length) return;
-  let maxWidth = 0;
-  buttons.forEach((btn) => {
-    btn.style.width = "auto";
+const handleLogout = () => {
+  dialog.warning({
+    title: "Confirm Logout",
+    content: "Are you sure you want to log out?",
+    positiveText: "Confirm",
+    negativeText: "Cancel",
+    onPositiveClick: () => {
+      localStorage.removeItem("token");
+      router.push("/login");
+      message.success("You have been logged out.");
+    },
+    onNegativeClick: () => {
+      message.info("Logout canceled.");
+    },
   });
-  buttons.forEach((btn) => {
-    const width = btn.getBoundingClientRect().width;
-    if (width > maxWidth) maxWidth = width;
-  });
-  if (maxWidth > 0) {
-    const target = `${Math.ceil(maxWidth)}px`;
-    buttons.forEach((btn) => {
-      btn.style.width = target;
-    });
-  }
 };
-
-useResizeObserver(navEl, () => {
-  updateNavWidths();
-});
 </script>
 
 <template>
@@ -405,7 +386,7 @@ useResizeObserver(navEl, () => {
                 @click="$router.push(`/patient/${patient_id}/update`)"
               >
                 <template #icon>
-                  <n-icon>
+                  <n-icon :size="22">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 16 16"
@@ -424,14 +405,37 @@ useResizeObserver(navEl, () => {
             Edit Patient
           </n-tooltip>
           <div class="patient-nav-spacer"></div>
-          <div class="patient-nav" ref="navEl">
-            <button class="nav-btn active" type="button">Homepage</button>
-            <button class="nav-btn" type="button">Quick View</button>
-            <button class="nav-btn" type="button">Medications</button>
-            <button class="nav-btn" type="button">Results</button>
-            <button class="nav-btn" type="button">Therapy</button>
-            <button class="nav-btn" type="button">Orders</button>
-            <button class="nav-btn" type="button">Oncology</button>
+          <div class="patient-nav">
+            <n-date-picker
+              v-model:value="dailySummaryDate"
+              type="date"
+              size="small"
+              clearable
+            />
+            <button
+              type="button"
+              class="logout-btn"
+              @click="handleLogout"
+              aria-label="Logout"
+            >
+              <n-icon :size="24">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M10 12H20M20 12L17 9M20 12L17 15"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M4 12C4 7.58172 7.58172 4 12 4M12 20C9.47362 20 7.22075 18.8289 5.75463 17"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </n-icon>
+            </button>
           </div>
         </div>
         <div class="row demographic"></div>
@@ -495,19 +499,48 @@ useResizeObserver(navEl, () => {
         </Loading>
       </ColoredCard>
       <ColoredCard
+        class="detailed-wearable-card indigo-title full-title-bar"
+        title="Detailed Wearable Sensor Data"
+        color="#5171AB"
+        rounded
+      >
+        <template #title-extra>
+          <div class="wearable-range-switch">
+            <button
+              type="button"
+              class="range-btn"
+              :class="{ active: wearableRange === '24h' }"
+              @click="wearableRange = '24h'"
+            >
+              <span class="range-dot" aria-hidden="true"></span>
+              <span>Last 24 Hrs</span>
+            </button>
+            <button
+              type="button"
+              class="range-btn"
+              :class="{ active: wearableRange === '7d' }"
+              @click="wearableRange = '7d'"
+            >
+              <span class="range-dot" aria-hidden="true"></span>
+              <span>Last 7 days</span>
+            </button>
+          </div>
+        </template>
+        <div class="wearable-chart-wrapper">
+          <DetailedWearableChart
+            :patient-id="patientIdParam ?? undefined"
+            :range="wearableRange"
+            :selected-series="selectedSeries"
+            @toggle-series="toggleSeries"
+          />
+        </div>
+      </ColoredCard>
+      <ColoredCard
         class="daily-summary indigo-title full-title-bar"
         title="Daily Summary"
         color="#5171AB"
         rounded
       >
-        <template #title-extra>
-          <n-date-picker
-            v-model:value="dailySummaryDate"
-            type="date"
-            size="small"
-            clearable
-          />
-        </template>
         <div class="daily-summary-content">
           <div class="overview-panel">
             <div class="panel-title">Wearable Sensor Data Overview</div>
@@ -542,85 +575,31 @@ useResizeObserver(navEl, () => {
             </div>
           </div>
           <div class="overview-panel">
-            <div class="panel-title">Symptoms Overview</div>
-            <div class="symptoms-box">
-              <div class="symptoms-column">
-                <div
-                  class="symptom-row"
-                  v-for="(item, index) in symptomsLeft"
-                  :key="item.label"
-                  :class="{ clickable: item.state !== 0 && summaryForDate }"
-                  @click="
-                    item.state !== 0 &&
-                      summaryForDate &&
-                      jumpToSummary(summaryForDate, item.symptom)
-                  "
+            <div class="panel-title">Overall Summary</div>
+            <div class="overall-summary-box">
+              <div class="overall-summary-content"></div>
+              <div class="overall-summary-input-row">
+                <input
+                  v-model="overallSummaryDraft"
+                  class="overall-summary-input"
+                  type="text"
+                  placeholder="Type a summary note"
+                />
+                <button
+                  type="button"
+                  class="overall-summary-send-btn"
+                  aria-label="Send summary"
                 >
-                  <Dot :state="item.state" />
-                  <span>{{ item.label }}</span>
-                </div>
-              </div>
-              <div class="symptoms-column">
-                <div
-                  class="symptom-row"
-                  v-for="(item, index) in symptomsRight"
-                  :key="item.label"
-                  :class="{ clickable: item.state !== 0 && summaryForDate }"
-                  @click="
-                    item.state !== 0 &&
-                      summaryForDate &&
-                      jumpToSummary(summaryForDate, item.symptom)
-                  "
-                >
-                  <Dot :state="item.state" />
-                  <span>{{ item.label }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </ColoredCard>
-      <ColoredCard
-        class="day-navigator indigo-title full-title-bar"
-        title="Daily Symptom Overview"
-        color="#5171AB"
-        rounded
-      >
-        <div class="day-navigator-content">
-          <div class="day-overview-table">
-            <div class="table-row day-overview-header">
-              <div class="date">Date</div>
-              <div
-                class="symptom"
-                v-for="symptom in dayOverviewSymptoms"
-                :key="symptom.key"
-              >
-                {{ symptom.display_name }}
-              </div>
-            </div>
-
-            <div class="day-overview-scroll">
-              <div
-                class="table-row table-row-block day-overview-row"
-                v-for="(row, index) in dayOverviewRows"
-                :key="row.id"
-                :class="{
-                  odd: index % 2 === 1,
-                  selected: row.isSelected,
-                }"
-                @click="selectDayOverview(row.timestamp)"
-              >
-                <div class="date">{{ row.dateLabel }}</div>
-                <div
-                  class="symptom"
-                  v-for="symptom in dayOverviewSymptoms"
-                  :key="`${row.id}-${symptom.key}`"
-                >
-                  <Dot :state="symptomState(row.summary, symptom.key)" />
-                </div>
-              </div>
-              <div v-if="dayOverviewRows.length === 0" class="day-overview-empty">
-                No daily summaries
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M10.3009 13.6949L20.102 3.89742M10.5795 14.1355L12.8019 18.5804C13.339 19.6545 13.6075 20.1916 13.9458 20.3356C14.2394 20.4606 14.575 20.4379 14.8492 20.2747C15.1651 20.0866 15.3591 19.5183 15.7472 18.3818L19.9463 6.08434C20.2845 5.09409 20.4535 4.59896 20.3378 4.27142C20.2371 3.98648 20.013 3.76234 19.7281 3.66167C19.4005 3.54595 18.9054 3.71502 17.9151 4.05315L5.61763 8.2523C4.48114 8.64037 3.91289 8.83441 3.72478 9.15032C3.56153 9.42447 3.53891 9.76007 3.66389 10.0536C3.80791 10.3919 4.34498 10.6605 5.41912 11.1975L9.86397 13.42C10.041 13.5085 10.1295 13.5527 10.2061 13.6118C10.2742 13.6643 10.3352 13.7253 10.3876 13.7933C10.4468 13.87 10.491 13.9585 10.5795 14.1355Z"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
               </div>
             </div>
           </div>
@@ -630,7 +609,64 @@ useResizeObserver(navEl, () => {
       <div class="col side-col">
         <div class="side-content">
           <router-view v-slot="{ Component }">
-            <component :is="Component || ReportDetailView" ref="right" />
+            <component :is="Component || ReportDetailView" ref="right">
+              <template #top-card>
+                <ColoredCard
+                  class="day-navigator indigo-title full-title-bar"
+                  title="Daily Symptom Overview"
+                  color="#5171AB"
+                  rounded
+                >
+                  <div class="day-navigator-content">
+                    <div class="day-overview-table">
+                      <div class="table-row day-overview-header">
+                        <div class="date">Date</div>
+                        <div
+                          class="symptom"
+                          v-for="symptom in dayOverviewSymptoms"
+                          :key="symptom.key"
+                        >
+                          {{ symptom.display_name }}
+                        </div>
+                      </div>
+
+                      <div class="day-overview-scroll">
+                        <div
+                          class="table-row table-row-block day-overview-row"
+                          v-for="(row, index) in dayOverviewRows"
+                          :key="row.id"
+                          :class="{
+                            odd: index % 2 === 1,
+                            selected: row.isSelected,
+                          }"
+                          @click="selectDayOverview(row.timestamp)"
+                        >
+                          <div class="date">{{ row.dateLabel }}</div>
+                          <div
+                            class="symptom"
+                            v-for="symptom in dayOverviewSymptoms"
+                            :key="`${row.id}-${symptom.key}`"
+                            :class="{ clickable: symptomState(row.summary, symptom.key) !== 0 }"
+                            @click.stop="
+                              jumpToDayOverviewSummary(
+                                row.summary,
+                                row.timestamp,
+                                symptom.key,
+                              )
+                            "
+                          >
+                            <Dot :state="symptomState(row.summary, symptom.key)" />
+                          </div>
+                        </div>
+                        <div v-if="dayOverviewRows.length === 0" class="day-overview-empty">
+                          No daily summaries
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </ColoredCard>
+              </template>
+            </component>
           </router-view>
         </div>
       </div>
@@ -664,6 +700,7 @@ useResizeObserver(navEl, () => {
   align-items: center;
   column-gap: 12px;
   width: 100%;
+  overflow-y: hidden;
 }
 .information {
   flex: 1.2 1 0;
@@ -704,11 +741,95 @@ useResizeObserver(navEl, () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  height: 30px;
   flex: 0 0 auto;
   margin-left: auto;
 }
+.logout-btn {
+  margin-left: 8px;
+  color: inherit;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  flex: 0 0 24px;
+}
 .patient-nav-spacer {
   flex: 0 0 auto;
+}
+.detailed-wearable-card :deep(.n-card__content) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.detailed-wearable-card {
+  flex: 1.2 1 0;
+  min-height: 280px;
+  min-width: 0;
+}
+.wearable-chart-wrapper {
+  flex: 1 1 0;
+  min-height: 240px;
+  overflow: hidden;
+  display: flex;
+  min-width: 0;
+}
+.wearable-range-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 24px;
+  margin-right: 6px;
+}
+.range-btn {
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  height: 24px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 24px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.9;
+  transition: opacity 0.15s ease;
+}
+.range-btn:hover {
+  opacity: 1;
+}
+.range-dot {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-sizing: border-box;
+  position: relative;
+  flex: 0 0 14px;
+}
+.range-btn.active {
+  opacity: 1;
+}
+.range-btn.active .range-dot::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 .nav-btn {
   border: 1px solid #bfcaf0;
@@ -910,6 +1031,9 @@ useResizeObserver(navEl, () => {
   gap: 4px;
   min-width: 0;
 }
+.day-overview-table .symptom.clickable {
+  cursor: pointer;
+}
 .day-overview-table .symptom :deep(.n-icon) {
   font-size: 12px;
 }
@@ -1024,6 +1148,69 @@ useResizeObserver(navEl, () => {
   column-gap: 12px;
   padding: 8px 12px;
   min-height: 0;
+}
+.symptoms-placeholder {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.overall-summary-box {
+  flex: 1 1 0;
+  min-height: 0;
+  background-color: #f3f3f3;
+  padding: 12px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  row-gap: 10px;
+}
+.overall-summary-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+.overall-summary-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.overall-summary-input {
+  flex: 1 1 0;
+  height: 34px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 0 10px;
+  font-size: 14px;
+  color: #333333;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.overall-summary-input::placeholder {
+  color: #bfbfbf;
+}
+.overall-summary-input:focus {
+  outline: none;
+  border-color: #18a058;
+  border-width: 1px;
+  box-shadow: 0 0 0 1px rgba(24, 160, 88, 0.3);
+}
+.overall-summary-send-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 34px;
+}
+.overall-summary-send-btn svg {
+  width: 24px;
+  height: 24px;
 }
 .symptoms-column {
   flex: 0 0 50%;
