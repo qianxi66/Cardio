@@ -6,7 +6,7 @@ import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
-import { computed, watch, ref, inject, type Component } from "vue";
+import { computed, watch, ref, inject, nextTick, type Component } from "vue";
 import type { Patient, Summary } from "@/api/types";
 import { getPatient, getSummaries } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
@@ -33,6 +33,8 @@ const cancelToken = ref<CancelTokenSource | null>(null);
 const dailySummaryDate = ref<number | null>(Date.now());
 const overallSummaryDraft = ref("");
 const wearableRange = ref<"24h" | "7d">("24h");
+const dayOverviewScrollEl = ref<HTMLElement | null>(null);
+const didAutoScrollDayOverview = ref(false);
 const selectedSeries = ref<Record<string, boolean>>({
   "Heart Rate": true,
   Respiration: true,
@@ -47,10 +49,10 @@ const toggleSeries = (name: string) => {
 };
 const patientName = computed(() => {
   const data = patient.value as (Patient & { patient_name?: string; name?: string }) | null;
-  return data?.patient_name || data?.name || data?.users?.[0]?.name || "n/a";
+  return data?.patient_name || data?.name || data?.users?.[0]?.name || "--";
 });
 const participantIdLabel = computed(() => {
-  return patient.value?.participant_id || "n/a";
+  return patient.value?.participant_id || "--";
 });
 const patientIdParam = computed(() => {
   const raw = patient_id.value;
@@ -59,13 +61,13 @@ const patientIdParam = computed(() => {
   return Number.isNaN(parsed) ? undefined : parsed;
 });
 const cancerType = computed(() => {
-  return (patient.value as { cancer_type?: string } | null)?.cancer_type || "n/a";
+  return (patient.value as { cancer_type?: string } | null)?.cancer_type || "--";
 });
 const cancerStage = computed(() => {
-  return (patient.value as { cancer_stage?: string } | null)?.cancer_stage || "n/a";
+  return (patient.value as { cancer_stage?: string } | null)?.cancer_stage || "--";
 });
 const treatmentType = computed(() => {
-  return (patient.value as { treatment_type?: string } | null)?.treatment_type || "n/a";
+  return (patient.value as { treatment_type?: string } | null)?.treatment_type || "--";
 });
 const hospitalizations = computed(() => {
   const raw = (patient.value as { hospitalizations?: HospitalizationEntry[] } | null)
@@ -82,11 +84,11 @@ const hospitalizations = computed(() => {
 });
 const formatHospitalizationDate = (value: string) => {
   if (!value) {
-    return "n/a";
+    return "--";
   }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    return "n/a";
+    return "--";
   }
   return format(parsed, "dd/MM/yyyy");
 };
@@ -101,6 +103,7 @@ watch(
       return;
     }
     console.log("fetching patient", patient_id.value);
+    didAutoScrollDayOverview.value = false;
     if (cancelToken.value) {
       cancelToken.value.cancel();
     }
@@ -176,7 +179,7 @@ const summaryForDate = computed(() => {
 
 const formatMetric = (value?: number | null, digits = 1) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
-    return "n/a";
+    return "--";
   }
   return Number(value).toFixed(digits);
 };
@@ -234,7 +237,9 @@ const symptomState = (
   const boolVal = (summary as Record<string, unknown>)[symptomKey] as
     | boolean
     | undefined;
-  return boolVal ? 2 : 1;
+  if (boolVal === true) return 2;
+  if (boolVal === false) return 1;
+  return 0;
 };
 
 const dayOverviewSymptoms = [
@@ -265,7 +270,7 @@ const dayOverviewSymptoms = [
   },
   {
     key: "syncope",
-    display_name: "Faint",
+    display_name: "Syncope",
     description: "Fainting or Syncope",
   },
 ] as const;
@@ -282,12 +287,35 @@ const dayOverviewRows = computed(() => {
         id: summary.id,
         summary,
         timestamp: parsed ? parsed.getTime() : null,
-        dateLabel: parsed ? format(parsed, "yyyy-MM-dd") : "n/a",
+        dateLabel: parsed ? format(parsed, "MM/dd/yyyy") : "--",
         isSelected: !!selectedKey && !!summaryKey && selectedKey === summaryKey,
       };
     })
     .sort((a, b) => (b.timestamp ?? Number.MIN_SAFE_INTEGER) - (a.timestamp ?? Number.MIN_SAFE_INTEGER));
 });
+
+const dayOverviewRowHasData = (summary: Summary | null): boolean => {
+  return dayOverviewSymptoms.some((symptom) => symptomState(summary, symptom.key) !== 0);
+};
+
+watch(
+  [dayOverviewRows, loading],
+  async ([rows, isLoading]) => {
+    if (isLoading || didAutoScrollDayOverview.value || rows.length === 0) return;
+    await nextTick();
+    const container = dayOverviewScrollEl.value;
+    if (!container) return;
+    const target = container.querySelector<HTMLElement>('.day-overview-row[data-has-data="1"]');
+    if (!target) {
+      didAutoScrollDayOverview.value = true;
+      return;
+    }
+    const deltaTop = target.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    container.scrollTop += deltaTop;
+    didAutoScrollDayOverview.value = true;
+  },
+  { flush: "post" },
+);
 
 const selectDayOverview = (timestamp: number | null) => {
   if (timestamp === null) {
@@ -485,11 +513,11 @@ const handleLogout = () => {
                     :key="`${entry.date}-${index}`"
                   >
                     <span class="date">{{ formatHospitalizationDate(entry.date) }}</span>
-                    <span class="therapy">{{ entry.therapy || "n/a" }}</span>
+                    <span class="therapy">{{ entry.therapy || "--" }}</span>
                   </div>
                   <div v-if="hospitalizations.length === 0" class="hospitalization-entry">
-                    <span class="date">n/a</span>
-                    <span class="therapy">n/a</span>
+                    <span class="date">--</span>
+                    <span class="therapy">--</span>
                   </div>
                   </div>
                 </div>
@@ -497,6 +525,76 @@ const handleLogout = () => {
             </div>
           </div>
         </Loading>
+      </ColoredCard>
+      <ColoredCard
+        class="daily-summary indigo-title full-title-bar"
+        title="Daily Summary"
+        color="#5171AB"
+        rounded
+      >
+        <div class="daily-summary-content">
+          <div class="overview-panel">
+            <div class="panel-title">Wearable Sensor Data Overview</div>
+
+            <div class="overview-box">
+              <div class="overview-box-content">
+                <div
+                  class="overview-row"
+                  v-for="item in wearableOverviewRows"
+                  :key="item.label"
+                >
+                  <div> <b>{{ item.label }}</b> ({{ item.unit }})</div>
+                  <div class="overview-metrics-group">
+                    <span class="overview-metric">
+                      <b>{{ item.average }}</b> (average);
+                    </span>
+                    <span class="overview-metric">
+                      <b>{{ item.max }}</b> (max);
+                    </span>
+                    <span class="overview-metric">
+                      <b>{{ item.min }}</b> (min)
+                    </span>
+                  </div>
+                </div>
+                <div v-if="wearableOverviewRows.length === 0" class="overview-row-empty">
+                  <div class="overview-label">--</div>
+                  <div class="overview-metrics-group">
+                    <span class="overview-metric">--</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="overview-panel">
+            <div class="panel-title">Overall Summary</div>
+            <div class="overall-summary-box">
+              <div class="overall-summary-content"></div>
+              <div class="overall-summary-input-row">
+                <input
+                  v-model="overallSummaryDraft"
+                  class="overall-summary-input"
+                  type="text"
+                  placeholder="Type a summary note"
+                />
+                <button
+                  type="button"
+                  class="overall-summary-send-btn"
+                  aria-label="Send summary"
+                >
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M10.3009 13.6949L20.102 3.89742M10.5795 14.1355L12.8019 18.5804C13.339 19.6545 13.6075 20.1916 13.9458 20.3356C14.2394 20.4606 14.575 20.4379 14.8492 20.2747C15.1651 20.0866 15.3591 19.5183 15.7472 18.3818L19.9463 6.08434C20.2845 5.09409 20.4535 4.59896 20.3378 4.27142C20.2371 3.98648 20.013 3.76234 19.7281 3.66167C19.4005 3.54595 18.9054 3.71502 17.9151 4.05315L5.61763 8.2523C4.48114 8.64037 3.91289 8.83441 3.72478 9.15032C3.56153 9.42447 3.53891 9.76007 3.66389 10.0536C3.80791 10.3919 4.34498 10.6605 5.41912 11.1975L9.86397 13.42C10.041 13.5085 10.1295 13.5527 10.2061 13.6118C10.2742 13.6643 10.3352 13.7253 10.3876 13.7933C10.4468 13.87 10.491 13.9585 10.5795 14.1355Z"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </ColoredCard>
       <ColoredCard
         class="detailed-wearable-card indigo-title full-title-bar"
@@ -535,76 +633,6 @@ const handleLogout = () => {
           />
         </div>
       </ColoredCard>
-      <ColoredCard
-        class="daily-summary indigo-title full-title-bar"
-        title="Daily Summary"
-        color="#5171AB"
-        rounded
-      >
-        <div class="daily-summary-content">
-          <div class="overview-panel">
-            <div class="panel-title">Wearable Sensor Data Overview</div>
-
-            <div class="overview-box">
-              <div class="overview-box-content">
-                <div
-                  class="overview-row"
-                  v-for="item in wearableOverviewRows"
-                  :key="item.label"
-                >
-                  <div> <b>{{ item.label }}</b> ({{ item.unit }})</div>
-                  <div class="overview-metrics-group">
-                    <span class="overview-metric">
-                      <b>{{ item.average }}</b> (average);
-                    </span>
-                    <span class="overview-metric">
-                      <b>{{ item.max }}</b> (max);
-                    </span>
-                    <span class="overview-metric">
-                      <b>{{ item.min }}</b> (min)
-                    </span>
-                  </div>
-                </div>
-                <div v-if="wearableOverviewRows.length === 0" class="overview-row-empty">
-                  <div class="overview-label">n/a</div>
-                  <div class="overview-metrics-group">
-                    <span class="overview-metric">n/a</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="overview-panel">
-            <div class="panel-title">Overall Summary</div>
-            <div class="overall-summary-box">
-              <div class="overall-summary-content"></div>
-              <div class="overall-summary-input-row">
-                <input
-                  v-model="overallSummaryDraft"
-                  class="overall-summary-input"
-                  type="text"
-                  placeholder="Type a summary note"
-                />
-                <button
-                  type="button"
-                  class="overall-summary-send-btn"
-                  aria-label="Send summary"
-                >
-                  <svg viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M10.3009 13.6949L20.102 3.89742M10.5795 14.1355L12.8019 18.5804C13.339 19.6545 13.6075 20.1916 13.9458 20.3356C14.2394 20.4606 14.575 20.4379 14.8492 20.2747C15.1651 20.0866 15.3591 19.5183 15.7472 18.3818L19.9463 6.08434C20.2845 5.09409 20.4535 4.59896 20.3378 4.27142C20.2371 3.98648 20.013 3.76234 19.7281 3.66167C19.4005 3.54595 18.9054 3.71502 17.9151 4.05315L5.61763 8.2523C4.48114 8.64037 3.91289 8.83441 3.72478 9.15032C3.56153 9.42447 3.53891 9.76007 3.66389 10.0536C3.80791 10.3919 4.34498 10.6605 5.41912 11.1975L9.86397 13.42C10.041 13.5085 10.1295 13.5527 10.2061 13.6118C10.2742 13.6643 10.3352 13.7253 10.3876 13.7933C10.4468 13.87 10.491 13.9585 10.5795 14.1355Z"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </ColoredCard>
     </div>
       <div class="col side-col">
         <div class="side-content">
@@ -630,11 +658,12 @@ const handleLogout = () => {
                         </div>
                       </div>
 
-                      <div class="day-overview-scroll">
+                      <div ref="dayOverviewScrollEl" class="day-overview-scroll">
                         <div
                           class="table-row table-row-block day-overview-row"
                           v-for="(row, index) in dayOverviewRows"
                           :key="row.id"
+                          :data-has-data="dayOverviewRowHasData(row.summary) ? '1' : '0'"
                           :class="{
                             odd: index % 2 === 1,
                             selected: row.isSelected,

@@ -18,20 +18,56 @@ export const getPatients = async () => {
   })) as Patient[];
 };
 
+const patientInFlight = new Map<string, Promise<Patient>>();
+const patientCache = new Map<string, { data: Patient; cachedAt: number }>();
+const PATIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export const getPatient = async (id: number, cancelToken?: CancelToken) => {
-  return (await api({
+  const key = `${id}`;
+  const now = Date.now();
+  const cached = patientCache.get(key);
+  if (cached && now - cached.cachedAt < PATIENT_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  if (!cancelToken) {
+    const inFlight = patientInFlight.get(key);
+    if (inFlight) {
+      return inFlight;
+    }
+  }
+
+  const req = (api({
     url: `/patients/${id}`,
     method: "GET",
     cancelToken,
-  })) as Patient;
+  }) as Promise<Patient>)
+    .then((data) => {
+      patientCache.set(key, { data, cachedAt: Date.now() });
+      return data;
+    })
+    .finally(() => {
+      if (!cancelToken) {
+        patientInFlight.delete(key);
+      }
+    });
+
+  if (!cancelToken) {
+    patientInFlight.set(key, req);
+  }
+
+  return req;
 };
 
 export const updatePatient = async (id: number, data: UpdatePatientRequest) => {
-  return (await api({
+  const result = (await api({
     url: `/patients/${id}`,
     method: "PATCH",
     data,
   })) as UpdatePatientResponse;
+  patientCache.delete(`${id}`);
+  patientInFlight.delete(`${id}`);
+  return result;
 };
 
 export const createPatient = async (data: CreatePatientRequest) => {
@@ -62,7 +98,7 @@ const wearableTimeseriesCache = new Map<
   string,
   { data: WearableTimeSeries; cachedAt: number }
 >();
-const WEARABLE_CACHE_TTL_MS = 10_000;
+const WEARABLE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export const getWearableTimeSeries = async (id: number, range = "24h") => {
   const key = `${id}:${range}`;

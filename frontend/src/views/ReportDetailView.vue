@@ -143,13 +143,13 @@ const detailSymptoms = computed(() => {
   );
   if (!source) {
     return {
-      chest: "n/a",
-      other: "n/a",
+      chest: "no data",
+      other: "no data",
     };
   }
   return {
-    chest: source.symptoms_chest || "n/a",
-    other: source.symptoms_other || "n/a",
+    chest: source.symptoms_chest || "no data",
+    other: source.symptoms_other || "no data",
   };
 });
 

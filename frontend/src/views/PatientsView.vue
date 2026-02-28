@@ -186,6 +186,7 @@ watch(patient_id, () => {
   align-items: center;
   min-height: 30px;
   margin-bottom: 8px;
+  margin-top: 14px;
 }
 .title {
   flex-grow: 1;

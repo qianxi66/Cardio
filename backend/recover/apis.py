@@ -76,6 +76,20 @@ def _utc_midnight_window(days=1):
     return start_utc, now_et
 
 
+def _rolling_window_from_next_hour(hours=24):
+    now_utc = datetime.now(timezone.utc)
+    now_et = now_utc.astimezone(EASTERN_TZ)
+    end_anchor = now_et.replace(minute=0, second=0, microsecond=0)
+    if (
+        now_et.minute > 0
+        or now_et.second > 0
+        or now_et.microsecond > 0
+    ):
+        end_anchor = end_anchor + timedelta(hours=1)
+    start_et = end_anchor - timedelta(hours=hours)
+    return start_et, now_et, end_anchor
+
+
 def _build_labels(start_dt, end_dt, bin_seconds, label_style):
     labels = []
     cursor = start_dt
@@ -992,7 +1006,7 @@ def get_patient_wearable_timeseries(id):
             label_style = "date"
         else:
             bin_seconds = 5 * 60   #aggregated by 5 minutes
-            start_dt, now_dt = _utc_midnight_window()
+            start_dt, now_dt, _anchor_dt = _rolling_window_from_next_hour(hours=24)
             label_style = "time"
         start_ts = int(start_dt.timestamp())
         end_ts = int(now_dt.timestamp())

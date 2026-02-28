@@ -36,7 +36,7 @@ symptom_descriptions = {
     },
     "syncope": {
         "description": "Fainting or Syncope",
-        "display_name": "Faint",
+        "display_name": "Syncope",
         "max_scale": 4,
         "color": "#eb4c44", 
         "likert": False,

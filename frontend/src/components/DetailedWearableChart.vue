@@ -84,6 +84,9 @@ const markerTime = ref<string>("21:00");
 const markerPixel = ref<number | null>(null);
 const isDragging = ref(false);
 const useCurrentTimeMarker = ref(true);
+const denseSlotEpochs = ref<number[]>([]);
+const axisEndHour = ref(0);
+const markerIdx = ref(0);
 let nowMarkerInterval: ReturnType<typeof setInterval> | null = null;
 
 const normalizeSeriesLength = (data: Array<number | null>, size: number, fill: number | null) => {
@@ -152,29 +155,60 @@ const buildDefaultTimes = (nextRange: "24h" | "7d") => {
 };
 
 const buildDense24hTimes = () => {
-  const labels: string[] = [];
-  for (let m = 0; m <= 24 * 60; m += 5) {
-    const hour = Math.floor(m / 60);
-    const minute = m % 60;
-    labels.push(`${hour}:${String(minute).padStart(2, "0")}`);
+  const now = new Date();
+  const endDate = new Date(now);
+  endDate.setMinutes(0, 0, 0);
+  if (now.getMinutes() > 0 || now.getSeconds() > 0 || now.getMilliseconds() > 0) {
+    endDate.setHours(endDate.getHours() + 1);
   }
+  axisEndHour.value = endDate.getHours();
+  const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+  const labels: string[] = [];
+  const epochs: number[] = [];
+  for (let ms = startDate.getTime(); ms <= endDate.getTime(); ms += 5 * 60 * 1000) {
+    const d = new Date(ms);
+    labels.push(`${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`);
+    epochs.push(Math.floor(ms / 1000));
+  }
+  denseSlotEpochs.value = epochs;
   return labels;
 };
 
 const mapBackendDataToDense24h = (
   backendTimes: string[],
   backendValues: Array<number | null>,
-  denseTimes: string[],
+  win: { start_ts: number; end_ts: number } | null,
 ) => {
-  const out = Array.from({ length: denseTimes.length }, () => null as number | null);
-  const denseIndex = new Map<string, number>();
-  denseTimes.forEach((t, idx) => denseIndex.set(t, idx));
+  const epochs = denseSlotEpochs.value;
+  const out: Array<number | null> = Array.from({ length: epochs.length }, () => null);
+  if (!backendTimes.length || epochs.length === 0 || !win) return out;
+
+  const startEpoch = epochs[0];
+  const winStartDate = new Date(win.start_ts * 1000);
+  let dayBase = Math.floor(
+    new Date(winStartDate.getFullYear(), winStartDate.getMonth(), winStartDate.getDate()).getTime() / 1000,
+  );
+  let prevMinOfDay = -1;
+
   backendTimes.forEach((t, idx) => {
-    const targetIdx = denseIndex.get(t);
-    if (targetIdx === undefined) return;
     const value = backendValues[idx];
     if (value === null || value === undefined || !Number.isFinite(value)) return;
-    out[targetIdx] = value;
+    const timePart = t.includes(" ") ? t.split(" ")[1] : t;
+    if (!timePart || !timePart.includes(":")) return;
+    const [hStr, mStr] = timePart.split(":");
+    const h = Number(hStr);
+    const m = Number(mStr);
+    if (Number.isNaN(h) || Number.isNaN(m)) return;
+    const minOfDay = h * 60 + m;
+    if (prevMinOfDay >= 0 && minOfDay < prevMinOfDay - 60) {
+      dayBase += 86400;
+    }
+    prevMinOfDay = minOfDay;
+    const epoch = dayBase + h * 3600 + m * 60;
+    const slotIdx = Math.round((epoch - startEpoch) / 300);
+    if (slotIdx >= 0 && slotIdx < out.length) {
+      out[slotIdx] = value;
+    }
   });
   return out;
 };
@@ -250,7 +284,7 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
       if (useDense24h) {
         const mapped =
           backendTimes.length > 0
-            ? mapBackendDataToDense24h(backendTimes, raw, denseTimes)
+            ? mapBackendDataToDense24h(backendTimes, raw, windowRef.value)
             : normalizeSeriesLength([], denseTimes.length, null);
         series.data = roundSeriesData(series.name, mapped);
       } else if (useDense7d) {
@@ -276,9 +310,10 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
   useCurrentTimeMarker.value = true;
   if (windowRef.value && times.value.length > 0) {
     updateMarkerToCurrentTime();
-  } else if (!times.value.includes(markerTime.value)) {
-    markerTime.value =
-      times.value[Math.max(0, times.value.length - 2)] || times.value[0];
+  } else {
+    const foundIdx = times.value.indexOf(markerTime.value);
+    markerIdx.value = foundIdx >= 0 ? foundIdx : Math.max(0, times.value.length - 2);
+    markerTime.value = times.value[markerIdx.value] || times.value[0];
   }
   applyOption();
 };
@@ -293,13 +328,13 @@ const getBinSeconds = () => {
 const updateMarkerToCurrentTime = () => {
   const win = windowRef.value;
   if (!win || times.value.length === 0) return;
-  if (rangeValue.value === "24h" && times.value.length > 12) {
-    const now = Math.floor(Date.now() / 1000);
-    const minutesSinceStart = Math.max(0, Math.min(24 * 60, Math.floor((now - win.start_ts) / 60)));
-    const snapped = Math.round(minutesSinceStart / 5) * 5;
-    const hour = Math.floor(snapped / 60);
-    const minute = snapped % 60;
-    markerTime.value = `${hour}:${String(minute).padStart(2, "0")}`;
+  if (rangeValue.value === "24h" && denseSlotEpochs.value.length > 0) {
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    const startEpoch = denseSlotEpochs.value[0];
+    const slotIdx = Math.round((nowEpoch - startEpoch) / 300);
+    const clampedIdx = Math.max(0, Math.min(times.value.length - 1, slotIdx));
+    markerIdx.value = clampedIdx;
+    markerTime.value = times.value[clampedIdx];
     return;
   }
   const now = Math.floor(Date.now() / 1000);
@@ -308,6 +343,7 @@ const updateMarkerToCurrentTime = () => {
   if (span <= 0) return;
   const index = (now - win.start_ts) / binSeconds;
   const clampedIndex = Math.max(0, Math.min(times.value.length - 1, Math.floor(index)));
+  markerIdx.value = clampedIndex;
   markerTime.value = times.value[clampedIndex];
 };
 
@@ -330,14 +366,13 @@ const fetchSeriesData = async (patientId?: number) => {
 
 const resetChartForRange = () => {
   windowRef.value = null;
-  const nextTimes = buildDefaultTimes(rangeValue.value);
+  const nextTimes = rangeValue.value === "24h" ? buildDense24hTimes() : buildDefaultTimes(rangeValue.value);
   times.value = nextTimes;
   seriesDefs.value.forEach((series) => {
     series.data = normalizeSeriesLength([], nextTimes.length, null);
   });
-  if (!nextTimes.includes(markerTime.value)) {
-    markerTime.value = nextTimes[Math.max(0, nextTimes.length - 2)] || nextTimes[0] || "0:00";
-  }
+  markerIdx.value = Math.max(0, Math.min(nextTimes.length - 1, markerIdx.value));
+  markerTime.value = nextTimes[markerIdx.value] || nextTimes[0] || "0:00";
   applyOption();
 };
 
@@ -368,22 +403,25 @@ const parseTimeLabel = (value: string) => {
 };
 
 const isLabeledTick24h = (value: string) => {
-  if (value === "24:00") return true;
   const parsed = parseTimeLabel(value);
   if (!parsed) return false;
-  return parsed.minute === 0 && parsed.hour % 3 === 0;
+  return parsed.minute === 0 && parsed.hour % 3 === axisEndHour.value % 3;
 };
 
 const updateMarkerFromPixel = (centerX: number) => {
   if (!chart) return;
   const raw = chart.convertFromPixel({ xAxisIndex: 0 }, centerX);
   let next = markerTime.value;
+  let nextIdx = markerIdx.value;
   if (typeof raw === "number") {
-    const idx = Math.max(0, Math.min(times.value.length - 1, Math.round(raw)));
-    next = times.value[idx];
+    nextIdx = Math.max(0, Math.min(times.value.length - 1, Math.round(raw)));
+    next = times.value[nextIdx];
   } else if (typeof raw === "string") {
     next = raw;
+    const foundIdx = times.value.indexOf(next);
+    if (foundIdx >= 0) nextIdx = foundIdx;
   }
+  markerIdx.value = nextIdx;
   if (next !== markerTime.value) {
     markerTime.value = next;
   }
@@ -421,10 +459,10 @@ const getXAxisAxisLabel = () => ({
   fontSize: 12.5,
   fontFamily: "Arial Black",
   interval: 0,
-  formatter: (value: string) => {
+  formatter: (value: string, index: number) => {
     const label = formatXAxisLabel(value);
     if (!label) return "";
-    const isActive = value === markerTime.value;
+    const isActive = index === markerIdx.value;
     return isActive ? `{active|${label}}` : `{normal|${label}}`;
   },
   rich: {
@@ -634,10 +672,9 @@ const getNowMarkerPixelX = (): number | undefined => {
   if (!chart || !windowRef.value || !useCurrentTimeMarker.value) return undefined;
   const now = Math.floor(Date.now() / 1000);
   let axisValue: number | undefined;
-  if (rangeValue.value === "24h" && times.value.length > 12) {
-    const startTs = windowRef.value.start_ts;
-    const minutesSinceStart = Math.max(0, Math.min(24 * 60, (now - startTs) / 60));
-    axisValue = minutesSinceStart / 5;
+  if (rangeValue.value === "24h" && denseSlotEpochs.value.length > 0) {
+    const startEpoch = denseSlotEpochs.value[0];
+    axisValue = Math.max(0, Math.min(denseSlotEpochs.value.length - 1, (now - startEpoch) / 300));
   } else {
     const { start_ts, end_ts } = windowRef.value;
     const span = end_ts - start_ts;
@@ -658,7 +695,7 @@ const updateMarkerGraphic = () => {
     xValue = getNowMarkerPixelX();
   }
   if (typeof xValue !== "number") {
-    const baseXValue = chart.convertToPixel({ xAxisIndex: 0 }, markerTime.value) as
+    const baseXValue = chart.convertToPixel({ xAxisIndex: 0 }, markerIdx.value) as
       | number
       | undefined;
     xValue =
@@ -725,7 +762,7 @@ const bindDragEvents = () => {
     const grid = getGridRect();
     const xValue = useCurrentTimeMarker.value
       ? getNowMarkerPixelX()
-      : ((chart.convertToPixel({ xAxisIndex: 0 }, markerTime.value) as
+      : ((chart.convertToPixel({ xAxisIndex: 0 }, markerIdx.value) as
           | number
           | undefined));
     if (typeof xValue !== "number") return;
