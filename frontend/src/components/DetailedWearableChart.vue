@@ -89,6 +89,83 @@ const axisEndHour = ref(0);
 const markerIdx = ref(0);
 let nowMarkerInterval: ReturnType<typeof setInterval> | null = null;
 
+const DEFAULT_TIMEZONE = "America/New_York";
+
+const getTimeZone = (win?: { timezone?: string } | null) => win?.timezone || DEFAULT_TIMEZONE;
+
+const getZonedParts = (epochMs: number, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(epochMs));
+  const pick = (type: string) => Number(parts.find((p) => p.type === type)?.value || 0);
+  return {
+    year: pick("year"),
+    month: pick("month"),
+    day: pick("day"),
+    hour: pick("hour"),
+    minute: pick("minute"),
+    second: pick("second"),
+  };
+};
+
+const getTimeZoneOffsetMs = (epochMs: number, timeZone: string) => {
+  const roundedMs = Math.floor(epochMs / 1000) * 1000;
+  const parts = getZonedParts(roundedMs, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return asUtc - roundedMs;
+};
+
+const ceilHourEpochInZone = (epochSec: number, timeZone: string) => {
+  const epochMs = epochSec * 1000;
+  const offsetMs = getTimeZoneOffsetMs(epochMs, timeZone);
+  const zonedMs = epochMs + offsetMs;
+  const zoned = new Date(zonedMs);
+  let anchorZonedMs = Date.UTC(
+    zoned.getUTCFullYear(),
+    zoned.getUTCMonth(),
+    zoned.getUTCDate(),
+    zoned.getUTCHours(),
+    0,
+    0,
+    0,
+  );
+  if (zoned.getUTCMinutes() > 0 || zoned.getUTCSeconds() > 0 || zoned.getUTCMilliseconds() > 0) {
+    anchorZonedMs += 3600 * 1000;
+  }
+  let anchorEpochMs = anchorZonedMs - offsetMs;
+  const anchorOffsetMs = getTimeZoneOffsetMs(anchorEpochMs, timeZone);
+  if (anchorOffsetMs !== offsetMs) {
+    anchorEpochMs = anchorZonedMs - anchorOffsetMs;
+  }
+  return Math.floor(anchorEpochMs / 1000);
+};
+
+const formatHourMinuteInZone = (epochSec: number, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    hour: "numeric",
+    minute: "2-digit",
+  }).formatToParts(new Date(epochSec * 1000));
+  const hour = parts.find((p) => p.type === "hour")?.value || "0";
+  const minute = parts.find((p) => p.type === "minute")?.value || "00";
+  return `${Number(hour)}:${minute}`;
+};
+
 const normalizeSeriesLength = (data: Array<number | null>, size: number, fill: number | null) => {
   if (data.length === size) return data;
   if (data.length > size) return data.slice(0, size);
@@ -154,62 +231,36 @@ const buildDefaultTimes = (nextRange: "24h" | "7d") => {
   return labels;
 };
 
-const buildDense24hTimes = () => {
-  const now = new Date();
-  const endDate = new Date(now);
-  endDate.setMinutes(0, 0, 0);
-  if (now.getMinutes() > 0 || now.getSeconds() > 0 || now.getMilliseconds() > 0) {
-    endDate.setHours(endDate.getHours() + 1);
-  }
-  axisEndHour.value = endDate.getHours();
-  const startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+const buildDense24hTimes = (win?: { end_ts: number; timezone?: string } | null) => {
+  const timeZone = getTimeZone(win);
+  const baseEnd = win?.end_ts ?? Math.floor(Date.now() / 1000);
+  const endEpoch = ceilHourEpochInZone(baseEnd, timeZone);
+  const endHourParts = getZonedParts(endEpoch * 1000, timeZone);
+  axisEndHour.value = endHourParts.hour;
+  const startEpoch = endEpoch - 24 * 60 * 60;
   const labels: string[] = [];
   const epochs: number[] = [];
-  for (let ms = startDate.getTime(); ms <= endDate.getTime(); ms += 5 * 60 * 1000) {
-    const d = new Date(ms);
-    labels.push(`${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`);
-    epochs.push(Math.floor(ms / 1000));
+  for (let sec = startEpoch; sec <= endEpoch; sec += 5 * 60) {
+    labels.push(formatHourMinuteInZone(sec, timeZone));
+    epochs.push(sec);
   }
   denseSlotEpochs.value = epochs;
   return labels;
 };
 
 const mapBackendDataToDense24h = (
-  backendTimes: string[],
   backendValues: Array<number | null>,
-  win: { start_ts: number; end_ts: number } | null,
 ) => {
   const epochs = denseSlotEpochs.value;
   const out: Array<number | null> = Array.from({ length: epochs.length }, () => null);
-  if (!backendTimes.length || epochs.length === 0 || !win) return out;
+  if (epochs.length === 0 || backendValues.length === 0) return out;
 
-  const startEpoch = epochs[0];
-  const winStartDate = new Date(win.start_ts * 1000);
-  let dayBase = Math.floor(
-    new Date(winStartDate.getFullYear(), winStartDate.getMonth(), winStartDate.getDate()).getTime() / 1000,
-  );
-  let prevMinOfDay = -1;
-
-  backendTimes.forEach((t, idx) => {
+  const maxLen = Math.min(backendValues.length, out.length);
+  for (let idx = 0; idx < maxLen; idx += 1) {
     const value = backendValues[idx];
-    if (value === null || value === undefined || !Number.isFinite(value)) return;
-    const timePart = t.includes(" ") ? t.split(" ")[1] : t;
-    if (!timePart || !timePart.includes(":")) return;
-    const [hStr, mStr] = timePart.split(":");
-    const h = Number(hStr);
-    const m = Number(mStr);
-    if (Number.isNaN(h) || Number.isNaN(m)) return;
-    const minOfDay = h * 60 + m;
-    if (prevMinOfDay >= 0 && minOfDay < prevMinOfDay - 60) {
-      dayBase += 86400;
-    }
-    prevMinOfDay = minOfDay;
-    const epoch = dayBase + h * 3600 + m * 60;
-    const slotIdx = Math.round((epoch - startEpoch) / 300);
-    if (slotIdx >= 0 && slotIdx < out.length) {
-      out[slotIdx] = value;
-    }
-  });
+    if (value === null || value === undefined || !Number.isFinite(value)) continue;
+    out[idx] = value;
+  }
   return out;
 };
 
@@ -256,7 +307,7 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
   const standardTimes = buildDefaultTimes(rangeValue.value);
   const useDense24h = rangeValue.value === "24h";
   const useDense7d = rangeValue.value === "7d";
-  const denseTimes = useDense24h ? buildDense24hTimes() : standardTimes;
+  const denseTimes = useDense24h ? buildDense24hTimes(windowRef.value) : standardTimes;
   times.value = useDense24h ? denseTimes : standardTimes;
 
   if (!payload) {
@@ -284,7 +335,7 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
       if (useDense24h) {
         const mapped =
           backendTimes.length > 0
-            ? mapBackendDataToDense24h(backendTimes, raw, windowRef.value)
+            ? mapBackendDataToDense24h(raw)
             : normalizeSeriesLength([], denseTimes.length, null);
         series.data = roundSeriesData(series.name, mapped);
       } else if (useDense7d) {
@@ -366,7 +417,7 @@ const fetchSeriesData = async (patientId?: number) => {
 
 const resetChartForRange = () => {
   windowRef.value = null;
-  const nextTimes = rangeValue.value === "24h" ? buildDense24hTimes() : buildDefaultTimes(rangeValue.value);
+  const nextTimes = rangeValue.value === "24h" ? buildDense24hTimes(null) : buildDefaultTimes(rangeValue.value);
   times.value = nextTimes;
   seriesDefs.value.forEach((series) => {
     series.data = normalizeSeriesLength([], nextTimes.length, null);

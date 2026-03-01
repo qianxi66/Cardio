@@ -8,6 +8,7 @@ import type { ConversationLog } from "@/api/types";
 import { format } from "date-fns";
 
 const selectedDate = ref<number | null>(Date.now());
+const overallSummaryDraft = ref("");
 const conversationDate = computed<number | null>({
   get: () => selectedDate.value,
   set: (value) => {
@@ -218,6 +219,14 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
               <div class="detail-label">Other Discomfort</div>
               <div class="detail-value">{{ detailSymptoms.other }}</div>
             </div>
+            <div class="conversation-summary-input-row">
+              <input
+                v-model="overallSummaryDraft"
+                class="conversation-summary-input"
+                type="text"
+                placeholder="Type a summary note"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -298,10 +307,10 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   min-height: 0;
 }
 .report-detail .detailed-wearable-card {
-  flex: 0 1 50%;
+  flex: 4 1 0;
 }
 .report-detail .conversation-card {
-  flex: 1 1 0;
+  flex: 6 1 0;
   min-height: 0;
 }
 .detailed-wearable-card :deep(.n-card__content) {
@@ -397,7 +406,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 }
 .conversation-left {
   flex: 0 0 40%;
-  padding-right: 16px;
+  padding-right: 0px;
   box-sizing: border-box;
 }
 .conversation-right {
@@ -446,6 +455,31 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   padding-right: 6px;
   padding-left: 6px;
   box-sizing: border-box;
+}
+.conversation-summary-input-row {
+  margin-top: auto;
+  padding-top: 8px;
+}
+.conversation-summary-input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 0 10px;
+  font-size: 14px;
+  color: #333333;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.conversation-summary-input::placeholder {
+  color: #bfbfbf;
+}
+.conversation-summary-input:focus {
+  outline: none;
+  border-color: #18a058;
+  border-width: 1px;
+  box-shadow: 0 0 0 1px rgba(24, 160, 88, 0.3);
 }
 .detail-row {
   display: flex;
