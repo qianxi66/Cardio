@@ -468,6 +468,10 @@ const right = ref<Component | null>(null);
           />
         </template>
         <div class="day-navigator-content">
+          <div class="ai-summary-section">
+            <div class="ai-summary-title">AI-Generated Daily Summary</div>
+            <div class="ai-summary-body">The patient reports symptoms of syncope and dyspnea. At certain points, they also exhibited a low heart rate alongside rapid breathing.</div>
+          </div>
           <div class="day-overview-table">
             <div class="table-row day-overview-header">
               <div class="date">Date</div>
@@ -930,9 +934,27 @@ const right = ref<Component | null>(null);
   background-color: #ffffff;
   box-sizing: border-box;
   padding: 0px 0px;
+  display: flex;
+  flex-direction: column;
+}
+.ai-summary-section {
+  flex: 0 0 auto;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #053251;
+}
+.ai-summary-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #053251;
+}
+.ai-summary-body {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #333;
+  line-height: 1.5;
 }
 .day-overview-table {
-  height: 100%;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;

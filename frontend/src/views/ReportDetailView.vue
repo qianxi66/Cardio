@@ -8,7 +8,6 @@ import type { ConversationLog } from "@/api/types";
 import { format } from "date-fns";
 
 const selectedDate = ref<number | null>(Date.now());
-const overallSummaryDraft = ref("");
 const conversationDate = computed<number | null>({
   get: () => selectedDate.value,
   set: (value) => {
@@ -85,6 +84,12 @@ const parseDateValue = (value?: string | Date) => {
   return parsed;
 };
 
+const formatLogTime = (value?: string | Date) => {
+  const parsed = parseDateValue(value);
+  if (!parsed) return "--:--:--";
+  return format(parsed, "HH:mm:ss");
+};
+
 const dateKey = (value: Date) => format(value, "yyyy-MM-dd");
 
 watch(
@@ -136,22 +141,6 @@ const logsForDate = computed(() => {
     return matches;
   }
   return conversationLogs.value;
-});
-
-const detailSymptoms = computed(() => {
-  const source = logsForDate.value.find(
-    (log) => log.symptoms_chest || log.symptoms_other,
-  );
-  if (!source) {
-    return {
-      chest: "no data",
-      other: "no data",
-    };
-  }
-  return {
-    chest: source.symptoms_chest || "no data",
-    other: source.symptoms_other || "no data",
-  };
 });
 
 watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
@@ -207,76 +196,21 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
       title="Patient's Conversational Log"
       class="conversation-card indigo-title full-title-bar"
     >
-      <div class="conversation-panel conversation-left">
-        <div class="conversation-title">Details Symptoms from Log</div>
-        <div class="conversation-box conversation-detail">
-          <div class="conversation-detail-scroll">
-            <div class="detail-row">
-              <div class="detail-label">Chest Discomfort</div>
-              <div class="detail-value">{{ detailSymptoms.chest }}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Other Discomfort</div>
-              <div class="detail-value">{{ detailSymptoms.other }}</div>
-            </div>
-            <div class="conversation-summary-input-row">
-              <input
-                v-model="overallSummaryDraft"
-                class="conversation-summary-input"
-                type="text"
-                placeholder="Type a summary note"
-              />
-            </div>
+      <div class="conversation-box conversation-log">
+        <div class="conversation-scroll" v-if="logsForDate.length > 0">
+          <div
+            :ref="(el) => setLogRef(el, log.id)"
+            class="log-row"
+            :class="{ 'log-selected': select_log_ids.includes(log.id) }"
+            v-for="log in logsForDate"
+            :key="log.id"
+          >
+            <div class="log-role">{{ log.role === "assistant" ? "Assistant" : "Patient" }}</div>
+            <div class="log-content">{{ log.content }}</div>
+            <div class="log-time">{{ formatLogTime(log.date) }}</div>
           </div>
         </div>
-      </div>
-      <div class="conversation-panel conversation-right">
-        <div class="conversation-title">Log History</div>
-        <div class="conversation-box conversation-log">
-          <div class="conversation-scroll" v-if="logsForDate.length > 0 || !conversationDate">
-            <div
-              :ref="(el) => setLogRef(el, log.id)"
-              class="log-row"
-              :class="[
-                log.role === 'assistant' ? 'log-agent' : 'log-user',
-                { 'log-selected': select_log_ids.includes(log.id) },
-              ]"
-              v-for="log in logsForDate"
-              :key="log.id"
-            >
-              <div class="log-avatar" v-if="log.role === 'assistant'">
-                <svg
-                  width="800"
-                  height="800"
-                  viewBox="0 -64 640 640"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M32,224H64V416H32A31.96166,31.96166,0,0,1,0,384V256A31.96166,31.96166,0,0,1,32,224Zm512-48V448a64.06328,64.06328,0,0,1-64,64H160a64.06328,64.06328,0,0,1-64-64V176a79.974,79.974,0,0,1,80-80H288V32a32,32,0,0,1,64,0V96H464A79.974,79.974,0,0,1,544,176ZM264,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,264,256Zm-8,128H192v32h64Zm96,0H288v32h64ZM456,256a40,40,0,1,0-40,40A39.997,39.997,0,0,0,456,256Zm-8,128H384v32h64ZM640,256V384a31.96166,31.96166,0,0,1-32,32H576V224h32A31.96166,31.96166,0,0,1,640,256Z"
-                    fill="#7892b5"
-                  />
-                </svg>
-              </div>
-              <div
-                class="log-bubble"
-                :class="log.role === 'assistant' ? 'log-agent-bubble' : 'log-user-bubble'"
-              >
-                {{ log.content }}
-              </div>
-              <div class="log-avatar" v-if="log.role !== 'assistant'">
-                <svg viewBox="0 0 24 24">
-                  <path
-                    d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="logsForDate.length === 0 && conversationDate" class="log-empty-message">
-            No conversation logs for this date
-          </div>
-        </div>
+        <div v-else class="log-empty-message">No conversation logs</div>
       </div>
     </ColoredCard>
   </div>
@@ -313,6 +247,8 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 .report-detail .conversation-card {
   flex: 1 1 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   border: 2px solid #053251 !important;
 }
 .detailed-wearable-card :deep(.n-card__content) {
@@ -397,34 +333,15 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 }
 .conversation-card :deep(.n-card__content) {
   display: flex;
-  gap: 0;
+  flex-direction: column;
+  flex: 1 1 0;
   height: 100%;
   min-height: 0;
-}
-.conversation-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.conversation-left {
-  flex: 0 0 40%;
-  padding-right: 0px;
-  box-sizing: border-box;
-}
-.conversation-right {
-  flex: 0 0 60%;
-  padding-left: 16px;
-  box-sizing: border-box;
-  border-right: none;
-}
-.conversation-title {
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 16px;
+  overflow: hidden;
 }
 .conversation-box {
   background-color: #f3f3f3;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -432,71 +349,13 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   flex: 1 1 0;
   min-height: 0;
   overflow: auto;
+  padding-top: 6px;
   padding-right: 6px;
   padding-left: 6px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-.conversation-detail {
-  padding: 12px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-height: 0;
-}
-.conversation-detail-scroll {
-  height: 100%;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-right: 6px;
-  padding-left: 6px;
-  box-sizing: border-box;
-}
-.conversation-summary-input-row {
-  margin-top: auto;
-  padding-top: 8px;
-}
-.conversation-summary-input {
-  width: 100%;
-  height: 34px;
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
-  background: #ffffff;
-  padding: 0 10px;
-  font-size: 14px;
-  color: #333333;
-  box-sizing: border-box;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.conversation-summary-input::placeholder {
-  color: #bfbfbf;
-}
-.conversation-summary-input:focus {
-  outline: none;
-  border-color: #18a058;
-  border-width: 1px;
-  box-shadow: 0 0 0 1px rgba(24, 160, 88, 0.3);
-}
-.detail-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.detail-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: #555555;
-}
-.detail-value {
-  font-size: 14px;
-  color: #808080;
-  white-space: pre-wrap;
 }
 .conversation-log {
   padding: 12px;
@@ -508,10 +367,14 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 }
 .log-row {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
   scroll-margin-top: 8px;
   position: relative;
+  padding: 10px 14px;
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
 }
 .log-row.log-selected::after {
   content: "";
@@ -521,63 +384,38 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   right: 0;
   bottom: 0;
   border: 2px solid #053251;
-  border-radius: 4px;
+  border-radius: 6px;
   pointer-events: none;
 }
-.log-row.log-agent.log-selected > .log-bubble.log-agent-bubble {
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
-.log-row.log-user.log-selected {
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
-.log-agent {
-  justify-content: flex-start;
-}
-.log-user {
-  justify-content: flex-end;
-}
-.log-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #ffffff;
-  color: #8a8a8a;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-}
-.log-avatar svg {
-  width: 18px;
-  height: 18px;
-  transform: scale(1.1);
-}
-.log-bubble {
-  padding: 10px 12px;
-  border-radius: 12px;
-  max-width: 70%;
-  line-height: 1.4;
+.log-role {
+  flex: 0 0 92px;
   font-size: 14px;
+  font-weight: 700;
+  color: #4f4f4f;
 }
-.log-agent-bubble {
-  background: transparent;
-  color: #222;
+.log-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.35;
+  font-size: 14px;
+  color: #3f3f3f;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.log-user-bubble {
-  background: #ffffff;
-  color: #222;
-  box-shadow: 0 0 0 1px #e6e6e6 inset;
+.log-time {
+  flex: 0 0 88px;
+  text-align: right;
+  font-size: 14px;
+  color: #8c8c8c;
 }
 .log-empty-message {
   color: #999999;
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
   padding: 16px;
-  font-style: italic;
   height: 100%;
   display: flex;
+  align-items: center;
   justify-content: center;
   padding-left: 6px;
   padding-right: 6px;

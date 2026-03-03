@@ -32,7 +32,7 @@ export const symptoms = {
 export const stateColors = [
   "#c1b9b6",
   "#4ca851",
-  "#f9d965",
+  "#ffb700",
   "#eb4c44",
   "#eb4c44",
 ];

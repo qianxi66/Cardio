@@ -11,12 +11,14 @@ const props = withDefaults(
     state?: number;
     editable?: boolean;
     reviewable?: boolean;
+    isRead?: boolean | number;
   }>(),
   {
     loading: false,
     state: 0,
     editable: false,
     reviewable: false,
+    isRead: 0,
   },
 );
 // on edit trigger
@@ -26,7 +28,20 @@ const buttonThemeOverrides: ButtonThemeOverrides = {
   colorPressed: "white",
   colorFocus: "white",
 };
-const popoverEl = ref<HTMLElement | null>(null);
+const popoverEl = ref<{ setShow: (value: boolean) => void } | null>(null);
+const dotColor = computed(() => {
+  if (props.state === undefined || props.state < 0) return "#1C274C";
+  return stateColors[props.state] || stateColors[0];
+});
+const isUnread = computed(() => {
+  if (props.isRead === undefined || props.isRead === null) return true;
+  if (typeof props.isRead === "number") return props.isRead === 0;
+  return !props.isRead;
+});
+const showUnreadAlert = computed(() => {
+  const state = props.state ?? 0;
+  return isUnread.value && state >= 2;
+});
 </script>
 
 <template>
@@ -34,10 +49,26 @@ const popoverEl = ref<HTMLElement | null>(null);
     <div
       class="dot"
       v-if="!props.loading && props.state >= 0"
-      :style="{
-        '--color': stateColors[props.state!],
-      }"
-    ></div>
+    >
+      <svg
+        class="dot-svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          v-if="showUnreadAlert"
+          d="M12 22C17.5228 22 22 17.5228 22 12C22 11.094 21.8795 10.2162 21.6537 9.38161C21.5684 9.06633 21.1987 8.94083 20.9028 9.0791C20.3248 9.34916 19.68 9.5 19 9.5C16.5147 9.5 14.5 7.48528 14.5 5C14.5 4.31996 14.6508 3.67516 14.9209 3.09722C15.0592 2.80131 14.9337 2.4316 14.6184 2.3463C13.7838 2.12048 12.906 2 12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.04346 16.4525C3.22094 16.8088 3.28001 17.2161 3.17712 17.6006L2.58151 19.8267C2.32295 20.793 3.20701 21.677 4.17335 21.4185L6.39939 20.8229C6.78393 20.72 7.19121 20.7791 7.54753 20.9565C8.88837 21.6244 10.4003 22 12 22Z"
+          :fill="dotColor"
+        />
+        <path
+          v-else
+          d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.04346 16.4525C3.22094 16.8088 3.28001 17.2161 3.17712 17.6006L2.58151 19.8267C2.32295 20.793 3.20701 21.677 4.17335 21.4185L6.39939 20.8229C6.78393 20.72 7.19121 20.7791 7.54753 20.9565C8.88837 21.6244 10.4003 22 12 22Z"
+          :fill="dotColor"
+        />
+        <circle v-if="showUnreadAlert" cx="19" cy="5" r="3" :fill="dotColor" />
+      </svg>
+    </div>
     <n-icon class="dot" v-else-if="!props.loading && props.state == -1">
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -66,7 +97,7 @@ const popoverEl = ref<HTMLElement | null>(null);
       :theme-overrides="{ boxShadow: 'none' }"
     >
       <template #trigger>
-        <Dot :state="props.state" :loading="props.loading"></Dot>
+        <Dot :state="props.state" :loading="props.loading" :is-read="props.isRead"></Dot>
       </template>
       <n-button-group vertical>
         <n-button
@@ -78,12 +109,12 @@ const popoverEl = ref<HTMLElement | null>(null);
           @click="
             () => {
               emit('update:state', state);
-              popoverEl.setShow(false);
+              popoverEl?.setShow(false);
             }
           "
         >
           <template #icon>
-            <Dot :state="state"></Dot>
+            <Dot :state="state" :is-read="1"></Dot>
           </template>
           {{ stateMessages[state] }}
         </n-button>
@@ -92,12 +123,12 @@ const popoverEl = ref<HTMLElement | null>(null);
           @click="
             () => {
               emit('update:state', -1);
-              popoverEl.setShow(false);
+              popoverEl?.setShow(false);
             }
           "
         >
           <template #icon>
-            <Dot :state="-1"></Dot>
+            <Dot :state="-1" :is-read="1"></Dot>
           </template>
           Reviewed
         </n-button>
@@ -111,18 +142,23 @@ const popoverEl = ref<HTMLElement | null>(null);
   line-height: 1;
 }
 .dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background-color: var(--color);
-  border-color: gray;
+  width: 20.8px;
+  height: 20.8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
   font-size: 16px;
 }
+.dot-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 :global(.n-icon-slot .dot) {
-  width: var(--n-icon-size);
-  height: var(--n-icon-size);
-  font-size: var(--n-icon-size);
+  width: calc(var(--n-icon-size) * 1.3);
+  height: calc(var(--n-icon-size) * 1.3);
+  font-size: calc(var(--n-icon-size) * 1.3);
 }
 .n-button {
   --n-color: white !important;
