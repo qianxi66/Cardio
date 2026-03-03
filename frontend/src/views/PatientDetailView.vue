@@ -13,14 +13,6 @@ import Loading from "@/components/Loading.vue";
 import { format } from "date-fns";
 import type { CancelTokenSource } from "axios";
 import axios from "axios";
-import { useDialog, useMessage } from "naive-ui";
-
-type HospitalizationEntry = {
-  date?: string;
-  therapy?: string;
-  treatment?: string;
-  event?: string;
-};
 
 const refreshPatients = inject("refreshPatients");
 const patient_id = useRouteParams("patient_id");
@@ -68,20 +60,28 @@ const cancerStage = computed(() => {
 const treatmentType = computed(() => {
   return (patient.value as { treatment_type?: string } | null)?.treatment_type || "--";
 });
-const hospitalizations = computed(() => {
-  const raw = (patient.value as { hospitalizations?: HospitalizationEntry[] } | null)
-    ?.hospitalizations;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw
-    .map((entry) => ({
-      date: entry?.date || "",
-      therapy: entry?.therapy || entry?.treatment || entry?.event || "",
-    }))
-    .filter((entry) => entry.date || entry.therapy);
+const treatmentPlan = computed(() => {
+  const data = patient.value as
+    | {
+        treatment_plan?: string;
+        treatmentPlan?: string;
+        plan?: string;
+      }
+    | null;
+  return data?.treatment_plan || data?.treatmentPlan || data?.plan || "--";
 });
-const formatHospitalizationDate = (value: string) => {
+const treatmentCycle = computed(() => {
+  const data = patient.value as
+    | {
+        treatment_cycle?: string | number;
+        treatmentCycle?: string | number;
+        cycle?: string | number;
+      }
+    | null;
+  const cycle = data?.treatment_cycle ?? data?.treatmentCycle ?? data?.cycle;
+  return cycle === undefined || cycle === null || cycle === "" ? "--" : String(cycle);
+});
+const formatPatientDate = (value?: string | Date | null) => {
   if (!value) {
     return "--";
   }
@@ -91,6 +91,18 @@ const formatHospitalizationDate = (value: string) => {
   }
   return format(parsed, "dd/MM/yyyy");
 };
+const nextAppointmentDate = computed(() => {
+  const data = patient.value as
+    | {
+        next_appointment_date?: string | Date;
+        nextAppointmentDate?: string | Date;
+        appointment_date?: string | Date;
+      }
+    | null;
+  const value =
+    data?.next_appointment_date ?? data?.nextAppointmentDate ?? data?.appointment_date;
+  return formatPatientDate(value ?? null);
+});
 
 watch(
   patient_id,
@@ -177,8 +189,6 @@ const summaryForDate = computed(() => {
 });
 
 const router = useRouter();
-const dialog = useDialog();
-const message = useMessage();
 const symptomState = (
   summary: Summary | null,
   symptomKey: string,
@@ -323,129 +333,74 @@ const jumpToSummary = (summary: Summary, symptom: string) => {
 
 const right = ref<Component | null>(null);
 
-const handleLogout = () => {
-  dialog.warning({
-    title: "Confirm Logout",
-    content: "Are you sure you want to log out?",
-    positiveText: "Confirm",
-    negativeText: "Cancel",
-    onPositiveClick: () => {
-      localStorage.removeItem("token");
-      router.push("/login");
-      message.success("You have been logged out.");
-    },
-    onNegativeClick: () => {
-      message.info("Logout canceled.");
-    },
-  });
-};
 </script>
 
 <template>
   <div class="patient-layout">
-    <div class="patient-header-wrapper">
-      <Loading :loading="loading" :has-data="!!patient">
-        <div class="row patient-header">
-          <div class="patient-avatar" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path
-                d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
-                fill="currentColor"
-              />
-            </svg>
-          </div>
-          <div class="patient-name">
-            {{ patientName }}
-          </div>
-          <div class="patient-meta">
-            {{ patient!.age ? patient!.age + " y.o." : "" }}
-            {{ patient!.gender }}
-          </div>
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <n-button
-                quaternary
-                circle
-                @click="$router.push(`/patient/${patient_id}/update`)"
-              >
-                <template #icon>
-                  <n-icon :size="22">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 16 16"
-                    >
-                      <g fill="none">
-                        <path
-                          d="M12.007 6.81l-5.949 5.95c-.319.318-.719.545-1.156.654l-2.283.57a.498.498 0 0 1-.604-.603l.57-2.283a2.49 2.49 0 0 1 .656-1.156l5.948-5.95l2.818 2.817zm1.41-4.226c.777.778.777 2.039 0 2.817l-.706.704l-2.817-2.818l.705-.703a1.992 1.992 0 0 1 2.817 0z"
-                          fill="currentColor"
-                        ></path>
-                      </g>
-                    </svg>
-                  </n-icon>
-                </template>
-              </n-button>
-            </template>
-            Edit Patient
-          </n-tooltip>
-          <div class="patient-nav-spacer"></div>
-          <div class="patient-nav">
-            <n-date-picker
-              v-model:value="dailySummaryDate"
-              type="date"
-              size="small"
-              clearable
-            />
-            <button
-              type="button"
-              class="logout-btn"
-              @click="handleLogout"
-              aria-label="Logout"
-            >
-              <n-icon :size="24">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M10 12H20M20 12L17 9M20 12L17 15"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                  <path
-                    d="M4 12C4 7.58172 7.58172 4 12 4M12 20C9.47362 20 7.22075 18.8289 5.75463 17"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                  />
-                </svg>
-              </n-icon>
-            </button>
-          </div>
-        </div>
-        <div class="row demographic"></div>
-        <template #loading>
-          <div class="row patient-header">
-            <div class="patient-avatar skeleton-avatar"></div>
-            <n-skeleton
-              class="patient-name"
-              style="height: 30px; width: 180px"
-            ></n-skeleton>
-            <n-skeleton
-              class="patient-meta"
-              style="height: 21px; width: 120px"
-            ></n-skeleton>
-          </div>
-          <div class="row demographic"></div>
-        </template>
-      </Loading>
-    </div>
     <div class="row">
       <div class="col main-col">
-      <ColoredCard
-        class="information indigo-title full-title-bar"
-        title="Basic Information"
-        color="#5171AB"
-        rounded
-      >
+      <ColoredCard class="information" rounded>
+        <div class="card-top-header">
+          <Loading :loading="loading" :has-data="!!patient">
+            <div class="row patient-header">
+              <div class="patient-avatar" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </div>
+              <div class="patient-name">
+                {{ patientName }}
+              </div>
+              <div class="patient-meta">
+                {{ patient!.age ? patient!.age + " y.o." : "" }}
+                {{ patient!.gender }}
+              </div>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button
+                    quaternary
+                    circle
+                    @click="$router.push(`/patient/${patient_id}/update`)"
+                  >
+                    <template #icon>
+                      <n-icon :size="22">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 16 16"
+                        >
+                          <g fill="none">
+                            <path
+                              d="M12.007 6.81l-5.949 5.95c-.319.318-.719.545-1.156.654l-2.283.57a.498.498 0 0 1-.604-.603l.57-2.283a2.49 2.49 0 0 1 .656-1.156l5.948-5.95l2.818 2.817zm1.41-4.226c.777.778.777 2.039 0 2.817l-.706.704l-2.817-2.818l.705-.703a1.992 1.992 0 0 1 2.817 0z"
+                              fill="currentColor"
+                            ></path>
+                          </g>
+                        </svg>
+                      </n-icon>
+                    </template>
+                  </n-button>
+                </template>
+                Edit Patient
+              </n-tooltip>
+              <div class="patient-nav-spacer"></div>
+            </div>
+            <template #loading>
+              <div class="row patient-header">
+                <div class="patient-avatar skeleton-avatar"></div>
+                <n-skeleton
+                  class="patient-name"
+                  style="height: 30px; width: 180px"
+                ></n-skeleton>
+                <n-skeleton
+                  class="patient-meta"
+                  style="height: 21px; width: 120px"
+                ></n-skeleton>
+              </div>
+            </template>
+          </Loading>
+        </div>
         <div class="basic-information-content">
           <div class="basic-top-section">
             <Loading :loading="loading" :has-data="!!patient">
@@ -456,33 +411,26 @@ const handleLogout = () => {
                     <span class="value">{{ cancerType }}</span>
                   </div>
                   <div class="detail-line">
-                    <span class="label">Cancer Stage:</span>
+                    <span class="label">Cancer Diagnosis Date:</span>
                     <span class="value">{{ cancerStage }}</span>
                   </div>
                   <div class="detail-line">
-                    <span class="label">Treatment Type:</span>
+                    <span class="label">Medication Allergy History:</span>
                     <span class="value">{{ treatmentType }}</span>
                   </div>
                 </div>
-                <div class="box-group">
-                  <div class="title">Hospitalizations</div>
-                  <div class="box hospitalizations-box">
-                    <div class="hospitalizations-scroll">
-                      <div class="hospitalizations">
-                      <div
-                        class="hospitalization-entry"
-                        v-for="(entry, index) in hospitalizations"
-                        :key="`${entry.date}-${index}`"
-                      >
-                        <span class="date">{{ formatHospitalizationDate(entry.date) }}</span>
-                        <span class="therapy">{{ entry.therapy || "--" }}</span>
-                      </div>
-                      <div v-if="hospitalizations.length === 0" class="hospitalization-entry">
-                        <span class="date">--</span>
-                        <span class="therapy">--</span>
-                      </div>
-                      </div>
-                    </div>
+                <div class="box patient-plan-box">
+                  <div class="detail-line">
+                    <span class="label">Treatment Plan:</span>
+                    <span class="value">{{ treatmentPlan }}</span>
+                  </div>
+                  <div class="detail-line">
+                    <span class="label">Treatment Cycle:</span>
+                    <span class="value">{{ treatmentCycle }}</span>
+                  </div>
+                  <div class="detail-line">
+                    <span class="label">Next Appointment Date:</span>
+                    <span class="value">{{ nextAppointmentDate }}</span>
                   </div>
                 </div>
               </div>
@@ -490,14 +438,14 @@ const handleLogout = () => {
           </div>
           <div class="daily-summary-content">
             <div class="overview-panel">
-              <div class="panel-title">Medication History</div>
+              <div class="panel-title">Admission History</div>
 
               <div class="overview-box">
                 <div class="overview-box-content"></div>
               </div>
             </div>
             <div class="overview-panel">
-              <div class="panel-title">Treatment Information</div>
+              <div class="panel-title">Current Medications</div>
               <div class="overall-summary-box">
                 <div class="overall-summary-content"></div>
               </div>
@@ -507,10 +455,18 @@ const handleLogout = () => {
       </ColoredCard>
       <ColoredCard
         class="day-navigator indigo-title full-title-bar"
-        title="Daily Symptom Overview"
-        color="#5171AB"
+        title="Patient's Daily Symptoms"
+        color="#053251"
         rounded
       >
+        <template #title-extra>
+          <n-date-picker
+            v-model:value="dailySummaryDate"
+            type="date"
+            size="small"
+            clearable
+          />
+        </template>
         <div class="day-navigator-content">
           <div class="day-overview-table">
             <div class="table-row day-overview-header">
@@ -568,8 +524,8 @@ const handleLogout = () => {
               <template #top-card>
                 <ColoredCard
                   class="detailed-wearable-card indigo-title full-title-bar"
-                  title="Detailed Wearable Sensor Data"
-                  color="#5171AB"
+                  title="Patient's Wearable Sensor Data"
+                  color="#053251"
                   rounded
                 >
                   <template #title-extra>
@@ -608,12 +564,19 @@ const handleLogout = () => {
           </router-view>
         </div>
       </div>
+      <div class="overview-connectors" aria-hidden="true">
+        <span class="connector-tail"></span>
+        <span class="connector-vertical"></span>
+        <span class="connector-branch connector-branch-top"></span>
+        <span class="connector-branch connector-branch-bottom"></span>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
 .row {
+  position: relative;
   flex-grow: 1;
   min-width: 0;
   .col {
@@ -626,12 +589,55 @@ const handleLogout = () => {
   }
   overflow-x: hidden;
 }
+.overview-connectors {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+.connector-tail,
+.connector-vertical,
+.connector-branch {
+  position: absolute;
+  background-color: #053251;
+  opacity: 0.9;
+}
+.connector-tail {
+  left: calc(53% - 10px);
+  top: 41%;
+  width: 10px;
+  height: 4px;
+}
+.connector-vertical {
+  left: calc(53% - 1px);
+  top: calc(43% - 300px);
+  width: 4px;
+  height: 378px;
+}
+.connector-branch {
+  left: calc(53% + 3px);
+  width: 4px;
+  height: 4px;
+}
+.connector-branch-top {
+  top: calc(43% - 300px);
+}
+.connector-branch-bottom {
+  top: calc(43% + 74px);
+}
 .main-col,
 .side-col {
-  flex: 1 1 0;
   min-width: 0;
   padding-bottom: 16px;
   box-sizing: border-box;
+}
+
+.row > .main-col {
+  flex: 53 1 0;
+}
+
+.row > .side-col {
+  flex: 47 1 0;
 }
 
 .patient-header {
@@ -641,7 +647,7 @@ const handleLogout = () => {
   overflow-y: hidden;
 }
 .information {
-  flex: 1.2 1 0;
+  flex: 4 1 0;
   min-height: 0;
 }
 .patient-avatar {
@@ -663,7 +669,7 @@ const handleLogout = () => {
   background-color: #f3f3f3;
 }
 .patient-name {
-  font-size: 30px;
+  font-size: 25px;
   line-height: 36px;
   font-weight: 700;
 }
@@ -674,30 +680,6 @@ const handleLogout = () => {
   font-size: 16px;
   line-height: 30px;
   font-weight: 700;
-}
-.patient-nav {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 30px;
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-.logout-btn {
-  margin-left: 8px;
-  color: inherit;
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-  flex: 0 0 24px;
 }
 .patient-nav-spacer {
   flex: 0 0 auto;
@@ -710,9 +692,10 @@ const handleLogout = () => {
   overflow: hidden;
 }
 .detailed-wearable-card {
-  flex: 1.2 1 0;
-  min-height: 280px;
+  flex: 1 1 0;
+  min-height: 0;
   min-width: 0;
+  border: 2px solid #053251 !important;
 }
 .wearable-chart-wrapper {
   flex: 1 1 0;
@@ -730,7 +713,7 @@ const handleLogout = () => {
 .range-btn {
   border: none;
   background: transparent;
-  color: #ffffff;
+  color: #053251;
   height: 24px;
   padding: 0;
   font-size: 14px;
@@ -749,7 +732,7 @@ const handleLogout = () => {
 .range-dot {
   width: 14px;
   height: 14px;
-  border: 2px solid #ffffff;
+  border: 2px solid #053251;
   border-radius: 50%;
   box-sizing: border-box;
   position: relative;
@@ -764,7 +747,7 @@ const handleLogout = () => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ffffff;
+  background: #053251;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -806,6 +789,14 @@ const handleLogout = () => {
   overflow: hidden;
   width: 100%;
 }
+.card-top-header {
+  padding: 0 0 12px 0;
+}
+.card-top-header :deep(.n-spin),
+.card-top-header :deep(.n-spin-container),
+.card-top-header :deep(.n-spin-content) {
+  width: 100%;
+}
 .patient-layout {
   display: flex;
   flex-direction: column;
@@ -815,6 +806,9 @@ const handleLogout = () => {
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
+}
+.patient-layout > .row:first-of-type {
+  margin-top: 16px;
 }
 .icon-button {
   background: none;
@@ -839,44 +833,12 @@ const handleLogout = () => {
     font-weight: 700;
   }
 }
-.box-group {
-  flex-basis: 0;
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  row-gap: 6px;
-  .title {
-    font-size: 14px;
-    font-weight: 700;
-  }
-}
 .detail-line {
   display: flex;
   column-gap: 6px;
   line-height: 22px;
 }
 .detail-line .label {
-  font-weight: 700;
-}
-.hospitalizations {
-  margin-top: 0px;
-  display: flex;
-  flex-direction: column;
-  row-gap: 4px;
-  font-size: 12px;
-}
-.hospitalizations-scroll {
-  height: 100%;
-  overflow: auto;
-  padding-right: 4px;
-  box-sizing: border-box;
-}
-.hospitalization-entry {
-  display: flex;
-  column-gap: 8px;
-}
-.hospitalization-entry .date {
-  min-width: 90px;
   font-weight: 700;
 }
 .demographic {
@@ -890,30 +852,37 @@ const handleLogout = () => {
     overflow: overlay;
   }
 }
-.patient-details > .box,
-.patient-details > .box-group {
+.patient-details > .box {
   height: 100%;
-}
-.hospitalizations-box {
-  background-color: #f3f3f3;
-  font-size: 12px !important;
-  padding: 6px 10px 6px 12px;
-  overflow: hidden;
 }
 .patient-info-box {
   background-color: #fff;
   padding: 0;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
+  row-gap: 4px;
+}
+.patient-plan-box {
+  background-color: #fff;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  row-gap: 4px;
 }
 .patient-info-box .detail-line {
-  flex: 1 1 0;
+  flex: 0 0 auto;
+  align-items: center;
+}
+.patient-plan-box .detail-line {
+  flex: 0 0 auto;
   align-items: center;
 }
 .basic-information-content {
   display: flex;
   flex-direction: column;
-  row-gap: 16px;
+  row-gap: 0px;
   height: 100%;
   min-height: 0;
 }
@@ -948,8 +917,8 @@ const handleLogout = () => {
   min-width: 0;
 }
 .day-navigator {
-  flex: 0 0 280px;
-  min-height: 140px;
+  flex: 6 1 0;
+  min-height: 0;
 }
 .day-navigator :deep(.n-card__content) {
   height: 100%;
@@ -1029,7 +998,7 @@ const handleLogout = () => {
 .daily-summary-content {
   flex: 1 1 0;
   display: flex;
-  column-gap: 12px;
+  column-gap: 16px;
   min-height: 0;
 }
 .overview-panel {
@@ -1142,7 +1111,7 @@ const handleLogout = () => {
   display: flex;
   align-items: center;
   column-gap: 8px;
-  row-gap: 8px;
+  row-gap: 4px;
   font-size: 14px;
 }
 .symptom-row.clickable {
@@ -1152,11 +1121,11 @@ const handleLogout = () => {
   opacity: 0.8;
 }
 .indigo-title :deep(.roundtag__label) {
-  background-color: #5171AB !important;
+  background-color: #053251 !important;
   color: #fff;
 }
 .indigo-title :deep(.roundtag__round) {
-  background-color: #5171AB !important;
+  background-color: #053251 !important;
 }
 .full-title-bar :deep(.roundtag) {
   width: 100%;
@@ -1168,6 +1137,16 @@ const handleLogout = () => {
   justify-content: flex-start;
   padding: 0 12px;
   border-radius: 0;
+}
+.full-title-bar.detailed-wearable-card :deep(.roundtag__label) {
+  background-color: #d7d7d7 !important;
+  border: 2px solid #053251 !important;
+  border-left-width: 6px !important;
+  border-bottom-width: 2px !important;
+  border-top-width: 0px !important;
+  border-right-width: 0px !important;
+  box-sizing: border-box;
+  color: #053251 !important;
 }
 .full-title-bar :deep(.roundtag__extra) {
   margin-left: auto;
@@ -1187,7 +1166,7 @@ const handleLogout = () => {
   cursor: pointer;
 }
 .information {
-  flex: 1.2 1 0;
+  flex: 4 1 0;
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;

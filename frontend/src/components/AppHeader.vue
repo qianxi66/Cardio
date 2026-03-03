@@ -72,13 +72,13 @@ const handleLogout = () => {
   .space {
     flex: 1;
   }
-  height: 60px;
+  height: 45px;
 
   :deep(.n-menu) {
     flex: auto 0 0;
-    height: 60px;
+    height: 45px;
     .n-menu-item {
-      height: 60px;
+      height: 45px;
     }
   }
 }
@@ -87,7 +87,7 @@ header {
   display: flex;
   justify-content: center;
   margin-bottom: 0;
-  background-color: #041527;
+  background-color: #383838;
   color: white;
 }
 </style>

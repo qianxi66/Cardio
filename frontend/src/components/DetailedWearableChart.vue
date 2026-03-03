@@ -49,7 +49,7 @@ const seriesDefs = ref([
   },
   {
     name: "Respiration",
-    color: "#ec48d3",
+    color: "#ffb700",
     data: [] as Array<number | null>,
     yAxisIndex: 1,
     lineType: "solid",
@@ -628,14 +628,14 @@ const buildOption = (): echarts.EChartsOption => {
       max: 20,
       interval: 5,
       axisLabel: {
-        color: "#ec48d3",
+        color: "#ffb700",
         fontWeight: "bold",
         showMinLabel: true,
         showMaxLabel: true,
         hideOverlap: false,
         formatter: (value: number) => (value === 5 ? `${value}\n(bpm)` : `${value}`),
       },
-      axisLine: { show: true, lineStyle: { color: "#ec48d3", width: 2 } },
+      axisLine: { show: true, lineStyle: { color: "#ffb700", width: 2 } },
       axisTick: { show: false },
     },
     {
@@ -945,11 +945,11 @@ onBeforeUnmount(() => {
         <span class="legend-label" :style="{ color: item.color }">
           {{ item.name }}
         </span>
-        <svg class="legend-line" viewBox="0 0 30 2" aria-hidden="true">
+        <svg class="legend-line" viewBox="0 0 20 2" aria-hidden="true">
           <line
             x1="0"
             y1="1"
-            x2="30"
+            x2="20"
             y2="1"
             :stroke="item.color"
             stroke-width="2"
@@ -1028,7 +1028,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .legend-line {
-  width: 30px;
+  width: 20px;
   height: 8px;
   display: block;
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { GlobalThemeOverrides } from "naive-ui";
 import { NConfigProvider } from "naive-ui";
+import AppHeader from "@/components/AppHeader.vue";
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -17,7 +18,10 @@ const themeOverrides: GlobalThemeOverrides = {
     <n-message-provider>
       <n-dialog-provider>
         <n-notification-provider>
-          <RouterView></RouterView>
+          <AppHeader />
+          <div class="app-body">
+            <RouterView></RouterView>
+          </div>
           <n-global-style></n-global-style>
         </n-notification-provider>
       </n-dialog-provider>
@@ -33,5 +37,12 @@ const themeOverrides: GlobalThemeOverrides = {
   flex-direction: column;
   flex-wrap: nowrap;
   justify-content: flex-start;
+}
+
+.app-body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>

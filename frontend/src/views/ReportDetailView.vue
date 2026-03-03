@@ -160,7 +160,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   <div class="report-detail">
     <slot name="top-card">
       <ColoredCard
-        color="#5171AB"
+        color="#053251"
         rounded
         title="Detailed Wearable Sensor Data"
         class="summary-card detailed-wearable-card indigo-title full-title-bar"
@@ -202,9 +202,9 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
       </ColoredCard>
     </slot>
     <ColoredCard
-      color="#5171AB"
+      color="#053251"
       rounded
-      title="Conversational Log"
+      title="Patient's Conversational Log"
       class="conversation-card indigo-title full-title-bar"
     >
       <div class="conversation-panel conversation-left">
@@ -307,11 +307,13 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   min-height: 0;
 }
 .report-detail .detailed-wearable-card {
-  flex: 4 1 0;
+  flex: 1 1 0;
+  border: 2px solid #053251 !important;
 }
 .report-detail .conversation-card {
-  flex: 6 1 0;
+  flex: 1 1 0;
   min-height: 0;
+  border: 2px solid #053251 !important;
 }
 .detailed-wearable-card :deep(.n-card__content) {
   display: flex;
@@ -330,7 +332,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 .range-btn {
   border: none;
   background: transparent;
-  color: #ffffff;
+  color: #053251;
   height: 24px;
   padding: 0;
   font-size: 14px;
@@ -349,7 +351,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 .range-dot {
   width: 14px;
   height: 14px;
-  border: 2px solid #ffffff;
+  border: 2px solid #053251;
   border-radius: 50%;
   box-sizing: border-box;
   position: relative;
@@ -364,7 +366,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ffffff;
+  background: #053251;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -518,7 +520,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   left: 0;
   right: 0;
   bottom: 0;
-  border: 2px solid #5171ab;
+  border: 2px solid #053251;
   border-radius: 4px;
   pointer-events: none;
 }
@@ -664,11 +666,11 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   color: #666;
 }
 .indigo-title :deep(.roundtag__label) {
-  background-color: #5171AB !important;
+  background-color: #053251 !important;
   color: #fff;
 }
 .indigo-title :deep(.roundtag__round) {
-  background-color: #5171AB !important;
+  background-color: #053251 !important;
 }
 .empty-card {
   height: 100%;
@@ -683,6 +685,17 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   justify-content: flex-start;
   padding: 0 12px;
   border-radius: 0;
+}
+.full-title-bar.detailed-wearable-card :deep(.roundtag__label),
+.full-title-bar.conversation-card :deep(.roundtag__label) {
+  background-color: #d7d7d7 !important;
+  border: 2px solid #053251 !important;
+  border-left-width: 6px !important;
+  border-bottom-width: 2px !important;
+  border-top-width: 0px !important;
+  border-right-width: 0px !important;
+  box-sizing: border-box;
+  color: #053251 !important;
 }
 .full-title-bar :deep(.roundtag__round) {
   display: none;
