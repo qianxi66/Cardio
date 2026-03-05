@@ -34,6 +34,9 @@ const title = computed(() => {
     >
       <div className="roundtag__label">
         <span className="roundtag__title">{{ props.title }}</span>
+        <span className="roundtag__title-inline">
+          <slot name="title-inline"></slot>
+        </span>
         <span className="roundtag__extra">
           <slot name="title-extra"></slot>
         </span>
@@ -77,6 +80,10 @@ const title = computed(() => {
   font-weight: 700;
 }
  .roundtag__title {
+  display: inline-flex;
+  align-items: center;
+}
+.roundtag__title-inline {
   display: inline-flex;
   align-items: center;
 }

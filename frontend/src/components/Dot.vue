@@ -105,7 +105,7 @@ const dotColor = computed(() => {
       :theme-overrides="{ boxShadow: 'none' }"
     >
       <template #trigger>
-        <Dot :state="props.state" :loading="props.loading" :is-read="props.isRead"></Dot>
+        <Dot :state="props.state" :loading="props.loading" :is-read="props.isRead" :variant="props.variant"></Dot>
       </template>
       <n-button-group vertical>
         <n-button
@@ -122,7 +122,7 @@ const dotColor = computed(() => {
           "
         >
           <template #icon>
-            <Dot :state="state" :is-read="1"></Dot>
+            <Dot :state="state" :is-read="1" :variant="props.variant"></Dot>
           </template>
           {{ stateMessages[state] }}
         </n-button>
@@ -136,7 +136,7 @@ const dotColor = computed(() => {
           "
         >
           <template #icon>
-            <Dot :state="-1" :is-read="1"></Dot>
+            <Dot :state="-1" :is-read="1" :variant="props.variant"></Dot>
           </template>
           Reviewed
         </n-button>

@@ -188,7 +188,7 @@ watch(patients, (list) => {
   <div class="row holder">
     <n-card class="patient-list">
       <template #header>
-        <div class="header row">
+        <div class="header">
           <div class="title">Patient List</div>
           <n-tooltip trigger="hover">
             <template #trigger>
@@ -198,10 +198,10 @@ watch(patients, (list) => {
                 @click="$router.push('/create_patient')"
               >
                 <template #icon>
-                  <n-icon size="35" quaternary type="primary">
+                  <n-icon size="17.5" quaternary type="primary">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 512 512"
+                      viewBox="120 120 272 272"
                     >
                       <path
                         d="M368.5 240H272v-96.5c0-8.8-7.2-16-16-16s-16 7.2-16 16V240h-96.5c-8.8 0-16 7.2-16 16
@@ -293,12 +293,16 @@ watch(patients, (list) => {
 .header {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
+  justify-content: space-between;
   min-height: 30px;
   margin-bottom: 8px;
   margin-top: 14px;
 }
 .title {
   flex-grow: 1;
+  min-width: 0;
+  white-space: nowrap;
   font-size: 18px;
   line-height: 28px;
   font-weight: 700;
@@ -330,8 +334,7 @@ watch(patients, (list) => {
   margin-left: 0;
 }
 .patient-list:deep(.n-card-header) {
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding: 16px;
 }
 .patient-list:deep(.n-card-header__main) {
   width: 100%;
@@ -340,8 +343,14 @@ watch(patients, (list) => {
   margin-top: 0;
 }
 .header :deep(.n-button) {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.header :deep(.n-icon) {
+  line-height: 1;
 }
 .icon-button {
   background: none;

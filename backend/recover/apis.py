@@ -1276,6 +1276,43 @@ def mark_summary_read(id, summary_id):
     db.session.add(summary)
     db.session.commit()
     return jsonify({"updated": updated}), 200
+
+
+@current_app.route("/patients/<int:id>/summaries/<int:summary_id>", methods=["PATCH"])
+@login_required
+def update_summary(id, summary_id):
+    """Update one or more symptom state/read fields on a summary.
+    Body example: { "syncope_state": 2, "syncope_read": 1 }
+    """
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    summary = Summary.query.filter_by(id=summary_id, patient_id=patient.id).first()
+    if summary is None:
+        return jsonify({"message": "Summary not found"}), 404
+
+    data = request.get_json() or {}
+    updated = []
+    for key, value in data.items():
+        if key.endswith("_state"):
+            symptom_name = key[: -len("_state")]
+            if symptom_name in symptom_descriptions and isinstance(value, int) and value in (-1, 0, 1, 2, 3, 4):
+                setattr(summary, key, value)
+                setattr(summary, f"{symptom_name}_read", 1)
+                updated.append(key)
+                updated.append(f"{symptom_name}_read")
+        elif key.endswith("_read"):
+            symptom_name = key[: -len("_read")]
+            if symptom_name in symptom_descriptions and isinstance(value, int) and value in (0, 1):
+                setattr(summary, key, value)
+                updated.append(key)
+
+    if not updated:
+        return jsonify({"message": "No valid symptom fields provided"}), 400
+
+    db.session.add(summary)
+    db.session.commit()
+    return jsonify(_columns_dict(summary))
 @login_required
 def get_risks(id):
     patient, error = _get_patient_for_user(id, g.current_user.id)

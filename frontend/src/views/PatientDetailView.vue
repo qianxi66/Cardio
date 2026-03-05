@@ -5,7 +5,7 @@ import { useRouter } from "vue-router";
 import type { DrawerPlacement } from "naive-ui";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
-import { markSymptomRead } from "@/api/patient";
+import { markSymptomRead, updateSummarySymptomState } from "@/api/patient";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
 import { computed, watch, ref, inject, nextTick, onMounted, onBeforeUnmount, type Component } from "vue";
@@ -16,7 +16,7 @@ import { format } from "date-fns";
 import type { CancelTokenSource } from "axios";
 import axios from "axios";
 
-const refreshPatients = inject("refreshPatients");
+const refreshPatients = inject<(() => void | Promise<void>) | undefined>("refreshPatients");
 const patient_id = useRouteParams("patient_id");
 const query_date_ = useRouteQuery<string | undefined>("date");
 
@@ -311,11 +311,40 @@ const dotStateForSymptom = (
 ): number => {
   if (!wearable) return symptomState(summary, symptomKey);
   if (!summary) return 0;
+  const currentState = symptomState(summary, symptomKey);
+  if (currentState > 0) return currentState;
   const parsed = parseDateValue(summary.date);
   if (!parsed) return 0;
   const key = dateKey(parsed);
   const cov = wearableCoverage.value[key];
   return cov ? 1 : 0;
+};
+
+const handleDayOverviewDotStateChange = async (
+  summary: Summary | null,
+  symptom: string,
+  nextState: number,
+) => {
+  if (!summary || !patient_id.value) return;
+  const patientId = Number(patient_id.value);
+  const summaryRecord = summary as Record<string, unknown>;
+  const stateKey = `${symptom}_state`;
+  const readKey = `${symptom}_read`;
+  const prevState = Number(summaryRecord[stateKey]);
+  const prevRead = summaryRecord[readKey];
+
+  summaryRecord[stateKey] = nextState;
+  summaryRecord[readKey] = 1;
+
+  try {
+    await updateSummarySymptomState(patientId, summary.id, symptom, nextState);
+    await refreshPatients?.();
+  } catch {
+    if (!Number.isNaN(prevState)) {
+      summaryRecord[stateKey] = prevState;
+    }
+    summaryRecord[readKey] = prevRead;
+  }
 };
 
 const dayOverviewSymptoms = [
@@ -537,9 +566,16 @@ watch(loading, () => nextTick(updateConnectors));
           <Loading :loading="loading" :has-data="!!patient">
             <div class="row patient-header">
               <div class="patient-avatar" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
+                <svg viewBox="0 0 512 512">
                   <path
-                    d="M12 12a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm0 2c-4.2 0-7.5 2-7.5 4.5V20h15v-1.5C19.5 16 16.2 14 12 14Z"
+                    d="M458.159,404.216c-18.93-33.65-49.934-71.764-100.409-93.431c-28.868,20.196-63.938,32.087-101.745,32.087
+                    c-37.828,0-72.898-11.89-101.767-32.087c-50.474,21.667-81.479,59.782-100.398,93.431C28.731,448.848,48.417,512,91.842,512
+                    c43.426,0,164.164,0,164.164,0s120.726,0,164.153,0C463.583,512,483.269,448.848,458.159,404.216z"
+                    fill="currentColor"
+                  />
+                  <path
+                    d="M256.005,300.641c74.144,0,134.231-60.108,134.231-134.242v-32.158C390.236,60.108,330.149,0,256.005,0
+                    c-74.155,0-134.252,60.108-134.252,134.242V166.4C121.753,240.533,181.851,300.641,256.005,300.641z"
                     fill="currentColor"
                   />
                 </svg>
@@ -649,6 +685,16 @@ watch(loading, () => nextTick(updateConnectors));
         color="#053251"
         rounded
       >
+        <template #title-inline>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <button type="button" class="day-symptoms-info" aria-label="Daily symptoms help">
+                <span class="day-symptoms-info-glyph" aria-hidden="true"></span>
+              </button>
+            </template>
+            Click the report line to view detailed information or update the dot's status.
+          </n-tooltip>
+        </template>
         <template #title-extra>
           <n-date-picker
             v-model:value="dailySummaryDate"
@@ -692,19 +738,14 @@ watch(loading, () => nextTick(updateConnectors));
                   class="symptom"
                   v-for="symptom in dayOverviewSymptoms"
                   :key="`${row.id}-${symptom.key}`"
-                  :class="{ clickable: symptomState(row.summary, symptom.key) !== 0 }"
-                  @click.stop="
-                    jumpToDayOverviewSummary(
-                      row.summary,
-                      row.timestamp,
-                      symptom.key,
-                    )
-                  "
+                  :class="{ clickable: true }"
                 >
                   <Dot
                     :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
                     :isRead="(row.summary as any)?.[symptom.key + '_read'] ?? 0"
                     :variant="symptom.wearable ? 'wearable' : 'circle'"
+                    :editable="true"
+                    @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
                     :loading="symptom.wearable && wearableLoading"
                   />
                 </div>
@@ -879,7 +920,7 @@ watch(loading, () => nextTick(updateConnectors));
   height: 32px;
   border-radius: 50%;
   background-color: #ffffff;
-  color: #9a9a9a;
+  color: #053251;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1477,6 +1518,47 @@ watch(loading, () => nextTick(updateConnectors));
   margin-left: auto;
   display: inline-flex;
   align-items: center;
+  gap: 8px;
+}
+.day-symptoms-info {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid #ffffff;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.day-symptoms-info-glyph {
+  position: relative;
+  width: 8px;
+  height: 10px;
+  display: inline-block;
+}
+.day-symptoms-info-glyph::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 2px;
+  margin-left: -1px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+.day-symptoms-info-glyph::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: #ffffff;
 }
 .full-title-bar :deep(.roundtag__round) {
   display: none;

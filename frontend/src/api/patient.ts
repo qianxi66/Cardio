@@ -184,6 +184,22 @@ export const markSymptomRead = async (
   });
 };
 
+export const updateSummarySymptomState = async (
+  patient_id: number,
+  summary_id: number,
+  symptom: string,
+  state: number,
+) => {
+  return await api({
+    url: `/patients/${patient_id}/summaries/${summary_id}`,
+    method: "PATCH",
+    data: {
+      [`${symptom}_state`]: state,
+      [`${symptom}_read`]: 1,
+    },
+  });
+};
+
 export type WearableCoverage = Record<string, boolean>;
 
 export const getWearableCoverage = async (
