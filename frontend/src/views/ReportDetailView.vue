@@ -7,6 +7,15 @@ import { getConversationLogs } from "@/api/patient";
 import type { ConversationLog } from "@/api/types";
 import { format } from "date-fns";
 
+withDefaults(
+  defineProps<{
+    highlightColor?: string;
+  }>(),
+  {
+    highlightColor: "#053251",
+  },
+);
+
 const selectedDate = ref<number | null>(Date.now());
 const conversationDate = computed<number | null>({
   get: () => selectedDate.value,
@@ -190,7 +199,7 @@ watch(effectiveHighlightIds, () => nextTick(scrollToLogs));
 watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 </script>
 <template>
-  <div class="report-detail">
+  <div class="report-detail" :style="{ '--log-highlight-color': highlightColor }">
     <slot name="top-card">
       <ColoredCard
         color="#053251"
@@ -220,22 +229,23 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
       title="Patient's Conversational Log"
       class="conversation-card indigo-title full-title-bar"
     >
-      <div class="conversation-box conversation-log">
-        <div class="conversation-scroll" v-if="logsForDate.length > 0">
-          <div
-            :ref="(el) => setLogRef(el, log.id)"
-            class="log-row"
-            :class="{ 'log-selected': effectiveHighlightIds.has(log.id) }"
-            v-for="log in logsForDate"
-            :key="log.id"
-          >
-            <div class="log-role">{{ log.role === "assistant" ? "Assistant" : "Patient" }}</div>
-            <div class="log-content">{{ log.content }}</div>
-            <div class="log-time">{{ formatLogTime(log.date) }}</div>
-          </div>
+      <div class="conversation-scroll" v-if="logsForDate.length > 0">
+        <div
+          :ref="(el) => setLogRef(el, log.id)"
+          class="log-row"
+          :class="{
+            'log-selected': effectiveHighlightIds.has(log.id),
+            'log-patient': log.role === 'user',
+          }"
+          v-for="log in logsForDate"
+          :key="log.id"
+        >
+          <div class="log-role">{{ log.role === "assistant" ? "Assistant" : "Patient" }}</div>
+          <div class="log-content">{{ log.content }}</div>
+          <div class="log-time">{{ formatLogTime(log.date) }}</div>
         </div>
-        <div v-else class="log-empty-message">No conversation logs</div>
       </div>
+      <div v-else class="log-empty-message">No conversation logs</div>
     </ColoredCard>
   </div>
 </template>
@@ -363,31 +373,15 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   min-height: 0;
   overflow: hidden;
 }
-.conversation-box {
-  background-color: #f3f3f3;
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: hidden;
-}
 .conversation-scroll {
   flex: 1 1 0;
   min-height: 0;
   overflow: auto;
-  padding-top: 6px;
-  padding-right: 6px;
-  padding-left: 6px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.conversation-log {
   padding: 12px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  min-height: 0;
+  gap: 8px;
 }
 .log-row {
   display: flex;
@@ -400,6 +394,10 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   border-radius: 6px;
   border: 1px solid #d9d9d9;
 }
+.log-row.log-patient {
+  padding: 5px 14px;
+  background: #f5f5f5;
+}
 .log-row.log-selected::after {
   content: "";
   position: absolute;
@@ -407,7 +405,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   left: 0;
   right: 0;
   bottom: 0;
-  border: 2px solid #053251;
+  border: 2px solid var(--log-highlight-color, #053251);
   border-radius: 6px;
   pointer-events: none;
 }

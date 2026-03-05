@@ -15,10 +15,12 @@ import Loading from "@/components/Loading.vue";
 import { format } from "date-fns";
 import type { CancelTokenSource } from "axios";
 import axios from "axios";
+import { stateColors } from "@/symptoms";
 
 const refreshPatients = inject<(() => void | Promise<void>) | undefined>("refreshPatients");
 const patient_id = useRouteParams("patient_id");
 const query_date_ = useRouteQuery<string | undefined>("date");
+const query_dot_state_ = useRouteQuery<string | undefined>("dot_state");
 
 const patient = ref<Patient | null>(null);
 const summaries = ref<Summary[]>([]);
@@ -475,7 +477,7 @@ const jumpToDayOverviewSummary = (
       (summary as Record<string, unknown>)["read"] = 1;
     }).catch(() => {});
   }
-  jumpToSummary(summary, symptom);
+  jumpToSummary(summary, symptom, state);
 };
 
 const handleDayOverviewDotClick = (
@@ -489,7 +491,7 @@ const handleDayOverviewDotClick = (
   }
 };
 
-const jumpToSummary = (summary: Summary, symptom: string) => {
+const jumpToSummary = (summary: Summary, symptom: string, dotStateOverride?: number) => {
   const logsRaw = (summary as Record<string, unknown>)[
     `${symptom}_logs`
   ] as string | undefined;
@@ -506,16 +508,32 @@ const jumpToSummary = (summary: Summary, symptom: string) => {
       : dateVal instanceof Date
         ? dateVal.getTime()
         : null;
+  const symptomStateValue = (summary as Record<string, unknown>)[`${symptom}_state`];
+  const inferredDotState =
+    typeof symptomStateValue === "number"
+      ? symptomStateValue
+      : typeof symptomStateValue === "string"
+        ? Number.parseInt(symptomStateValue, 10)
+        : 0;
+  const dotState = typeof dotStateOverride === "number" ? dotStateOverride : inferredDotState;
   router.push({
     name: "patient.detail",
     params: { patient_id: patient_id.value },
     query: {
       symptom,
       logs: logsArr,
+      dot_state: String(Number.isNaN(dotState) ? 0 : dotState),
       ...(dateTs != null && { date: String(dateTs) }),
     },
   });
 };
+
+const conversationHighlightColor = computed(() => {
+  const raw = query_dot_state_.value;
+  const parsed = raw !== undefined ? Number.parseInt(raw, 10) : Number.NaN;
+  const idx = Number.isFinite(parsed) ? parsed : 0;
+  return stateColors[idx] || "#053251";
+});
 
 const right = ref<Component | null>(null);
 
@@ -812,7 +830,11 @@ watch(loading, () => nextTick(updateConnectors));
       <div class="col side-col">
         <div class="side-content">
           <router-view v-slot="{ Component }">
-            <component :is="Component || ReportDetailView" ref="right">
+            <component
+              :is="Component || ReportDetailView"
+              ref="right"
+              :highlight-color="conversationHighlightColor"
+            >
               <template #top-card>
                 <ColoredCard
                   class="detailed-wearable-card indigo-title full-title-bar"

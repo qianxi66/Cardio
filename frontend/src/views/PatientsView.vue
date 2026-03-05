@@ -327,8 +327,9 @@ watch(patients, (list) => {
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.2);
 }
 .n-card:deep(.n-card__content) {
-  padding: 0;
+  padding: 0 6px 0 0;
   overflow: overlay;
+  background-color: #ffffff;
 }
 .filterpart {
   margin-left: 0;
@@ -366,10 +367,10 @@ watch(patients, (list) => {
   justify-content: center;
   align-items: center;
   width: 48px;
-  height: 64px;
+  height: 63px;
 }
 .patient-card {
-  height: 84px;
+  height: 63px;
   width: 100%;
   display: flex;
   flex-direction: row;
@@ -397,8 +398,9 @@ watch(patients, (list) => {
 a {
   text-decoration: none;
 }
-.selected {
-  background-color: #f3f3f3; 
+.patient-card.selected {
+  border: 2px solid #808080;
+  background-color: transparent;
   cursor: default;
 }
 </style>

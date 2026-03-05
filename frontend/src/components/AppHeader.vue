@@ -15,7 +15,10 @@ window.$dialog = dialog;
 const token = useStorage("token", "", localStorage);
 
 const showLogoutButton = computed(() => {
-  return token.value !== "" && route.path !== "/login";
+  const tokenValue = typeof token.value === "string" ? token.value.trim() : "";
+  const storageToken = (localStorage.getItem("token") || "").trim();
+  const hasToken = tokenValue !== "" || storageToken !== "";
+  return hasToken && route.path !== "/login";
 });
 
 const handleLogout = () => {

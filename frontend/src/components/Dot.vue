@@ -78,7 +78,7 @@ const dotColor = computed(() => {
     <n-skeleton
       v-else
       box
-      style="height: 24px; width: 24px; border-radius: 50%"
+      style="height: 16px; width: 16px; border-radius: 50%"
     />
   </div>
   <div v-else>
@@ -136,8 +136,8 @@ const dotColor = computed(() => {
   line-height: 1;
 }
 .dot {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
