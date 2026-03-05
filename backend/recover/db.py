@@ -5,7 +5,7 @@ import typing as t
 import sqlite3
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Column, Table, Float, Boolean, Date, Integer, String, event
+from sqlalchemy import ForeignKey, Column, Index, Table, Float, Boolean, Date, Integer, String, Text, event
 from sqlalchemy.engine import Engine
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
@@ -114,7 +114,7 @@ class Token(db.Model):
 
 class Patient(db.Model):
     __tablename__ = "patient" # Explicitly define table name
-    __relationship_keys__ = ["users", "admission_histories", "summaries", "risks", "conversation_logs", "medications", "notes"]
+    __relationship_keys__ = ["users", "admission_histories", "summaries", "risks", "conversation_logs", "medications", "notes", "preadmission_medications", "io_metrics", "medication_execution_metrics"]
     id: Mapped[int] = mapped_column(primary_key=True)
     users: Mapped[List["User"]] = relationship(
         secondary=user_patient_table, back_populates="patients"
@@ -144,12 +144,18 @@ class Patient(db.Model):
     conversation_logs: Mapped[List["ConversationLog"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     medications: Mapped[List["Medication"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     notes: Mapped[List["Note"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    preadmission_medications: Mapped[List["PreadmissionMedication"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    io_metrics: Mapped[List["IOMetric"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    medication_execution_metrics: Mapped[List["MedicationExecutionMetric"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
 
 
 class AdmissionHistory(db.Model):
     """Patient hospital admission / discharge records."""
     __tablename__ = "admission_history"
     __relationship_keys__ = ["patient"]
+    __table_args__ = (
+        Index("ix_admission_history_patient_date", "patient_id", "admission_date"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
     patient: Mapped["Patient"] = relationship(back_populates="admission_histories")
@@ -159,6 +165,21 @@ class AdmissionHistory(db.Model):
     diagnosis: Mapped[Optional[str]] = mapped_column(db.Text)   # primary diagnosis text
     symptoms: Mapped[Optional[str]] = mapped_column(db.Text)    # symptom description at admission
     notes: Mapped[Optional[str]] = mapped_column(db.Text)       # free-form clinical notes
+
+    # --- new fields (v2) ---
+    careunit_id: Mapped[Optional[str]] = mapped_column(db.String(20))          # source care-unit ID  e.g. "1", "54"
+    careunit_name: Mapped[Optional[str]] = mapped_column(db.String(100))       # e.g. "CCU", "MICU"
+    destination_unit_id: Mapped[Optional[str]] = mapped_column(db.String(20))   # transfer-out unit ID
+    destination_unit_name: Mapped[Optional[str]] = mapped_column(db.String(100))# e.g. "FA2", "CC7"
+    discharge_status: Mapped[Optional[str]] = mapped_column(db.String(50))     # Home/Rehab/SNF/Expired/No Disch Status/Other
+    admission_type: Mapped[Optional[str]] = mapped_column(db.String(30))       # emergency/elective/urgent
+    readmission_flag: Mapped[Optional[bool]] = mapped_column(db.Boolean, default=False)
+    los_minutes: Mapped[Optional[int]] = mapped_column(db.Integer)             # length-of-stay in minutes
+
+    # back-refs from child tables
+    preadmission_medications: Mapped[List["PreadmissionMedication"]] = relationship(back_populates="admission_history", cascade="all, delete-orphan")
+    io_metrics: Mapped[List["IOMetric"]] = relationship(back_populates="admission_history", cascade="all, delete-orphan")
+    medication_execution_metrics: Mapped[List["MedicationExecutionMetric"]] = relationship(back_populates="admission_history", cascade="all, delete-orphan")
 
 
 
@@ -170,11 +191,11 @@ class Summary(db.Model):
     patient: Mapped["Patient"] = relationship(back_populates="summaries")
 
     date: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+    read: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 for symptom_name in symptom_descriptions:
     setattr(Summary, f"{symptom_name}_state", mapped_column(Integer, nullable=True))
     setattr(Summary, f"{symptom_name}_logs", mapped_column(String, nullable=True))
-    setattr(Summary, f"{symptom_name}_read", mapped_column(Integer, nullable=True, default=0))  # 0=unread 1=read
     if symptom_descriptions[symptom_name].get("likert", False):
         setattr(Summary, f"{symptom_name}_scale", mapped_column(Integer, nullable=True))
 
@@ -219,6 +240,9 @@ class Medication(db.Model):
     """Medications prescribed or taken by a patient."""
     __tablename__ = "medication"
     __relationship_keys__ = ["patient"]
+    __table_args__ = (
+        Index("ix_medication_patient_start", "patient_id", "start_date"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
     patient: Mapped["Patient"] = relationship(back_populates="medications")
@@ -230,6 +254,14 @@ class Medication(db.Model):
     recorded_by_user_id: Mapped[Optional[int]] = mapped_column(db.ForeignKey("user.id"))  # who entered it
     notes: Mapped[Optional[str]] = mapped_column(db.Text)
     created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+
+    # --- new fields (v2) ---
+    route: Mapped[Optional[str]] = mapped_column(db.String(50))          # PO / IV / SC / IM / PR / INH
+    frequency: Mapped[Optional[str]] = mapped_column(db.String(50))      # QD / BID / TID / Q4-6H:PRN
+    schedule_hours: Mapped[Optional[str]] = mapped_column(db.String(100)) # e.g. "10", "08,20"
+    dose_count: Mapped[Optional[int]] = mapped_column(db.Integer)         # number of doses in order
+    is_current_medication: Mapped[Optional[bool]] = mapped_column(db.Boolean, default=False)
+    order_source: Mapped[Optional[str]] = mapped_column(db.String(50))   # inpatient_order / outpatient_list / imported
 
 
 class Note(db.Model):
@@ -246,6 +278,70 @@ class Note(db.Model):
     user_id: Mapped[Optional[int]] = mapped_column(db.ForeignKey("user.id"))  # null if AI
     creator_type: Mapped[str] = mapped_column(db.String(10), nullable=False)  # 'user' | 'ai'
     content: Mapped[str] = mapped_column(db.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+
+
+class PreadmissionMedication(db.Model):
+    """Baseline medications patient was taking before hospital admission."""
+    __tablename__ = "preadmission_medication"
+    __relationship_keys__ = ["patient"]
+    __table_args__ = (
+        Index("ix_preadm_med_patient", "patient_id"),
+        Index("ix_preadm_med_admission", "admission_history_id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
+    patient: Mapped["Patient"] = relationship(back_populates="preadmission_medications")
+    admission_history_id: Mapped[Optional[int]] = mapped_column(db.ForeignKey("admission_history.id"))
+    admission_history: Mapped[Optional["AdmissionHistory"]] = relationship(back_populates="preadmission_medications")
+
+    drug_name: Mapped[str] = mapped_column(db.String(255), nullable=False)
+    dosage: Mapped[Optional[str]] = mapped_column(db.String(255))
+    frequency: Mapped[Optional[str]] = mapped_column(db.String(100))
+    started_before_admission_date: Mapped[Optional[datetime]] = mapped_column(db.DateTime)
+    active_at_admission: Mapped[Optional[bool]] = mapped_column(db.Boolean, default=True)
+    source_text: Mapped[Optional[str]] = mapped_column(db.Text)       # free-form original text
+    created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+
+
+class IOMetric(db.Model):
+    """Summary-level I/O (intake/output) metrics per patient per day."""
+    __tablename__ = "io_metric"
+    __relationship_keys__ = ["patient"]
+    __table_args__ = (
+        Index("ix_io_metric_patient_date", "patient_id", "metric_date"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
+    patient: Mapped["Patient"] = relationship(back_populates="io_metrics")
+    admission_history_id: Mapped[Optional[int]] = mapped_column(db.ForeignKey("admission_history.id"))
+    admission_history: Mapped[Optional["AdmissionHistory"]] = relationship(back_populates="io_metrics")
+
+    metric_date: Mapped[Optional[datetime]] = mapped_column(Date)          # date of measurement
+    io_event_count: Mapped[int] = mapped_column(db.Integer, default=0)     # total I/O events
+    io_total_volume_ml: Mapped[float] = mapped_column(Float, default=0.0)  # total volume in mL
+    io_total_volume_measurement_count: Mapped[int] = mapped_column(db.Integer, default=0)  # <= event_count
+    created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+
+
+class MedicationExecutionMetric(db.Model):
+    """Summary-level medication administration execution metrics."""
+    __tablename__ = "medication_execution_metric"
+    __relationship_keys__ = ["patient"]
+    __table_args__ = (
+        Index("ix_med_exec_patient_date", "patient_id", "metric_date"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
+    patient: Mapped["Patient"] = relationship(back_populates="medication_execution_metrics")
+    admission_history_id: Mapped[Optional[int]] = mapped_column(db.ForeignKey("admission_history.id"))
+    admission_history: Mapped[Optional["AdmissionHistory"]] = relationship(back_populates="medication_execution_metrics")
+
+    metric_date: Mapped[Optional[datetime]] = mapped_column(Date)
+    ad_event_count: Mapped[int] = mapped_column(db.Integer, default=0)     # administered
+    me_event_count: Mapped[int] = mapped_column(db.Integer, default=0)     # medication events
+    so_event_count: Mapped[int] = mapped_column(db.Integer, default=0)     # standing orders
+    med_admin_execution_event_count: Mapped[int] = mapped_column(db.Integer, default=0)  # = ad + me + so
     created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
 
 

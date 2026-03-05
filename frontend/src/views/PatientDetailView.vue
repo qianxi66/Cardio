@@ -149,35 +149,51 @@ const parseNoteTime = (value?: Date | string) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const patientUserNote = computed(() => {
+const clinicianNotes = computed(() => {
   const currentPatientId = patientIdParam.value;
   if (!currentPatientId || !reportNotes.value.length) {
-    return "--";
+    return [] as ReportNote[];
   }
 
-  const note = reportNotes.value
+  return reportNotes.value
     .filter((n) => n.patient_id === currentPatientId && (typeof n.user_id === "number" || !!n.user))
     .sort((a, b) => {
       const aTime = parseNoteTime(a.updated_at) || parseNoteTime(a.created_at);
       const bTime = parseNoteTime(b.updated_at) || parseNoteTime(b.created_at);
       return bTime - aTime;
-    })[0];
-
-  return note?.content?.trim() || "--";
+    });
 });
 
 const admissionDrawerVisible = ref(false);
 const medicationDrawerVisible = ref(false);
+const notesDrawerVisible = ref(false);
+const preadmissionMedDrawerVisible = ref(false);
+const ioMetricDrawerVisible = ref(false);
+const medExecDrawerVisible = ref(false);
 const drawerPlacement = ref<DrawerPlacement>("right");
 
 const openAdmissionDrawer = () => {
-  drawerPlacement.value = "right";
   admissionDrawerVisible.value = true;
 };
 
 const openMedicationDrawer = () => {
-  drawerPlacement.value = "right";
   medicationDrawerVisible.value = true;
+};
+
+const openNotesDrawer = () => {
+  notesDrawerVisible.value = true;
+};
+
+const openPreadmissionMedDrawer = () => {
+  preadmissionMedDrawerVisible.value = true;
+};
+
+const openIOMetricDrawer = () => {
+  ioMetricDrawerVisible.value = true;
+};
+
+const openMedExecDrawer = () => {
+  medExecDrawerVisible.value = true;
 };
 
 watch(
@@ -329,7 +345,7 @@ const handleDayOverviewDotStateChange = async (
   const patientId = Number(patient_id.value);
   const summaryRecord = summary as Record<string, unknown>;
   const stateKey = `${symptom}_state`;
-  const readKey = `${symptom}_read`;
+  const readKey = "read";
   const prevState = Number(summaryRecord[stateKey]);
   const prevRead = summaryRecord[readKey];
 
@@ -387,30 +403,14 @@ const dayOverviewRowHasData = (summary: Summary | null): boolean => {
   return dayOverviewSymptoms.some((symptom) => symptomState(summary, symptom.key) !== 0);
 };
 
-const isSymptomRead = (summary: Summary | null, symptomKey: string): boolean => {
+const isSummaryRead = (summary: Summary | null): boolean => {
   if (!summary) return true;
-  const readVal = (summary as Record<string, unknown>)[`${symptomKey}_read`];
+  const readVal = (summary as Record<string, unknown>)["read"];
   return readVal === 1 || readVal === true;
 };
 
-const isDayOverviewSymptomActive = (
-  summary: Summary | null,
-  symptomKey: string,
-  wearable: boolean,
-): boolean => {
-  return dotStateForSymptom(summary, symptomKey, wearable) !== 0;
-};
-
-const getUnreadSymptomKeysForDayOverview = (summary: Summary | null): string[] => {
-  if (!summary) return [];
-  return dayOverviewSymptoms
-    .filter((symptom) => isDayOverviewSymptomActive(summary, symptom.key, symptom.wearable))
-    .filter((symptom) => !isSymptomRead(summary, symptom.key))
-    .map((symptom) => symptom.key);
-};
-
 const dayOverviewRowHasUnread = (summary: Summary | null): boolean => {
-  return getUnreadSymptomKeysForDayOverview(summary).length > 0;
+  return !isSummaryRead(summary);
 };
 
 watch(
@@ -441,16 +441,13 @@ const selectDayOverview = (timestamp: number | null) => {
 
 const markDayOverviewRowRead = (summary: Summary | null) => {
   if (!summary || !patient_id.value) return;
-  const unreadSymptomKeys = getUnreadSymptomKeysForDayOverview(summary);
-  if (!unreadSymptomKeys.length) return;
+  if (isSummaryRead(summary)) return;
   const patientId = Number(patient_id.value);
-  unreadSymptomKeys.forEach((symptomKey) => {
-    markSymptomRead(patientId, summary.id, symptomKey)
-      .then(() => {
-        (summary as Record<string, unknown>)[`${symptomKey}_read`] = 1;
-      })
-      .catch(() => {});
-  });
+  markSymptomRead(patientId, summary.id)
+    .then(() => {
+      (summary as Record<string, unknown>)["read"] = 1;
+    })
+    .catch(() => {});
 };
 
 const handleDayOverviewRowClick = (row: { summary: Summary | null; timestamp: number | null }) => {
@@ -471,11 +468,11 @@ const jumpToDayOverviewSummary = (
     selectDayOverview(timestamp);
   }
   // Mark as read (fire-and-forget)
-  const readVal = (summary as Record<string, unknown>)[`${symptom}_read`];
+  const readVal = (summary as Record<string, unknown>)["read"];
   const isAlreadyRead = readVal === 1 || readVal === true;
   if (!isAlreadyRead && patient_id.value) {
-    markSymptomRead(Number(patient_id.value), summary.id, symptom).then(() => {
-      (summary as Record<string, unknown>)[`${symptom}_read`] = 1;
+    markSymptomRead(Number(patient_id.value), summary.id).then(() => {
+      (summary as Record<string, unknown>)["read"] = 1;
     }).catch(() => {});
   }
   jumpToSummary(summary, symptom);
@@ -633,10 +630,6 @@ watch(loading, () => nextTick(updateConnectors));
                 </template>
                 Edit Patient
               </n-tooltip>
-              <div class="patient-notes-board">
-                <div class="patient-notes-title">Notes</div>
-                <div class="patient-notes-content">{{ patientUserNote }}</div>
-              </div>
             </div>
             <template #loading>
               <div class="row patient-header">
@@ -673,9 +666,6 @@ watch(loading, () => nextTick(updateConnectors));
                     <span class="label">Medication Allergy History:</span>
                     <span class="value">{{ treatmentType }}</span>
                   </div>
-                  <button type="button" class="panel-title panel-drawer-trigger" @click="openAdmissionDrawer">
-                    Admission History
-                  </button>
                 </div>
                 <div class="box patient-plan-box">
                   <div class="detail-line">
@@ -690,8 +680,37 @@ watch(loading, () => nextTick(updateConnectors));
                     <span class="label">Next Appointment Date:</span>
                     <span class="value">{{ nextAppointmentDate }}</span>
                   </div>
+                </div>
+              </div>
+              <div v-if="patient" class="patient-action-bar">
+                <div class="patient-action-cell">
+                  <button type="button" class="panel-title panel-drawer-trigger" @click="openAdmissionDrawer">
+                    Admission History
+                  </button>
+                </div>
+                <div class="patient-action-cell">
                   <button type="button" class="panel-title panel-drawer-trigger" @click="openMedicationDrawer">
-                    Current Medications
+                    Medications
+                  </button>
+                </div>
+                <div class="patient-action-cell">
+                  <button type="button" class="panel-title panel-drawer-trigger" @click="openNotesDrawer">
+                    Notes
+                  </button>
+                </div>
+                <div class="patient-action-cell">
+                  <button type="button" class="panel-title panel-drawer-trigger" @click="openPreadmissionMedDrawer">
+                    Pre-Admission Meds
+                  </button>
+                </div>
+                <div class="patient-action-cell">
+                  <button type="button" class="panel-title panel-drawer-trigger" @click="openIOMetricDrawer">
+                    I/O Metrics
+                  </button>
+                </div>
+                <div class="patient-action-cell">
+                  <button type="button" class="panel-title panel-drawer-trigger" @click="openMedExecDrawer">
+                    Med Execution
                   </button>
                 </div>
               </div>
@@ -724,7 +743,20 @@ watch(loading, () => nextTick(updateConnectors));
         </template>
         <div class="day-navigator-content">
           <div class="ai-summary-section">
-            <div class="ai-summary-title">AI-Generated Daily Summary</div>
+            <div class="ai-summary-title">
+              <svg
+                class="ai-summary-title-icon"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="M21 10.975V8a2 2 0 0 0-2-2h-6V4.688c.305-.274.5-.668.5-1.11a1.5 1.5 0 0 0-3 0c0 .442.195.836.5 1.11V6H5a2 2 0 0 0-2 2v2.998l-.072.005A.999.999 0 0 0 2 12v2a1 1 0 0 0 1 1v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a1 1 0 0 0 1-1v-1.938a1.004 1.004 0 0 0-.072-.455c-.202-.488-.635-.605-.928-.632zM7 12c0-1.104.672-2 1.5-2s1.5.896 1.5 2-.672 2-1.5 2S7 13.104 7 12zm8.998 6c-1.001-.003-7.997 0-7.998 0v-2s7.001-.002 8.002 0l-.004 2zm-.498-4c-.828 0-1.5-.896-1.5-2s.672-2 1.5-2 1.5.896 1.5 2-.672 2-1.5 2z"
+                />
+              </svg>
+              <span>AI-Generated Daily Summary</span>
+            </div>
             <div class="ai-summary-body">{{ aiSummaryBodyText }}</div>
           </div>
           <div class="day-overview-table">
@@ -748,7 +780,6 @@ watch(loading, () => nextTick(updateConnectors));
                 :class="{
                   odd: index % 2 === 1,
                   selected: row.isSelected,
-                  'has-unread': dayOverviewRowHasUnread(row.summary),
                 }"
                 @click="handleDayOverviewRowClick(row)"
               >
@@ -762,7 +793,7 @@ watch(loading, () => nextTick(updateConnectors));
                 >
                   <Dot
                     :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
-                    :isRead="(row.summary as any)?.[symptom.key + '_read'] ?? 0"
+                    :isRead="(row.summary as any)?.read ?? 0"
                     :variant="'circle'"
                     :editable="isDayOverviewDotArmed(row.id, symptom.key)"
                     @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
@@ -815,21 +846,45 @@ watch(loading, () => nextTick(updateConnectors));
 
     <n-drawer
       v-model:show="admissionDrawerVisible"
-      :default-width="502"
-      :placement="drawerPlacement"
+      :default-height="420"
+      placement="bottom"
       resizable
     >
       <n-drawer-content title="Admission History">
         <template v-if="patient?.admission_histories?.length">
-          <div
-            class="admission-row"
-            v-for="(ah, i) in patient.admission_histories"
-            :key="`drawer-admission-${i}`"
-          >
-            <span class="admission-dates">
-              {{ formatPatientDate(ah.admission_date) }} - {{ ah.discharge_date ? formatPatientDate(ah.discharge_date) : 'Ongoing' }}
-            </span>
-            <span class="admission-diagnosis">{{ ah.diagnosis }}</span>
+          <div class="drawer-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Admission</th>
+                  <th>Discharge</th>
+                  <th>Diagnosis</th>
+                  <th>Symptoms</th>
+                  <th>Care Unit</th>
+                  <th>Dest Unit</th>
+                  <th>Type</th>
+                  <th>Discharge Status</th>
+                  <th>Readmission</th>
+                  <th>LOS (min)</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(ah, i) in patient.admission_histories" :key="`adm-${i}`">
+                  <td>{{ formatPatientDate(ah.admission_date) }}</td>
+                  <td>{{ ah.discharge_date ? formatPatientDate(ah.discharge_date) : 'Ongoing' }}</td>
+                  <td>{{ ah.diagnosis || '--' }}</td>
+                  <td>{{ ah.symptoms || '--' }}</td>
+                  <td>{{ ah.careunit_name || '--' }}</td>
+                  <td>{{ ah.destination_unit_name || '--' }}</td>
+                  <td>{{ ah.admission_type || '--' }}</td>
+                  <td>{{ ah.discharge_status || '--' }}</td>
+                  <td>{{ ah.readmission_flag ? 'Yes' : 'No' }}</td>
+                  <td>{{ ah.los_minutes ?? '--' }}</td>
+                  <td>{{ ah.notes || '--' }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </template>
         <div v-else class="overview-row-empty">No admission records.</div>
@@ -838,22 +893,182 @@ watch(loading, () => nextTick(updateConnectors));
 
     <n-drawer
       v-model:show="medicationDrawerVisible"
-      :default-width="502"
-      :placement="drawerPlacement"
+      :default-height="420"
+      placement="bottom"
       resizable
     >
-      <n-drawer-content title="Current Medications">
+      <n-drawer-content title="Medications">
         <template v-if="patient?.medications?.length">
-          <div
-            class="medication-row"
-            v-for="(med, i) in patient.medications"
-            :key="`drawer-medication-${i}`"
-          >
-            <span class="admission-dates">{{ med.start_date ? formatPatientDate(med.start_date) : '–' }}</span>
-            <span class="medication-name">{{ med.drug_name }}<span v-if="med.dosage" class="medication-dosage">&nbsp;·&nbsp;{{ med.dosage }}</span></span>
+          <div class="drawer-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Drug</th>
+                  <th>Dosage</th>
+                  <th>Route</th>
+                  <th>Frequency</th>
+                  <th>Schedule</th>
+                  <th>Doses</th>
+                  <th>Start</th>
+                  <th>End</th>
+                  <th>Current</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(med, i) in patient.medications" :key="`med-${i}`">
+                  <td>{{ med.drug_name }}</td>
+                  <td>{{ med.dosage || '--' }}</td>
+                  <td>{{ med.route || '--' }}</td>
+                  <td>{{ med.frequency || '--' }}</td>
+                  <td>{{ med.schedule_hours || '--' }}</td>
+                  <td>{{ med.dose_count ?? '--' }}</td>
+                  <td>{{ med.start_date ? formatPatientDate(med.start_date) : '--' }}</td>
+                  <td>{{ med.end_date ? formatPatientDate(med.end_date) : 'Ongoing' }}</td>
+                  <td>{{ med.is_current_medication ? 'Yes' : 'No' }}</td>
+                  <td>{{ med.order_source || '--' }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </template>
         <div v-else class="overview-row-empty">No medications recorded.</div>
+      </n-drawer-content>
+    </n-drawer>
+
+    <n-drawer
+      v-model:show="notesDrawerVisible"
+      :default-height="420"
+      placement="bottom"
+      resizable
+    >
+      <n-drawer-content title="Notes">
+        <template v-if="clinicianNotes.length">
+          <div class="drawer-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Created By</th>
+                  <th>Content</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(note, i) in clinicianNotes" :key="`note-${i}`">
+                  <td class="td-nowrap">{{ formatPatientDate(note.updated_at || note.created_at) }}</td>
+                  <td class="td-nowrap">{{ (note as any).created_by || note.user?.username || '--' }}</td>
+                  <td class="td-wrap">{{ note.content }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <div v-else class="overview-row-empty">No notes recorded.</div>
+      </n-drawer-content>
+    </n-drawer>
+
+    <n-drawer
+      v-model:show="preadmissionMedDrawerVisible"
+      :default-height="420"
+      placement="bottom"
+      resizable
+    >
+      <n-drawer-content title="Pre-Admission Medications">
+        <template v-if="patient?.preadmission_medications?.length">
+          <div class="drawer-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Drug</th>
+                  <th>Dosage</th>
+                  <th>Frequency</th>
+                  <th>Started Before</th>
+                  <th>Active at Admission</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(pm, i) in patient.preadmission_medications" :key="`pm-${i}`">
+                  <td>{{ pm.drug_name }}</td>
+                  <td>{{ pm.dosage || '--' }}</td>
+                  <td>{{ pm.frequency || '--' }}</td>
+                  <td>{{ pm.started_before_admission_date ? formatPatientDate(pm.started_before_admission_date) : '--' }}</td>
+                  <td>{{ pm.active_at_admission ? 'Yes' : 'No' }}</td>
+                  <td>{{ pm.source_text || '--' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <div v-else class="overview-row-empty">No pre-admission medication records.</div>
+      </n-drawer-content>
+    </n-drawer>
+
+    <n-drawer
+      v-model:show="ioMetricDrawerVisible"
+      :default-height="420"
+      placement="bottom"
+      resizable
+    >
+      <n-drawer-content title="I/O Metrics">
+        <template v-if="patient?.io_metrics?.length">
+          <div class="drawer-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Events</th>
+                  <th>Total Volume (mL)</th>
+                  <th>Measurements</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(io, i) in patient.io_metrics" :key="`io-${i}`">
+                  <td>{{ io.metric_date ? formatPatientDate(io.metric_date) : '--' }}</td>
+                  <td>{{ io.io_event_count ?? '--' }}</td>
+                  <td>{{ io.io_total_volume_ml != null ? io.io_total_volume_ml.toFixed(1) : '--' }}</td>
+                  <td>{{ io.io_total_volume_measurement_count ?? '--' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <div v-else class="overview-row-empty">No I/O metric records.</div>
+      </n-drawer-content>
+    </n-drawer>
+
+    <n-drawer
+      v-model:show="medExecDrawerVisible"
+      :default-height="420"
+      placement="bottom"
+      resizable
+    >
+      <n-drawer-content title="Med Administration Execution">
+        <template v-if="patient?.medication_execution_metrics?.length">
+          <div class="drawer-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Administered</th>
+                  <th>Med Events</th>
+                  <th>Standing Orders</th>
+                  <th>Total Executions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(me, i) in patient.medication_execution_metrics" :key="`me-${i}`">
+                  <td>{{ me.metric_date ? formatPatientDate(me.metric_date) : '--' }}</td>
+                  <td>{{ me.ad_event_count ?? '--' }}</td>
+                  <td>{{ me.me_event_count ?? '--' }}</td>
+                  <td>{{ me.so_event_count ?? '--' }}</td>
+                  <td>{{ me.med_admin_execution_event_count ?? '--' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <div v-else class="overview-row-empty">No medication execution records.</div>
       </n-drawer-content>
     </n-drawer>
   </div>
@@ -965,26 +1180,6 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .patient-nav-spacer {
   flex: 1 1 auto;
-}
-.patient-notes-board {
-  background: #ffe69c;
-  padding: 4px;
-  flex: 0 0 47%;
-  max-width: 47%;
-  min-width: 0;
-  border-radius: 2px;
-}
-.patient-notes-title {
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-.patient-notes-content {
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.35;
-  color: #333;
-  word-break: break-word;
 }
 .detailed-wearable-card :deep(.n-card__content) {
   display: flex;
@@ -1137,28 +1332,30 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .detail-line {
   display: flex;
+  flex-wrap: wrap;
   column-gap: 6px;
   line-height: 22px;
-  white-space: nowrap;
-  width: max-content;
+  white-space: normal;
+  width: 100%;
 }
 .detail-line .label {
   font-weight: 700;
+  flex: 0 0 auto;
+}
+.detail-line .value {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .demographic {
   margin: 0;
 }
 .patient-details {
-  flex-grow: 1;
+  flex: 0 0 auto;
   align-items: stretch;
   min-height: 0;
   .box {
-    overflow-x: auto;
-    overflow-y: auto;
+    overflow: visible;
   }
-}
-.patient-details > .box {
-  height: 100%;
 }
 .patient-info-box {
   background-color: #fff;
@@ -1178,11 +1375,23 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .patient-info-box .detail-line {
   flex: 0 0 auto;
-  align-items: center;
+  align-items: flex-start;
 }
 .patient-plan-box .detail-line {
   flex: 0 0 auto;
+  align-items: flex-start;
+}
+.patient-action-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 10px;
+  row-gap: 6px;
   align-items: center;
+  margin-top: 6px;
+}
+.patient-action-cell {
+  flex: 0 0 auto;
 }
 .panel-drawer-trigger {
   margin-top: 3px;
@@ -1209,6 +1418,7 @@ watch(loading, () => nextTick(updateConnectors));
   flex: 1 1 0;
   min-height: 0;
   display: flex;
+  flex-direction: column;
 }
 .basic-top-section :deep(.n-spin),
 .basic-top-section :deep(.n-spin-container),
@@ -1260,9 +1470,18 @@ watch(loading, () => nextTick(updateConnectors));
   background-clip: content-box;
 }
 .ai-summary-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 18px;
   font-weight: 700;
   color: #053251;
+}
+.ai-summary-title-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  padding-left: 4px;
 }
 .ai-summary-body {
   height: 42px;
@@ -1331,9 +1550,6 @@ watch(loading, () => nextTick(updateConnectors));
   background: #e9edf5;
 }
 .day-overview-row.selected {
-  outline: none;
-}
-.day-overview-row.has-unread {
   outline: 2px solid #808080;
   outline-offset: -2px;
 }
@@ -1488,6 +1704,62 @@ watch(loading, () => nextTick(updateConnectors));
 .medication-dosage {
   font-weight: 400;
   color: #666;
+}
+.note-row {
+  display: flex;
+  align-items: flex-start;
+  column-gap: 12px;
+  font-size: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e8e8e8;
+}
+.note-row:last-child {
+  border-bottom: none;
+}
+.note-content {
+  flex: 1 1 0;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.drawer-table {
+  width: 100%;
+  overflow: auto;
+}
+.drawer-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.drawer-table th,
+.drawer-table td {
+  border: 1px solid #e8e8e8;
+  padding: 6px 10px;
+  text-align: left;
+}
+.drawer-table th {
+  background: #f5f5f5;
+  font-weight: 700;
+  color: #333;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.drawer-table tr:nth-child(even) {
+  background: #fafafa;
+}
+.drawer-table tr:hover {
+  background: #e9edf5;
+}
+.drawer-table .td-nowrap {
+  white-space: nowrap;
+}
+.drawer-table .td-wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 200px;
+  max-width: 500px;
 }
 .symptoms-column {
   flex: 0 0 50%;

@@ -175,12 +175,11 @@ export const deleteNote = async (patient_id: number, note_id: number) => {
 export const markSymptomRead = async (
   patient_id: number,
   summary_id: number,
-  symptom: string,
 ) => {
   return await api({
     url: `/patients/${patient_id}/summaries/${summary_id}/read`,
     method: "PATCH",
-    data: { [symptom]: 1 },
+    data: { read: 1 },
   });
 };
 
@@ -195,7 +194,6 @@ export const updateSummarySymptomState = async (
     method: "PATCH",
     data: {
       [`${symptom}_state`]: state,
-      [`${symptom}_read`]: 1,
     },
   });
 };
@@ -213,4 +211,25 @@ export const getWearableCoverage = async (
     url: `/patients/${patient_id}/wearable-coverage?${params.toString()}`,
     method: "GET",
   })) as WearableCoverage;
+};
+
+export const getPreadmissionMedications = async (patient_id: number) => {
+  return (await api({
+    url: `/patients/${patient_id}/preadmission_medications`,
+    method: "GET",
+  })) as NonNullable<import("./types").Patient["preadmission_medications"]>;
+};
+
+export const getIOMetrics = async (patient_id: number) => {
+  return (await api({
+    url: `/patients/${patient_id}/io_metrics`,
+    method: "GET",
+  })) as NonNullable<import("./types").Patient["io_metrics"]>;
+};
+
+export const getMedicationExecutionMetrics = async (patient_id: number) => {
+  return (await api({
+    url: `/patients/${patient_id}/medication_execution_metrics`,
+    method: "GET",
+  })) as NonNullable<import("./types").Patient["medication_execution_metrics"]>;
 };

@@ -18,16 +18,58 @@ export type Patient = {
   next_appointment_date?: Date | string;
   last_read_at?: Date | string;
   admission_histories?: {
+    id?: number;
     admission_date?: string;
     discharge_date?: string;
     diagnosis?: string;
     symptoms?: string;
+    notes?: string;
+    careunit_name?: string;
+    destination_unit_name?: string;
+    discharge_status?: string;
+    admission_type?: string;
+    readmission_flag?: boolean;
+    los_minutes?: number;
   }[];
   medications?: {
+    id?: number;
     drug_name?: string;
     dosage?: string;
     start_date?: string;
     end_date?: string;
+    route?: string;
+    frequency?: string;
+    schedule_hours?: string;
+    dose_count?: number;
+    is_current_medication?: boolean;
+    order_source?: string;
+  }[];
+  preadmission_medications?: {
+    id?: number;
+    admission_history_id?: number;
+    drug_name?: string;
+    dosage?: string;
+    frequency?: string;
+    started_before_admission_date?: string;
+    active_at_admission?: boolean;
+    source_text?: string;
+  }[];
+  io_metrics?: {
+    id?: number;
+    admission_history_id?: number;
+    metric_date?: string;
+    io_event_count?: number;
+    io_total_volume_ml?: number;
+    io_total_volume_measurement_count?: number;
+  }[];
+  medication_execution_metrics?: {
+    id?: number;
+    admission_history_id?: number;
+    metric_date?: string;
+    ad_event_count?: number;
+    me_event_count?: number;
+    so_event_count?: number;
+    med_admin_execution_event_count?: number;
   }[];
   summaries?: Summary[];
   risks?: Risk[];
@@ -112,6 +154,8 @@ export type ReportNote = {
   content: string;
   created_at: Date;
   updated_at: Date;
+  created_by?: string;
+  creator_type?: string;
 };
 
 export type ConversationLog = {
@@ -128,34 +172,28 @@ export type ConversationLog = {
 export type Summary = {
   id: number;
   patient_id: number;
+  read?: number;
   // syncope
   syncope_state?: number;
   syncope_logs?: string;
-  syncope_read?: number;
   // palpitation
   palpitation_state?: number;
   palpitation_logs?: string;
-  palpitation_read?: number;
   // short_of_breath
   short_of_breath_state?: number;
   short_of_breath_logs?: string;
-  short_of_breath_read?: number;
   // chest_discomfort
   chest_discomfort_state?: number;
   chest_discomfort_logs?: string;
-  chest_discomfort_read?: number;
   // swelling
   swelling_state?: number;
   swelling_logs?: string;
-  swelling_read?: number;
   // heart_rate (wearable)
   heart_rate_state?: number;
   heart_rate_logs?: string;
-  heart_rate_read?: number;
   // respiration (wearable)
   respiration_state?: number;
   respiration_logs?: string;
-  respiration_read?: number;
   date: Date | string;
 };
 

@@ -1,0 +1,9 @@
+dimension,available,event_or_field,structured_level,notes
+Admission,yes,ce,high,admissions/transfers with tf/dt/cu/de/di
+Medication,yes,po,high,orders with m1/v1/u1/rt/fr/fs/dn/tf
+Cancer Type,partial,"ic(dd,ld)",medium,infer from ICD9 labels
+Cancer Diagnosis Date,partial,ic timestamp,medium,approximated by diagnosis event time
+Medication Allergy History,yes,ch id=916/927/935,medium-high,allergy 1/2/3
+Treatment Plan,partial,po + me/ad/so/io,medium,infer from medication order/execution timeline
+Treatment Cycle,no,,low,not found as dedicated field
+Next Appointment Date,no,,low,not found as dedicated field

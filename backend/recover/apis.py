@@ -16,9 +16,12 @@ from .db import (
     AdmissionHistory,
     AlexaIDNote,
     ConversationLog,
+    IOMetric,
     Medication,
+    MedicationExecutionMetric,
     Note,
     Patient,
+    PreadmissionMedication,
     Risk,
     Summary,
     User,
@@ -42,12 +45,43 @@ from zoneinfo import ZoneInfo
 wearable_data_cache = {}  # Format: {alexa_user_id: {'timestamp': datetime, 'data': {...}}}
 CACHE_EXPIRY_MINUTES = 60  # Cache expires after 60 minutes
 
+# Cache for dashboard API responses
+API_CACHE_TTL_SECONDS = 5 * 60
+api_response_cache = {}  # key -> {"expires_at": float, "payload": Any}
+
 MONGO_BACKOFF_SECONDS = 30
 _mongo_unavailable_until = 0.0
 EASTERN_TZ = ZoneInfo("America/New_York")
 
 # Persistent singleton MongoDB client (connection pool reused across requests)
 _shared_mongo_client = None
+
+
+def _cache_get(key):
+    entry = api_response_cache.get(key)
+    if not entry:
+        return None
+    if time.time() >= entry["expires_at"]:
+        api_response_cache.pop(key, None)
+        return None
+    return entry["payload"]
+
+
+def _cache_set(key, payload, ttl_seconds=API_CACHE_TTL_SECONDS):
+    api_response_cache[key] = {
+        "expires_at": time.time() + ttl_seconds,
+        "payload": payload,
+    }
+
+
+def _invalidate_patient_related_cache(patient_id):
+    keys_to_remove = [
+        key
+        for key in list(api_response_cache.keys())
+        if isinstance(key, tuple) and len(key) >= 3 and key[2] == patient_id
+    ]
+    for key in keys_to_remove:
+        api_response_cache.pop(key, None)
 
 def _get_shared_mongo_client():
     """Return a module-level MongoClient singleton, creating it on first call."""
@@ -637,6 +671,7 @@ def update_patient(id):
                 setattr(patient, key, data[key])
 
         db.session.commit()
+        _invalidate_patient_related_cache(id)
 
         return (
             jsonify({"patient_id": id, "message": "Patient updated successfully."}),
@@ -982,6 +1017,11 @@ def get_patient(id):
         if error:
             return error
 
+        cache_key = ("patient_detail", g.current_user.id, patient.id)
+        cached_payload = _cache_get(cache_key)
+        if cached_payload is not None:
+            return jsonify(cached_payload)
+
         patient.last_read_at = datetime.utcnow()
         db.session.add(patient)
         db.session.commit()
@@ -999,9 +1039,26 @@ def get_patient(id):
         patient_dict["medications"] = [
             _columns_dict(item) for item in patient.medications
         ]
-        patient_dict["notes"] = [
-            _columns_dict(note) for note in patient.notes
+        patient_dict["notes"] = []
+        for note in patient.notes:
+            d = _columns_dict(note)
+            if note.user_id:
+                user = User.query.get(note.user_id)
+                d["created_by"] = user.username if user else None
+            else:
+                d["created_by"] = None
+            patient_dict["notes"].append(d)
+        patient_dict["preadmission_medications"] = [
+            _columns_dict(item) for item in patient.preadmission_medications
         ]
+        patient_dict["io_metrics"] = [
+            _columns_dict(item) for item in patient.io_metrics
+        ]
+        patient_dict["medication_execution_metrics"] = [
+            _columns_dict(item) for item in patient.medication_execution_metrics
+        ]
+
+        _cache_set(cache_key, patient_dict)
 
         return jsonify(patient_dict)
 
@@ -1028,10 +1085,16 @@ def get_patient_wearable_timeseries(id):
         else:
             day_start = datetime.now(EASTERN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
+        day_key = day_start.strftime("%Y-%m-%d")
         bin_seconds = 5 * 60   # 5-minute bins → dense 288 data points per day
         start_ts = int(day_start.timestamp())
         end_ts = int(day_end.timestamp())
         labels = _build_labels(day_start, day_end, bin_seconds, "time")
+
+        cache_key = ("wearable_timeseries", g.current_user.id, patient.id, day_key)
+        cached_payload = _cache_get(cache_key)
+        if cached_payload is not None:
+            return finalize(dict(cached_payload))
 
         series = {
             "heart_rate": [],
@@ -1048,36 +1111,36 @@ def get_patient_wearable_timeseries(id):
             series["heart_rate"] = [None] * len(labels)
             series["respiration"] = [None] * len(labels)
             series["heart_rate_variability"] = [None] * len(labels)
-            return finalize(
-                {
-                    "times": labels,
-                    "series": series,
-                    "window": {
-                        "start_ts": start_ts,
-                        "end_ts": end_ts,
-                        "timezone": "America/New_York",
-                    },
-                    "date": date_param,
-                }
-            )
+            payload = {
+                "times": labels,
+                "series": series,
+                "window": {
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "timezone": "America/New_York",
+                },
+                "date": day_key,
+            }
+            _cache_set(cache_key, payload)
+            return finalize(dict(payload))
 
         client = _get_mongo_client()
         if client is None:
             series["heart_rate"] = [None] * len(labels)
             series["respiration"] = [None] * len(labels)
             series["heart_rate_variability"] = [None] * len(labels)
-            return finalize(
-                {
-                    "times": labels,
-                    "series": series,
-                    "window": {
-                        "start_ts": start_ts,
-                        "end_ts": end_ts,
-                        "timezone": "America/New_York",
-                    },
-                    "date": date_param,
-                }
-            )
+            payload = {
+                "times": labels,
+                "series": series,
+                "window": {
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "timezone": "America/New_York",
+                },
+                "date": day_key,
+            }
+            _cache_set(cache_key, payload)
+            return finalize(dict(payload))
 
         try:
             db2 = client["study_db"]
@@ -1109,18 +1172,18 @@ def get_patient_wearable_timeseries(id):
                 series["heart_rate"] = [None] * len(labels)
                 series["respiration"] = [None] * len(labels)
                 series["heart_rate_variability"] = [None] * len(labels)
-                return finalize(
-                    {
-                        "times": labels,
-                        "series": series,
-                        "window": {
-                            "start_ts": start_ts,
-                            "end_ts": end_ts,
-                            "timezone": "America/New_York",
-                        },
-                        "date": date_param,
-                    }
-                )
+                payload = {
+                    "times": labels,
+                    "series": series,
+                    "window": {
+                        "start_ts": start_ts,
+                        "end_ts": end_ts,
+                        "timezone": "America/New_York",
+                    },
+                    "date": day_key,
+                }
+                _cache_set(cache_key, payload)
+                return finalize(dict(payload))
 
             hr_map = _aggregate_avg_by_bin(
                 db2,
@@ -1164,18 +1227,18 @@ def get_patient_wearable_timeseries(id):
         finally:
             client.close()
 
-        return finalize(
-            {
-                "times": labels,
-                "series": series,
-                "window": {
-                    "start_ts": start_ts,
-                    "end_ts": end_ts,
-                    "timezone": "America/New_York",
-                },
-                "date": date_param,
-            }
-        )
+        payload = {
+            "times": labels,
+            "series": series,
+            "window": {
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "timezone": "America/New_York",
+            },
+            "date": day_key,
+        }
+        _cache_set(cache_key, payload)
+        return finalize(dict(payload))
     except Exception as e:
         logging.error(f"Failed to fetch wearable timeseries: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred"}), 500
@@ -1213,6 +1276,7 @@ def create_admission_history(id):
     )
     db.session.add(record)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify(_columns_dict(record)), 201
 
 
@@ -1250,15 +1314,14 @@ def create_summary(id):
             setattr(summary, f"{symptom_name}_logs", logs_val)
     db.session.add(summary)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify(_columns_dict(summary)), 201
 
 
 @current_app.route("/patients/<int:id>/summaries/<int:summary_id>/read", methods=["PATCH"])
 @login_required
 def mark_summary_read(id, summary_id):
-    """Mark one or more symptoms as read (1) or unread (0) on a summary.
-    Body: { "syncope": 1, "short_of_breath": 1, ... }
-    """
+    """Mark a summary as read (1) or unread (0). Body: { "read": 1 }"""
     patient, error = _get_patient_for_user(id, g.current_user.id)
     if error:
         return error
@@ -1266,23 +1329,21 @@ def mark_summary_read(id, summary_id):
     if summary is None:
         return jsonify({"message": "Summary not found"}), 404
     data = request.get_json() or {}
-    updated = []
-    for symptom_name, value in data.items():
-        if symptom_name in symptom_descriptions and isinstance(value, int) and value in (0, 1):
-            setattr(summary, f"{symptom_name}_read", value)
-            updated.append(symptom_name)
-    if not updated:
-        return jsonify({"message": "No valid symptom fields provided"}), 400
+    value = data.get("read", 1)
+    if not isinstance(value, int) or value not in (0, 1):
+        return jsonify({"message": "Invalid read value; expected 0 or 1"}), 400
+    summary.read = value
     db.session.add(summary)
     db.session.commit()
-    return jsonify({"updated": updated}), 200
+    _invalidate_patient_related_cache(patient.id)
+    return jsonify({"read": summary.read}), 200
 
 
 @current_app.route("/patients/<int:id>/summaries/<int:summary_id>", methods=["PATCH"])
 @login_required
 def update_summary(id, summary_id):
-    """Update one or more symptom state/read fields on a summary.
-    Body example: { "syncope_state": 2, "syncope_read": 1 }
+    """Update one or more symptom state fields on a summary.
+    Body example: { "syncope_state": 2 }
     """
     patient, error = _get_patient_for_user(id, g.current_user.id)
     if error:
@@ -1298,20 +1359,20 @@ def update_summary(id, summary_id):
             symptom_name = key[: -len("_state")]
             if symptom_name in symptom_descriptions and isinstance(value, int) and value in (-1, 0, 1, 2, 3):
                 setattr(summary, key, value)
-                setattr(summary, f"{symptom_name}_read", 1)
                 updated.append(key)
-                updated.append(f"{symptom_name}_read")
-        elif key.endswith("_read"):
-            symptom_name = key[: -len("_read")]
-            if symptom_name in symptom_descriptions and isinstance(value, int) and value in (0, 1):
-                setattr(summary, key, value)
-                updated.append(key)
+        elif key == "read" and isinstance(value, int) and value in (0, 1):
+            summary.read = value
+            updated.append(key)
 
     if not updated:
-        return jsonify({"message": "No valid symptom fields provided"}), 400
+        return jsonify({"message": "No valid fields provided"}), 400
+
+    if any(k.endswith("_state") for k in updated):
+        summary.read = 1
 
     db.session.add(summary)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify(_columns_dict(summary))
 @login_required
 def get_risks(id):
@@ -1345,6 +1406,7 @@ def create_risk(id):
     )
     db.session.add(risk)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify(_columns_dict(risk)), 201
 
 
@@ -1363,9 +1425,15 @@ def get_wearable_coverage(id):
     if error:
         return error
     dates_str = request.args.getlist("dates")
+    dates_key = tuple(sorted(dates_str))
+    cache_key = ("wearable_coverage", g.current_user.id, patient.id, dates_key)
+    cached_payload = _cache_get(cache_key)
+    if cached_payload is not None:
+        return jsonify(cached_payload)
     participant_id = patient.participant_id
     coverage = {d: False for d in dates_str}
     if not participant_id or not dates_str:
+        _cache_set(cache_key, coverage)
         return jsonify(coverage)
     wearable_collections = ["garmin_hr", "garmin_respiration", "garmin_ibi", "garmin_stress"]
     try:
@@ -1392,6 +1460,7 @@ def get_wearable_coverage(id):
                 pass
     except Exception as e:
         logging.warning("MongoDB unavailable for wearable-coverage: %s", e)
+    _cache_set(cache_key, coverage)
     return jsonify(coverage)
 
 
@@ -1430,6 +1499,7 @@ def create_conversation_log_for_patient(id):
     )
     db.session.add(log)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify(_columns_dict(log)), 201
 
 
@@ -1467,6 +1537,7 @@ def create_medication(id):
     )
     db.session.add(med)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify(_columns_dict(med)), 201
 
 
@@ -1479,7 +1550,16 @@ def get_patient_notes(id):
     notes = Note.query.filter_by(patient_id=patient.id).order_by(
         Note.created_at.desc()
     ).all()
-    return jsonify([_columns_dict(note) for note in notes])
+    result = []
+    for note in notes:
+        d = _columns_dict(note)
+        if note.user_id:
+            user = User.query.get(note.user_id)
+            d["created_by"] = user.username if user else None
+        else:
+            d["created_by"] = None
+        result.append(d)
+    return jsonify(result)
 
 
 @current_app.route("/patients/<int:id>/notes", methods=["POST"])
@@ -1500,7 +1580,44 @@ def create_patient_note(id):
     )
     db.session.add(note)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify(_columns_dict(note)), 201
+
+
+@current_app.route("/patients/<int:id>/preadmission_medications", methods=["GET"])
+@login_required
+def get_preadmission_medications(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = PreadmissionMedication.query.filter_by(patient_id=patient.id).order_by(
+        PreadmissionMedication.created_at.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
+
+
+@current_app.route("/patients/<int:id>/io_metrics", methods=["GET"])
+@login_required
+def get_io_metrics(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = IOMetric.query.filter_by(patient_id=patient.id).order_by(
+        IOMetric.metric_date.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
+
+
+@current_app.route("/patients/<int:id>/medication_execution_metrics", methods=["GET"])
+@login_required
+def get_medication_execution_metrics(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = MedicationExecutionMetric.query.filter_by(patient_id=patient.id).order_by(
+        MedicationExecutionMetric.metric_date.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
 
 
 @current_app.route("/patients/<int:id>/notes/<int:note_id>", methods=["DELETE"])
@@ -1514,6 +1631,7 @@ def delete_patient_note(id, note_id):
         return jsonify({"message": "Note not found"}), 404
     db.session.delete(note)
     db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
     return jsonify({"message": "Note deleted."})
 
 
