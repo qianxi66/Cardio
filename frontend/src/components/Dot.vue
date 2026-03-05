@@ -43,26 +43,12 @@ const dotColor = computed(() => {
       class="dot"
       v-if="!props.loading && props.state >= 0"
     >
-      <!-- wearable variant: watch/timer icon -->
-      <svg
-        v-if="props.variant === 'wearable'"
-        class="dot-svg"
-        viewBox="0 0 16 16"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path fill-rule="evenodd" clip-rule="evenodd" d="M5 0H11L11.3803 3.0421C12.7003 3.94382 13.6417 5.35897 13.917 7H15V9H13.917C13.6417 10.641 12.7003 12.0562 11.3803 12.9579L11 16H5L4.61974 12.9579C3.03812 11.8775 2 10.06 2 8C2 5.94003 3.03812 4.12252 4.61974 3.0421L5 0ZM7 5V8.41421L9.29289 10.7071L10.7071 9.29289L9 7.58579V5H7Z" :fill="dotColor"/>
-      </svg>
-      <!-- circle variant -->
-      <svg
-        v-else-if="props.variant === 'circle'"
-        class="dot-svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <circle cx="12" cy="12" r="9" :fill="dotColor" />
-      </svg>
+      <!-- circle variant (also used for wearable to keep unified look) -->
+      <span
+        v-if="props.variant === 'wearable' || props.variant === 'circle'"
+        class="dot-circle-fill"
+        :style="{ '--dot-color': dotColor }"
+      ></span>
       <!-- default variant: chat bubble -->
       <svg
         v-else
@@ -110,7 +96,7 @@ const dotColor = computed(() => {
       <n-button-group vertical>
         <n-button
           :theme-overrides="buttonThemeOverrides"
-          v-for="state in [0, 1, 2, 3, 4]"
+          v-for="state in [0, 1, 2, 3]"
           :key="state"
           ghost
           :type="props.state === state ? 'info' : 'default'"
@@ -150,17 +136,35 @@ const dotColor = computed(() => {
   line-height: 1;
 }
 .dot {
-  width: 20.8px;
-  height: 20.8px;
+  width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
   font-size: 16px;
+  border-radius: 50%;
+  transform: scale(1);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.dot:hover {
+  transform: scale(1.2);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
+}
+.dot:active {
+  transform: scale(1.2);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
 }
 .dot-svg {
   width: 100%;
   height: 100%;
+  display: block;
+}
+.dot-circle-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--dot-color);
   display: block;
 }
 :global(.n-icon-slot .dot) {

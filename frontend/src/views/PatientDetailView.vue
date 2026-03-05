@@ -292,7 +292,7 @@ const symptomState = (
   const raw = (summary as Record<string, unknown>)[`${symptomKey}_state`];
   const stateVal = typeof raw === "number" ? raw : Number(raw);
   if (!Number.isNaN(stateVal) && stateVal > 0) {
-    return Math.min(4, Math.max(1, Math.round(stateVal)));
+    return Math.min(3, Math.max(1, Math.round(stateVal)));
   }
   const boolVal = (summary as Record<string, unknown>)[symptomKey] as
     | boolean
@@ -349,7 +349,7 @@ const handleDayOverviewDotStateChange = async (
 
 const dayOverviewSymptoms = [
   { key: "syncope",         display_name: "Syncope",     description: "Fainting or Syncope",            wearable: false },
-  { key: "palpitation",     display_name: "Palpitation", description: "Heart Palpitations",             wearable: false },
+  { key: "palpitation",     display_name: "Palps",       description: "Heart Palpitations",             wearable: false },
   { key: "short_of_breath", display_name: "Breath",      description: "Shortness of Breath (Dyspnea)",  wearable: false },
   { key: "chest_discomfort",display_name: "Chest",       description: "Chest Discomfort or Pain",       wearable: false },
   { key: "swelling",        display_name: "Swelling",    description: "Swelling (Edema)",               wearable: false },
@@ -375,6 +375,13 @@ const dayOverviewRows = computed(() => {
     })
     .sort((a, b) => (b.timestamp ?? Number.MIN_SAFE_INTEGER) - (a.timestamp ?? Number.MIN_SAFE_INTEGER));
 });
+
+const armedDayOverviewDotKey = ref<string | null>(null);
+
+const getDayOverviewDotKey = (rowId: number, symptomKey: string) => `${rowId}-${symptomKey}`;
+
+const isDayOverviewDotArmed = (rowId: number, symptomKey: string) =>
+  armedDayOverviewDotKey.value === getDayOverviewDotKey(rowId, symptomKey);
 
 const dayOverviewRowHasData = (summary: Summary | null): boolean => {
   return dayOverviewSymptoms.some((symptom) => symptomState(summary, symptom.key) !== 0);
@@ -455,9 +462,10 @@ const jumpToDayOverviewSummary = (
   summary: Summary | null,
   timestamp: number | null,
   symptom: string,
+  wearable: boolean,
 ) => {
   if (!summary) return;
-  const state = symptomState(summary, symptom);
+  const state = dotStateForSymptom(summary, symptom, wearable);
   if (state === 0) return;
   if (timestamp !== null) {
     selectDayOverview(timestamp);
@@ -471,6 +479,17 @@ const jumpToDayOverviewSummary = (
     }).catch(() => {});
   }
   jumpToSummary(summary, symptom);
+};
+
+const handleDayOverviewDotClick = (
+  row: { id: number; summary: Summary | null; timestamp: number | null },
+  symptom: { key: string; wearable: boolean },
+) => {
+  const dotKey = getDayOverviewDotKey(row.id, symptom.key);
+  if (armedDayOverviewDotKey.value !== dotKey) {
+    armedDayOverviewDotKey.value = dotKey;
+    jumpToDayOverviewSummary(row.summary, row.timestamp, symptom.key, symptom.wearable);
+  }
 };
 
 const jumpToSummary = (summary: Summary, symptom: string) => {
@@ -738,13 +757,14 @@ watch(loading, () => nextTick(updateConnectors));
                   class="symptom"
                   v-for="symptom in dayOverviewSymptoms"
                   :key="`${row.id}-${symptom.key}`"
-                  :class="{ clickable: true }"
+                  :class="{ clickable: true, 'dot-armed': isDayOverviewDotArmed(row.id, symptom.key) }"
+                  @click.stop="handleDayOverviewDotClick(row, symptom)"
                 >
                   <Dot
                     :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
                     :isRead="(row.summary as any)?.[symptom.key + '_read'] ?? 0"
-                    :variant="symptom.wearable ? 'wearable' : 'circle'"
-                    :editable="true"
+                    :variant="'circle'"
+                    :editable="isDayOverviewDotArmed(row.id, symptom.key)"
                     @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
                     :loading="symptom.wearable && wearableLoading"
                   />
@@ -1245,9 +1265,11 @@ watch(loading, () => nextTick(updateConnectors));
   color: #053251;
 }
 .ai-summary-body {
+  height: 42px;
   font-size: 14px;
   color: #333;
   line-height: 1.5;
+  overflow: hidden;
 }
 .day-overview-table {
   flex: 1 1 0;
@@ -1280,6 +1302,12 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .day-overview-table .symptom :deep(.n-icon) {
   font-size: 12px;
+}
+.day-overview-table .symptom.dot-armed :deep(.dot) {
+  box-shadow: 0 0 0 2px #808080;
+  border-radius: 50%;
+  transform: scale(1.2);
+  transform-origin: center;
 }
 .day-overview-header {
   flex: 0 0 38px;

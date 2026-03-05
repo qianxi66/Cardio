@@ -70,7 +70,7 @@ const getMaxNonWearableSeverityForDate = (
       const raw = (summary as Record<string, unknown>)[`${symptomKey}_state`];
       const value = Number(raw);
       if (!Number.isNaN(value)) {
-        maxSeverity = Math.max(maxSeverity, Math.min(4, Math.max(0, Math.round(value))));
+        maxSeverity = Math.max(maxSeverity, Math.min(3, Math.max(0, Math.round(value))));
       }
     });
   });

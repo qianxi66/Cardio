@@ -25,6 +25,8 @@ const select_log_ids = computed(() => {
     .filter((n) => !Number.isNaN(n));
 });
 
+const symptom_query = useRouteQuery<string | undefined>("symptom");
+
 const query_date_ = useRouteQuery<string | undefined>("date");
 watch(
   query_date_,
@@ -60,15 +62,15 @@ const setLogRef = (el: unknown, id: number) => {
 };
 
 const scrollToLogs = () => {
-  if (select_log_ids.value.length > 0) {
-    const minId = Math.min(...select_log_ids.value);
+  const ids = effectiveHighlightIds.value;
+  if (ids.size > 0) {
+    const minId = Math.min(...ids);
     const el = conversationRefs.value[minId];
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
 };
-watch(select_log_ids, () => nextTick(scrollToLogs));
 const patient_id = useRouteParams("patient_id");
 const conversationLogs = ref<ConversationLog[]>([]);
 const loading = ref(true);
@@ -146,6 +148,45 @@ const logsForDate = computed(() => {
   return conversationLogs.value;
 });
 
+// Keyword patterns for symptom-based conversation log highlighting
+const symptomPatterns: Record<string, RegExp> = {
+  syncope: /faint|pass(?:ed|ing)?\s*out|dizz(?:y|iness)|lightheaded|syncop/i,
+  palpitation: /palpit|racing|pounding|flutter|skipping\s*beat/i,
+  short_of_breath: /breath|short\s*of\s*breath|breathing/i,
+  chest_discomfort: /chest\s*(?:pain|pressure|discomfort|tight)/i,
+  swelling: /swell|edema/i,
+  heart_rate: /heart\s*rate/i,
+  respiration: /respirat|breathing\s*rate/i,
+};
+
+// Effective highlighted log IDs: use explicit _logs IDs if available,
+// otherwise fall back to keyword matching on conversation content
+const effectiveHighlightIds = computed<Set<number>>(() => {
+  if (select_log_ids.value.length > 0) {
+    return new Set(select_log_ids.value);
+  }
+  const sym = symptom_query.value;
+  if (!sym || !logsForDate.value.length) return new Set<number>();
+
+  const pattern = symptomPatterns[sym];
+  if (!pattern) return new Set<number>();
+
+  const ids = new Set<number>();
+  const logs = logsForDate.value;
+  for (let i = 0; i < logs.length; i++) {
+    const log = logs[i];
+    if (log.role === "assistant" && pattern.test(log.content || "")) {
+      ids.add(log.id);
+      // Also highlight the patient's response (next message)
+      if (i + 1 < logs.length && logs[i + 1].role === "user") {
+        ids.add(logs[i + 1].id);
+      }
+    }
+  }
+  return ids;
+});
+
+watch(effectiveHighlightIds, () => nextTick(scrollToLogs));
 watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 </script>
 <template>
@@ -184,7 +225,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
           <div
             :ref="(el) => setLogRef(el, log.id)"
             class="log-row"
-            :class="{ 'log-selected': select_log_ids.includes(log.id) }"
+            :class="{ 'log-selected': effectiveHighlightIds.has(log.id) }"
             v-for="log in logsForDate"
             :key="log.id"
           >

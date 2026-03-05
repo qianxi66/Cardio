@@ -1296,7 +1296,7 @@ def update_summary(id, summary_id):
     for key, value in data.items():
         if key.endswith("_state"):
             symptom_name = key[: -len("_state")]
-            if symptom_name in symptom_descriptions and isinstance(value, int) and value in (-1, 0, 1, 2, 3, 4):
+            if symptom_name in symptom_descriptions and isinstance(value, int) and value in (-1, 0, 1, 2, 3):
                 setattr(summary, key, value)
                 setattr(summary, f"{symptom_name}_read", 1)
                 updated.append(key)
