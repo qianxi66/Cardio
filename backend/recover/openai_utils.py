@@ -82,18 +82,26 @@ def key_questions(messages):
     )
 
 
-def summary(messages, key_questions):
+def summary(messages, key_questions, wearable_data=None):
+    user_messages = [
+        {
+            "role": "user",
+            "content": "List of all symptoms descriptions"
+            + json.dumps(symptom_descriptions),
+        },
+        {"role": "user", "content": "messages: " + messages},
+        {"role": "user", "content": "symptoms: " + key_questions},
+    ]
+    if wearable_data:
+        user_messages.append({
+            "role": "user",
+            "content": "Wearable sensor data for today: " + json.dumps(wearable_data),
+        })
     return gpt_inference(
         client,
         [
             {"role": "system", "content": summary_prompt},
-            {
-                "role": "user",
-                "content": "List of all symptoms descriptions"
-                + json.dumps(symptom_descriptions),
-            },
-            {"role": "user", "content": "messages: " + messages},
-            {"role": "user", "content": "symptoms: " + key_questions},
+            *user_messages,
         ],
         model=_model,
         response_format={"type": "json_object"},

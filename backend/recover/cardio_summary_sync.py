@@ -10,7 +10,7 @@ from sqlalchemy.exc import OperationalError
 
 from .app import app
 from .config import mongodb_client_kwargs, mongodb_url
-from .db import Patient, Summary, db
+from .db import Patient, Summary, Note, db
 from .symptoms import symptom_descriptions
 
 
@@ -215,6 +215,26 @@ def _sync_once():
             except OperationalError:
                 db.session.rollback()
                 skipped += 1
+                continue
+
+            # Generate AI summary note for today if one doesn't exist yet.
+            # Importing here (inside the app context) avoids circular imports.
+            day_end_sql = day_start_sql + timedelta(days=1)
+            has_note = (
+                Note.query.filter_by(patient_id=patient.id, creator_type="ai")
+                .filter(
+                    Note.created_at >= day_start_sql,
+                    Note.created_at < day_end_sql,
+                )
+                .first()
+                is not None
+            )
+            if not has_note:
+                try:
+                    from .apis import _generate_ai_note_for_patient
+                    _generate_ai_note_for_patient(patient.id, day_start_sql)
+                except Exception as exc:
+                    print(f"[cardio_summary_sync] AI note failed for patient {patient.id}: {exc}")
 
         print(
             f"[cardio_summary_sync] synced {updated} patients (skipped={skipped}) "

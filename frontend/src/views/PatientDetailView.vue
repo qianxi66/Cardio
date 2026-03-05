@@ -2,13 +2,15 @@
 import { useRouteParams } from "@vueuse/router";
 import { useRouteQuery } from "@vueuse/router";
 import { useRouter } from "vue-router";
+import type { DrawerPlacement } from "naive-ui";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
+import { markSymptomRead } from "@/api/patient";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
-import { computed, watch, ref, inject, nextTick, type Component } from "vue";
-import type { Patient, Summary } from "@/api/types";
-import { getPatient, getSummaries } from "@/api/patient";
+import { computed, watch, ref, inject, nextTick, onMounted, onBeforeUnmount, type Component } from "vue";
+import type { Patient, Summary, ReportNote } from "@/api/types";
+import { getPatient, getSummaries, getWearableCoverage, getNotes, type WearableCoverage } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 import { format } from "date-fns";
 import type { CancelTokenSource } from "axios";
@@ -20,10 +22,16 @@ const query_date_ = useRouteQuery<string | undefined>("date");
 
 const patient = ref<Patient | null>(null);
 const summaries = ref<Summary[]>([]);
+const reportNotes = ref<ReportNote[]>([]);
+const wearableCoverage = ref<WearableCoverage>({});
 const loading = ref(true);
+const wearableLoading = ref(false);
 const cancelToken = ref<CancelTokenSource | null>(null);
 const dailySummaryDate = ref<number | null>(Date.now());
-const wearableRange = ref<"24h" | "7d">("24h");
+const wearableDate = computed(() => {
+  if (!dailySummaryDate.value) return format(new Date(), "yyyy-MM-dd");
+  return format(new Date(dailySummaryDate.value), "yyyy-MM-dd");
+});
 const dayOverviewScrollEl = ref<HTMLElement | null>(null);
 const didAutoScrollDayOverview = ref(false);
 const selectedSeries = ref<Record<string, boolean>>({
@@ -104,12 +112,81 @@ const nextAppointmentDate = computed(() => {
   return formatPatientDate(value ?? null);
 });
 
+const aiSummaryBodyText = computed(() => {
+  const notes = patient.value?.notes ?? [];
+  const selectedDate = dailySummaryDate.value ? new Date(dailySummaryDate.value) : null;
+  if (!selectedDate || Number.isNaN(selectedDate.getTime())) {
+    return "no data for this date";
+  }
+  const selectedKey = dateKey(selectedDate);
+
+  const match = notes
+    .filter((note) => {
+      if (note.creator_type?.toLowerCase() !== "ai") return false;
+      const created = parseDateValue(note.created_at);
+      return created ? dateKey(created) === selectedKey : false;
+    })
+    .sort((a, b) => {
+      const at = parseDateValue(a.created_at)?.getTime() ?? 0;
+      const bt = parseDateValue(b.created_at)?.getTime() ?? 0;
+      return bt - at;
+    })[0];
+
+  if (!match?.content?.trim()) {
+    return "no data for this date";
+  }
+  const createdAt = parseDateValue(match.created_at);
+  const cleanedContent = match.content
+    .trim()
+    .replace(/^ai\s*summary\s*:?\s*/i, "");
+  const timeLabel = createdAt ? format(createdAt, "HH:mm") : "--:--";
+  return `${format(selectedDate, "MM/dd/yyyy")} ${timeLabel} ${cleanedContent}`;
+});
+
+const parseNoteTime = (value?: Date | string) => {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const patientUserNote = computed(() => {
+  const currentPatientId = patientIdParam.value;
+  if (!currentPatientId || !reportNotes.value.length) {
+    return "--";
+  }
+
+  const note = reportNotes.value
+    .filter((n) => n.patient_id === currentPatientId && (typeof n.user_id === "number" || !!n.user))
+    .sort((a, b) => {
+      const aTime = parseNoteTime(a.updated_at) || parseNoteTime(a.created_at);
+      const bTime = parseNoteTime(b.updated_at) || parseNoteTime(b.created_at);
+      return bTime - aTime;
+    })[0];
+
+  return note?.content?.trim() || "--";
+});
+
+const admissionDrawerVisible = ref(false);
+const medicationDrawerVisible = ref(false);
+const drawerPlacement = ref<DrawerPlacement>("right");
+
+const openAdmissionDrawer = () => {
+  drawerPlacement.value = "right";
+  admissionDrawerVisible.value = true;
+};
+
+const openMedicationDrawer = () => {
+  drawerPlacement.value = "right";
+  medicationDrawerVisible.value = true;
+};
+
 watch(
   patient_id,
   async () => {
     console.log("patient_id changed", patient_id.value);
     if (!patient_id.value) {
       patient.value = null;
+      reportNotes.value = [];
       loading.value = true;
       return;
     }
@@ -125,8 +202,26 @@ watch(
       parseInt(patient_id.value as string),
       cancelToken.value.token,
     );
-    summaries.value = await getSummaries(parseInt(patient_id.value as string));
+    summaries.value = (await getSummaries(parseInt(patient_id.value as string))) ?? [];
+    reportNotes.value = (await getNotes(parseInt(patient_id.value as string))) ?? [];
     loading.value = false;
+    // Fetch MongoDB wearable coverage asynchronously — does not block patient info display
+    const coverageDates = summaries.value
+      .map((s) => { const p = parseDateValue(s.date); return p ? dateKey(p) : null; })
+      .filter((d): d is string => d !== null);
+    if (coverageDates.length) {
+      wearableLoading.value = true;
+      getWearableCoverage(
+        parseInt(patient_id.value as string),
+        coverageDates,
+      ).then((cov) => {
+        wearableCoverage.value = cov;
+      }).catch(() => {
+        wearableCoverage.value = {};
+      }).finally(() => {
+        wearableLoading.value = false;
+      });
+    }
   },
   { immediate: true },
 );
@@ -207,38 +302,31 @@ const symptomState = (
   return 0;
 };
 
+// For wearable symptoms (heart_rate, respiration), override state from MongoDB coverage.
+// state 1 = green (has data), state 0 = grey (no data / still loading).
+const dotStateForSymptom = (
+  summary: Summary | null,
+  symptomKey: string,
+  wearable: boolean,
+): number => {
+  if (!wearable) return symptomState(summary, symptomKey);
+  if (!summary) return 0;
+  const parsed = parseDateValue(summary.date);
+  if (!parsed) return 0;
+  const key = dateKey(parsed);
+  const cov = wearableCoverage.value[key];
+  return cov ? 1 : 0;
+};
+
 const dayOverviewSymptoms = [
-  {
-    key: "short_of_breath",
-    display_name: "Breath",
-    description: "Shortness of Breath (Dyspnea)",
-  },
-  {
-    key: "chest_discomfort",
-    display_name: "Chest",
-    description: "Chest Discomfort or Pain",
-  },
-  {
-    key: "fatigue",
-    display_name: "Fatigue",
-    description: "Fatigue or Tiredness",
-  },
-  {
-    key: "palpitation",
-    display_name: "Palpitation",
-    description: "Heart Palpitations",
-  },
-  {
-    key: "swelling",
-    display_name: "Swelling",
-    description: "Swelling (Edema)",
-  },
-  {
-    key: "syncope",
-    display_name: "Syncope",
-    description: "Fainting or Syncope",
-  },
-] as const;
+  { key: "syncope",         display_name: "Syncope",     description: "Fainting or Syncope",            wearable: false },
+  { key: "palpitation",     display_name: "Palpitation", description: "Heart Palpitations",             wearable: false },
+  { key: "short_of_breath", display_name: "Breath",      description: "Shortness of Breath (Dyspnea)",  wearable: false },
+  { key: "chest_discomfort",display_name: "Chest",       description: "Chest Discomfort or Pain",       wearable: false },
+  { key: "swelling",        display_name: "Swelling",    description: "Swelling (Edema)",               wearable: false },
+  { key: "heart_rate",      display_name: "Heart Rate",  description: "Heart Rate",                     wearable: true  },
+  { key: "respiration",     display_name: "Resp",        description: "Respiration Rate",               wearable: true  },
+];
 
 const dayOverviewRows = computed(() => {
   const selectedKey = dailySummaryDate.value
@@ -261,6 +349,32 @@ const dayOverviewRows = computed(() => {
 
 const dayOverviewRowHasData = (summary: Summary | null): boolean => {
   return dayOverviewSymptoms.some((symptom) => symptomState(summary, symptom.key) !== 0);
+};
+
+const isSymptomRead = (summary: Summary | null, symptomKey: string): boolean => {
+  if (!summary) return true;
+  const readVal = (summary as Record<string, unknown>)[`${symptomKey}_read`];
+  return readVal === 1 || readVal === true;
+};
+
+const isDayOverviewSymptomActive = (
+  summary: Summary | null,
+  symptomKey: string,
+  wearable: boolean,
+): boolean => {
+  return dotStateForSymptom(summary, symptomKey, wearable) !== 0;
+};
+
+const getUnreadSymptomKeysForDayOverview = (summary: Summary | null): string[] => {
+  if (!summary) return [];
+  return dayOverviewSymptoms
+    .filter((symptom) => isDayOverviewSymptomActive(summary, symptom.key, symptom.wearable))
+    .filter((symptom) => !isSymptomRead(summary, symptom.key))
+    .map((symptom) => symptom.key);
+};
+
+const dayOverviewRowHasUnread = (summary: Summary | null): boolean => {
+  return getUnreadSymptomKeysForDayOverview(summary).length > 0;
 };
 
 watch(
@@ -289,6 +403,25 @@ const selectDayOverview = (timestamp: number | null) => {
   dailySummaryDate.value = timestamp;
 };
 
+const markDayOverviewRowRead = (summary: Summary | null) => {
+  if (!summary || !patient_id.value) return;
+  const unreadSymptomKeys = getUnreadSymptomKeysForDayOverview(summary);
+  if (!unreadSymptomKeys.length) return;
+  const patientId = Number(patient_id.value);
+  unreadSymptomKeys.forEach((symptomKey) => {
+    markSymptomRead(patientId, summary.id, symptomKey)
+      .then(() => {
+        (summary as Record<string, unknown>)[`${symptomKey}_read`] = 1;
+      })
+      .catch(() => {});
+  });
+};
+
+const handleDayOverviewRowClick = (row: { summary: Summary | null; timestamp: number | null }) => {
+  selectDayOverview(row.timestamp);
+  markDayOverviewRowRead(row.summary);
+};
+
 const jumpToDayOverviewSummary = (
   summary: Summary | null,
   timestamp: number | null,
@@ -299,6 +432,14 @@ const jumpToDayOverviewSummary = (
   if (state === 0) return;
   if (timestamp !== null) {
     selectDayOverview(timestamp);
+  }
+  // Mark as read (fire-and-forget)
+  const readVal = (summary as Record<string, unknown>)[`${symptom}_read`];
+  const isAlreadyRead = readVal === 1 || readVal === true;
+  if (!isAlreadyRead && patient_id.value) {
+    markSymptomRead(Number(patient_id.value), summary.id, symptom).then(() => {
+      (summary as Record<string, unknown>)[`${symptom}_read`] = 1;
+    }).catch(() => {});
   }
   jumpToSummary(summary, symptom);
 };
@@ -333,11 +474,63 @@ const jumpToSummary = (summary: Summary, symptom: string) => {
 
 const right = ref<Component | null>(null);
 
+// ── Dynamic connector positioning ──────────────────────────────────────────
+const connectorRowEl = ref<HTMLElement | null>(null);
+const connectorTailStyle = ref<Record<string, string>>({});
+const connectorVerticalStyle = ref<Record<string, string>>({});
+const connectorBranchTopStyle = ref<Record<string, string>>({});
+const connectorBranchBottomStyle = ref<Record<string, string>>({});
+
+const updateConnectors = () => {
+  const rowEl = connectorRowEl.value;
+  const rightComp = right.value as (typeof right.value & { $el?: HTMLElement }) | null;
+  if (!rowEl || !rightComp?.$el) return;
+
+  const reportEl = rightComp.$el as HTMLElement;
+  const wearableCard = reportEl.querySelector('.detailed-wearable-card') as HTMLElement | null;
+  const conversationCard = reportEl.querySelector('.conversation-card') as HTMLElement | null;
+  if (!wearableCard || !conversationCard) return;
+
+  const wearableHeader = wearableCard.querySelector('.n-card__header') as HTMLElement | null;
+  const conversationHeader = conversationCard.querySelector('.n-card__header') as HTMLElement | null;
+  if (!wearableHeader || !conversationHeader) return;
+
+  const rowRect = rowEl.getBoundingClientRect();
+  const wh = wearableHeader.getBoundingClientRect();
+  const ch = conversationHeader.getBoundingClientRect();
+
+  const wearableCenterY = (wh.top + wh.bottom) / 2 - rowRect.top;
+  const conversationCenterY = (ch.top + ch.bottom) / 2 - rowRect.top;
+  const midY = (wearableCenterY + conversationCenterY) / 2;
+
+  connectorTailStyle.value = { top: `${midY - 2}px` };
+  connectorVerticalStyle.value = {
+    top: `${wearableCenterY - 2}px`,
+    height: `${Math.max(conversationCenterY - wearableCenterY + 4, 4)}px`,
+  };
+  connectorBranchTopStyle.value = { top: `${wearableCenterY - 2}px` };
+  connectorBranchBottomStyle.value = { top: `${conversationCenterY - 2}px` };
+};
+
+let _connectorRO: ResizeObserver | null = null;
+onMounted(() => {
+  nextTick(() => updateConnectors());
+  _connectorRO = new ResizeObserver(() => updateConnectors());
+  if (connectorRowEl.value) _connectorRO.observe(connectorRowEl.value);
+  window.addEventListener('resize', updateConnectors);
+});
+onBeforeUnmount(() => {
+  _connectorRO?.disconnect();
+  window.removeEventListener('resize', updateConnectors);
+});
+watch(right, () => nextTick(updateConnectors));
+watch(loading, () => nextTick(updateConnectors));
+
 </script>
 
 <template>
   <div class="patient-layout">
-    <div class="row">
+    <div class="row" ref="connectorRowEl">
       <div class="col main-col">
       <ColoredCard class="information" rounded>
         <div class="card-top-header">
@@ -358,6 +551,7 @@ const right = ref<Component | null>(null);
                 {{ patient!.age ? patient!.age + " y.o." : "" }}
                 {{ patient!.gender }}
               </div>
+              <div class="patient-nav-spacer"></div>
               <n-tooltip trigger="hover">
                 <template #trigger>
                   <n-button
@@ -384,7 +578,10 @@ const right = ref<Component | null>(null);
                 </template>
                 Edit Patient
               </n-tooltip>
-              <div class="patient-nav-spacer"></div>
+              <div class="patient-notes-board">
+                <div class="patient-notes-title">Notes</div>
+                <div class="patient-notes-content">{{ patientUserNote }}</div>
+              </div>
             </div>
             <template #loading>
               <div class="row patient-header">
@@ -397,14 +594,17 @@ const right = ref<Component | null>(null);
                   class="patient-meta"
                   style="height: 21px; width: 120px"
                 ></n-skeleton>
+                <div class="patient-nav-spacer"></div>
+                <n-skeleton
+                  style="height: 46px; width: 260px"
+                ></n-skeleton>
               </div>
             </template>
           </Loading>
         </div>
         <div class="basic-information-content">
           <div class="basic-top-section">
-            <Loading :loading="loading" :has-data="!!patient">
-              <div class="row patient-details">
+            <div v-if="patient" class="row patient-details">
                 <div class="box patient-info-box">
                   <div class="detail-line">
                     <span class="label">Cancer Type:</span>
@@ -418,6 +618,9 @@ const right = ref<Component | null>(null);
                     <span class="label">Medication Allergy History:</span>
                     <span class="value">{{ treatmentType }}</span>
                   </div>
+                  <button type="button" class="panel-title panel-drawer-trigger" @click="openAdmissionDrawer">
+                    Admission History
+                  </button>
                 </div>
                 <div class="box patient-plan-box">
                   <div class="detail-line">
@@ -432,24 +635,11 @@ const right = ref<Component | null>(null);
                     <span class="label">Next Appointment Date:</span>
                     <span class="value">{{ nextAppointmentDate }}</span>
                   </div>
+                  <button type="button" class="panel-title panel-drawer-trigger" @click="openMedicationDrawer">
+                    Current Medications
+                  </button>
                 </div>
               </div>
-            </Loading>
-          </div>
-          <div class="daily-summary-content">
-            <div class="overview-panel">
-              <div class="panel-title">Admission History</div>
-
-              <div class="overview-box">
-                <div class="overview-box-content"></div>
-              </div>
-            </div>
-            <div class="overview-panel">
-              <div class="panel-title">Current Medications</div>
-              <div class="overall-summary-box">
-                <div class="overall-summary-content"></div>
-              </div>
-            </div>
           </div>
         </div>
       </ColoredCard>
@@ -470,7 +660,7 @@ const right = ref<Component | null>(null);
         <div class="day-navigator-content">
           <div class="ai-summary-section">
             <div class="ai-summary-title">AI-Generated Daily Summary</div>
-            <div class="ai-summary-body">The patient reports symptoms of syncope and dyspnea. At certain points, they also exhibited a low heart rate alongside rapid breathing.</div>
+            <div class="ai-summary-body">{{ aiSummaryBodyText }}</div>
           </div>
           <div class="day-overview-table">
             <div class="table-row day-overview-header">
@@ -493,10 +683,11 @@ const right = ref<Component | null>(null);
                 :class="{
                   odd: index % 2 === 1,
                   selected: row.isSelected,
+                  'has-unread': dayOverviewRowHasUnread(row.summary),
                 }"
-                @click="selectDayOverview(row.timestamp)"
+                @click="handleDayOverviewRowClick(row)"
               >
-                <div class="date">{{ row.dateLabel }}</div>
+                <div class="date" :class="{ 'date-unread': dayOverviewRowHasUnread(row.summary) }">{{ row.dateLabel }}</div>
                 <div
                   class="symptom"
                   v-for="symptom in dayOverviewSymptoms"
@@ -510,7 +701,12 @@ const right = ref<Component | null>(null);
                     )
                   "
                 >
-                  <Dot :state="symptomState(row.summary, symptom.key)" />
+                  <Dot
+                    :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
+                    :isRead="(row.summary as any)?.[symptom.key + '_read'] ?? 0"
+                    :variant="symptom.wearable ? 'wearable' : 'circle'"
+                    :loading="symptom.wearable && wearableLoading"
+                  />
                 </div>
               </div>
               <div v-if="dayOverviewRows.length === 0" class="day-overview-empty">
@@ -533,31 +729,11 @@ const right = ref<Component | null>(null);
                   rounded
                 >
                   <template #title-extra>
-                    <div class="wearable-range-switch">
-                      <button
-                        type="button"
-                        class="range-btn"
-                        :class="{ active: wearableRange === '24h' }"
-                        @click="wearableRange = '24h'"
-                      >
-                        <span class="range-dot" aria-hidden="true"></span>
-                        <span>Last 24 Hrs</span>
-                      </button>
-                      <button
-                        type="button"
-                        class="range-btn"
-                        :class="{ active: wearableRange === '7d' }"
-                        @click="wearableRange = '7d'"
-                      >
-                        <span class="range-dot" aria-hidden="true"></span>
-                        <span>Last 7 days</span>
-                      </button>
-                    </div>
-                  </template>
+          </template>
                   <div class="wearable-chart-wrapper">
                     <DetailedWearableChart
                       :patient-id="patientIdParam ?? undefined"
-                      :range="wearableRange"
+                      :date="wearableDate"
                       :selected-series="selectedSeries"
                       @toggle-series="toggleSeries"
                     />
@@ -569,12 +745,56 @@ const right = ref<Component | null>(null);
         </div>
       </div>
       <div class="overview-connectors" aria-hidden="true">
-        <span class="connector-tail"></span>
-        <span class="connector-vertical"></span>
-        <span class="connector-branch connector-branch-top"></span>
-        <span class="connector-branch connector-branch-bottom"></span>
+        <span class="connector-tail" :style="connectorTailStyle"></span>
+        <span class="connector-vertical" :style="connectorVerticalStyle"></span>
+        <span class="connector-branch connector-branch-top" :style="connectorBranchTopStyle"></span>
+        <span class="connector-branch connector-branch-bottom" :style="connectorBranchBottomStyle"></span>
       </div>
     </div>
+
+    <n-drawer
+      v-model:show="admissionDrawerVisible"
+      :default-width="502"
+      :placement="drawerPlacement"
+      resizable
+    >
+      <n-drawer-content title="Admission History">
+        <template v-if="patient?.admission_histories?.length">
+          <div
+            class="admission-row"
+            v-for="(ah, i) in patient.admission_histories"
+            :key="`drawer-admission-${i}`"
+          >
+            <span class="admission-dates">
+              {{ formatPatientDate(ah.admission_date) }} - {{ ah.discharge_date ? formatPatientDate(ah.discharge_date) : 'Ongoing' }}
+            </span>
+            <span class="admission-diagnosis">{{ ah.diagnosis }}</span>
+          </div>
+        </template>
+        <div v-else class="overview-row-empty">No admission records.</div>
+      </n-drawer-content>
+    </n-drawer>
+
+    <n-drawer
+      v-model:show="medicationDrawerVisible"
+      :default-width="502"
+      :placement="drawerPlacement"
+      resizable
+    >
+      <n-drawer-content title="Current Medications">
+        <template v-if="patient?.medications?.length">
+          <div
+            class="medication-row"
+            v-for="(med, i) in patient.medications"
+            :key="`drawer-medication-${i}`"
+          >
+            <span class="admission-dates">{{ med.start_date ? formatPatientDate(med.start_date) : '–' }}</span>
+            <span class="medication-name">{{ med.drug_name }}<span v-if="med.dosage" class="medication-dosage">&nbsp;·&nbsp;{{ med.dosage }}</span></span>
+          </div>
+        </template>
+        <div v-else class="overview-row-empty">No medications recorded.</div>
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
@@ -614,9 +834,9 @@ const right = ref<Component | null>(null);
 }
 .connector-vertical {
   left: calc(53% - 1px);
-  top: calc(43% - 300px);
+  top: 3%;
   width: 4px;
-  height: 378px;
+  bottom: calc(46% + 3px);
 }
 .connector-branch {
   left: calc(53% + 3px);
@@ -624,10 +844,10 @@ const right = ref<Component | null>(null);
   height: 4px;
 }
 .connector-branch-top {
-  top: calc(43% - 300px);
+  top: 3%;
 }
 .connector-branch-bottom {
-  top: calc(43% + 74px);
+  top: 53%;
 }
 .main-col,
 .side-col {
@@ -677,16 +897,33 @@ const right = ref<Component | null>(null);
   line-height: 36px;
   font-weight: 700;
 }
-.patient-header {
-  align-items: flex-end;
-}
 .patient-meta {
-  font-size: 16px;
+  font-size: 14px;
   line-height: 30px;
   font-weight: 700;
 }
 .patient-nav-spacer {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+}
+.patient-notes-board {
+  background: #ffe69c;
+  padding: 4px;
+  flex: 0 0 47%;
+  max-width: 47%;
+  min-width: 0;
+  border-radius: 2px;
+}
+.patient-notes-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.patient-notes-content {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #333;
+  word-break: break-word;
 }
 .detailed-wearable-card :deep(.n-card__content) {
   display: flex;
@@ -841,6 +1078,8 @@ const right = ref<Component | null>(null);
   display: flex;
   column-gap: 6px;
   line-height: 22px;
+  white-space: nowrap;
+  width: max-content;
 }
 .detail-line .label {
   font-weight: 700;
@@ -853,7 +1092,8 @@ const right = ref<Component | null>(null);
   align-items: stretch;
   min-height: 0;
   .box {
-    overflow: overlay;
+    overflow-x: auto;
+    overflow-y: auto;
   }
 }
 .patient-details > .box {
@@ -882,6 +1122,20 @@ const right = ref<Component | null>(null);
 .patient-plan-box .detail-line {
   flex: 0 0 auto;
   align-items: center;
+}
+.panel-drawer-trigger {
+  margin-top: 3px;
+  align-self: flex-start;
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  border-radius: 3px;
+  padding: 6px 12px;
+  text-align: center;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.panel-drawer-trigger:hover {
+  border-color: #bfbfbf;
 }
 .basic-information-content {
   display: flex;
@@ -941,6 +1195,8 @@ const right = ref<Component | null>(null);
   flex: 0 0 auto;
   padding-bottom: 16px;
   border-bottom: 2px solid #053251;
+  background-color: #f3f3f3;
+  background-clip: content-box;
 }
 .ai-summary-title {
   font-size: 18px;
@@ -948,8 +1204,7 @@ const right = ref<Component | null>(null);
   color: #053251;
 }
 .ai-summary-body {
-  margin-top: 8px;
-  font-size: 12px;
+  font-size: 14px;
   color: #333;
   line-height: 1.5;
 }
@@ -1009,6 +1264,13 @@ const right = ref<Component | null>(null);
 .day-overview-row.selected {
   outline: none;
 }
+.day-overview-row.has-unread {
+  outline: 2px solid #808080;
+  outline-offset: -2px;
+}
+.day-overview-row .date.date-unread {
+  font-weight: 700;
+}
 .day-overview-empty {
   height: 100%;
   min-height: 80px;
@@ -1038,7 +1300,7 @@ const right = ref<Component | null>(null);
   flex: 1 1 0;
   min-height: 0;
   background-color: #f3f3f3;
-  padding: 12px 10px 12px 12px;
+  padding: 4px 10px 4px 12px;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -1106,7 +1368,7 @@ const right = ref<Component | null>(null);
   flex: 1 1 0;
   min-height: 0;
   background-color: #f3f3f3;
-  padding: 12px;
+  padding: 4px 12px 4px 12px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -1116,6 +1378,47 @@ const right = ref<Component | null>(null);
   flex: 1 1 0;
   min-height: 0;
   overflow: auto;
+}
+.admission-row {
+  display: flex;
+  align-items: baseline;
+  column-gap: 12px;
+  font-size: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e8e8e8;
+}
+.admission-row:last-child {
+  border-bottom: none;
+}
+.admission-dates {
+  flex: 0 0 auto;
+  color: #888;
+  white-space: nowrap;
+}
+.admission-diagnosis {
+  flex: 1 1 0;
+  color: #333;
+  font-weight: 500;
+}
+.medication-row {
+  display: flex;
+  align-items: baseline;
+  column-gap: 12px;
+  font-size: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e8e8e8;
+}
+.medication-row:last-child {
+  border-bottom: none;
+}
+.medication-name {
+  flex: 1 1 0;
+  font-weight: 600;
+  color: #333;
+}
+.medication-dosage {
+  font-weight: 400;
+  color: #666;
 }
 .symptoms-column {
   flex: 0 0 50%;

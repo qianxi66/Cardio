@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
-import { getPatients } from "@/api/patient";
+import { getPatients, getSummaries, getWearableCoverage } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 import { ref, watch, computed, provide, onMounted } from "vue";
 import { useRouteParams } from "@vueuse/router";
-import { type Patient } from "@/api/types";
+import { type Patient, type Summary } from "@/api/types";
 import router from "@/router";
 import { NCard, NInput } from "naive-ui";
 
@@ -13,6 +13,103 @@ const patients = ref<Patient[] | null>(null);
 const loading = ref(true);
 const searchTerm = ref("");
 const patient_id = useRouteParams<number>("patient_id");
+const DEFAULT_TIMEZONE = "America/New_York";
+
+const dailySymptomKeys = [
+  "syncope",
+  "palpitation",
+  "short_of_breath",
+  "chest_discomfort",
+  "swelling",
+  "heart_rate",
+  "respiration",
+];
+
+const toDateKey = (value: unknown, timeZone = DEFAULT_TIMEZONE): string | null => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`;
+  }
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value;
+  const y = pick("year");
+  const m = pick("month");
+  const d = pick("day");
+  if (!y || !m || !d) return null;
+  return `${y}-${m}-${d}`;
+};
+
+const getSummaryDateKey = (summary: Summary): string | null =>
+  toDateKey(summary.date, DEFAULT_TIMEZONE);
+
+const getLatestSummaryDateKey = (summaries: Summary[]): string | null => {
+  const keys = summaries
+    .map((summary) => getSummaryDateKey(summary))
+    .filter((key): key is string => !!key)
+    .sort();
+  if (!keys.length) return null;
+  return keys[keys.length - 1];
+};
+
+const getMaxNonWearableSeverityForDate = (
+  summaries: Summary[],
+  dateKey: string,
+): number => {
+  let maxSeverity = 0;
+  summaries.forEach((summary) => {
+    if (getSummaryDateKey(summary) !== dateKey) return;
+    dailySymptomKeys.forEach((symptomKey) => {
+      const raw = (summary as Record<string, unknown>)[`${symptomKey}_state`];
+      const value = Number(raw);
+      if (!Number.isNaN(value)) {
+        maxSeverity = Math.max(maxSeverity, Math.min(4, Math.max(0, Math.round(value))));
+      }
+    });
+  });
+  return maxSeverity;
+};
+
+const getPatientSeverity = async (patient: Patient): Promise<number> => {
+  const summaries = (patient.summaries ?? []) as Summary[];
+  if (!summaries.length) return 0;
+
+  const todayKey = toDateKey(new Date(), DEFAULT_TIMEZONE);
+  const latestKey = getLatestSummaryDateKey(summaries);
+  const targetDateKey = todayKey && summaries.some((s) => getSummaryDateKey(s) === todayKey)
+    ? todayKey
+    : latestKey;
+  if (!targetDateKey) return 0;
+
+  let maxSeverity = getMaxNonWearableSeverityForDate(summaries, targetDateKey);
+  try {
+    const wearableCoverage = await getWearableCoverage(patient.id, [targetDateKey]);
+    if (wearableCoverage?.[targetDateKey]) {
+      maxSeverity = Math.max(maxSeverity, 1);
+    }
+  } catch {
+  }
+  return maxSeverity;
+};
+
+const sortPatientsBySeverity = (items: Patient[]): Patient[] =>
+  items.slice().sort((a, b) => {
+    const severityDiff = (b.state ?? 0) - (a.state ?? 0);
+    if (severityDiff !== 0) return severityDiff;
+    const aParticipant = (a.participant_id ?? "").toLowerCase();
+    const bParticipant = (b.participant_id ?? "").toLowerCase();
+    if (aParticipant !== bParticipant) {
+      return aParticipant.localeCompare(bParticipant);
+    }
+    return a.id - b.id;
+  });
 
 const filteredPatients = computed(() => {
   let result = patients.value ? patients.value.slice() : [];
@@ -27,49 +124,61 @@ const filteredPatients = computed(() => {
     );
   }
 
-  return result;
+  return sortPatientsBySeverity(result);
 });
 
-const loadPatient = () =>
-  getPatients().then((res) => {
-    patients.value = res.map((item) => ({
-      ...item,
-      read: !!item.last_read_at,
-      state: 0,
-      reviewed: false,
-    }));
+const loadPatient = async () => {
+  loading.value = true;
+  try {
+    const res = await getPatients();
+    const mapped = await Promise.all(
+      (res ?? []).map(async (item) => {
+        const summaries = await getSummaries(item.id).catch(() => []);
+        const patientWithSummaries: Patient = {
+          ...item,
+          summaries,
+        };
+        const severity = await getPatientSeverity(patientWithSummaries);
+        return {
+          ...item,
+          summaries,
+          read: !!item.last_read_at,
+          state: severity,
+          reviewed: false,
+        };
+      }),
+    );
+    patients.value = sortPatientsBySeverity(mapped);
+  } finally {
     loading.value = false;
-    console.log(res);
-    console.log(patient_id.value);
-    if (!patient_id.value && res.length > 0) {
-      router.push({
-        name: "patient.detail",
-        params: { patient_id: res[0].id },
-      });
-    }
-  });
+  }
+};
 
 onMounted(() => {
   loadPatient();
 });
 provide("refreshPatients", loadPatient);
 
-watch(patient_id, () => {
-  console.log("patient_id changed", patient_id.value);
-  if (patient_id.value === undefined) {
-    if (patients.value?.length && patients.value?.length > 0) {
-      router.push({
-        name: "patient.detail",
-        params: { patient_id: patients.value![0].id },
-      });
+watch(patient_id, (newVal) => {
+  if (newVal === undefined || newVal === null) {
+    if (!localStorage.token) return;
+    if (patients.value?.length) {
+      router.push({ name: "patient.detail", params: { patient_id: patients.value[0].id } });
     } else {
       loadPatient();
     }
   } else {
-    const patient = patients.value?.find((p) => p.id == patient_id.value);
+    const patient = patients.value?.find((p) => p.id == newVal);
     if (patient) {
       patient.read = true;
     }
+  }
+});
+
+// When patients list loads, auto-navigate to first patient if none is selected
+watch(patients, (list) => {
+  if (!patient_id.value && list?.length) {
+    router.push({ name: "patient.detail", params: { patient_id: list[0].id } });
   }
 });
 
@@ -133,7 +242,7 @@ watch(patient_id, () => {
           :key="p.id"
         >
           <div class="dot-holder">
-            <Dot :state="p.reviewed ? -1 : p.state"></Dot>
+            <Dot :state="p.state" :is-read="1" variant="circle"></Dot>
           </div>
           <component
             :is="p.id == patient_id ? 'div' : 'router-link'"
@@ -156,7 +265,7 @@ watch(patient_id, () => {
         <template #loading>
           <div class="patient-card" v-for="i in 10" :key="i">
             <div class="dot-holder">
-              <Dot loading></Dot>
+              <Dot loading variant="circle"></Dot>
             </div>
             <div class="patient-info">
               <n-skeleton
@@ -207,7 +316,7 @@ watch(patient_id, () => {
   display: flex;
 }
 .patient-list {
-  flex-basis: 200px;
+  flex-basis: 170px;
   flex-grow: 0;
   flex-shrink: 0;
   min-height: 100%;

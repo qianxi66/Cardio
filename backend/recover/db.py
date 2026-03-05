@@ -84,7 +84,7 @@ user_patient_table = Table(
 
 class User(db.Model):
     __tablename__ = "user" # Explicitly define table name
-    __relationship_keys__ = ["patients", "tokens", "report_notes"] # Added tokens and report_notes for completeness
+    __relationship_keys__ = ["patients", "tokens"]
     id: Mapped[int] = mapped_column(primary_key=True)
     patients: Mapped[List["Patient"]] = relationship(
         secondary=user_patient_table, back_populates="users"
@@ -94,9 +94,8 @@ class User(db.Model):
     email: Mapped[str] = mapped_column(db.String(100), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(db.String(100))
 
-    # Relationships for Token and ReportNote (if needed to access from User)
+    # Relationships
     tokens: Mapped[List["Token"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    report_notes: Mapped[List["ReportNote"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Token(db.Model):
@@ -115,7 +114,7 @@ class Token(db.Model):
 
 class Patient(db.Model):
     __tablename__ = "patient" # Explicitly define table name
-    __relationship_keys__ = ["users", "hospitalizations", "summaries", "risks", "conversation_logs", "report_notes"] # Added other relationships
+    __relationship_keys__ = ["users", "admission_histories", "summaries", "risks", "conversation_logs", "medications", "notes"]
     id: Mapped[int] = mapped_column(primary_key=True)
     users: Mapped[List["User"]] = relationship(
         secondary=user_patient_table, back_populates="patients"
@@ -128,30 +127,38 @@ class Patient(db.Model):
     participant_id: Mapped[Optional[str]] = mapped_column(db.String(20), unique=True)
     garmin_id: Mapped[Optional[str]] = mapped_column(db.String(50), unique=True)
     
-    # Cancer related fields (as strings, consider lookup tables for better integrity)
+    # Cancer related fields
     cancer_type: Mapped[Optional[str]] = mapped_column(db.String(100))
-    cancer_stage: Mapped[Optional[str]] = mapped_column(db.String(100))
-    treatment_type: Mapped[Optional[str]] = mapped_column(db.String(100))
+    cancer_stage: Mapped[Optional[str]] = mapped_column(db.String(100))       # used as diagnosis date label in UI
+    treatment_type: Mapped[Optional[str]] = mapped_column(db.String(100))     # used as allergy history label in UI
+    treatment_plan: Mapped[Optional[str]] = mapped_column(db.Text)
+    treatment_cycle: Mapped[Optional[str]] = mapped_column(db.String(100))
+    next_appointment_date: Mapped[Optional[datetime]] = mapped_column(db.DateTime)
 
     last_read_at: Mapped[Optional[datetime]] = mapped_column(db.DateTime) # Last time patient data was read/synced
     
-    # Relationships for Hospitalization, Summary, Risk, ConversationLog
-    hospitalizations: Mapped[List["Hospitalization"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    # Relationships
+    admission_histories: Mapped[List["AdmissionHistory"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     summaries: Mapped[List["Summary"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     risks: Mapped[List["Risk"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     conversation_logs: Mapped[List["ConversationLog"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
-    report_notes: Mapped[List["ReportNote"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    medications: Mapped[List["Medication"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    notes: Mapped[List["Note"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
 
 
-class Hospitalization(db.Model):
-    __tablename__ = "hospitalization" # Explicitly define table name
+class AdmissionHistory(db.Model):
+    """Patient hospital admission / discharge records."""
+    __tablename__ = "admission_history"
     __relationship_keys__ = ["patient"]
     id: Mapped[int] = mapped_column(primary_key=True)
     patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
-    patient: Mapped["Patient"] = relationship(back_populates="hospitalizations") # Relationship back to Patient
+    patient: Mapped["Patient"] = relationship(back_populates="admission_histories")
 
-    date: Mapped[datetime] = mapped_column(db.DateTime, nullable=False) # Admission date/time
-    event: Mapped[str] = mapped_column(db.String(500), nullable=False) # Description of the event/reason
+    admission_date: Mapped[datetime] = mapped_column(db.DateTime, nullable=False)
+    discharge_date: Mapped[Optional[datetime]] = mapped_column(db.DateTime)  # null = still admitted
+    diagnosis: Mapped[Optional[str]] = mapped_column(db.Text)   # primary diagnosis text
+    symptoms: Mapped[Optional[str]] = mapped_column(db.Text)    # symptom description at admission
+    notes: Mapped[Optional[str]] = mapped_column(db.Text)       # free-form clinical notes
 
 
 
@@ -162,30 +169,12 @@ class Summary(db.Model):
     patient_id: Mapped[int] = mapped_column(ForeignKey("patient.id"), nullable=False)
     patient: Mapped["Patient"] = relationship(back_populates="summaries")
 
-    # Vital signs summary (float for more precision)
-    heart_rate_min: Mapped[Optional[float]] = mapped_column(Float)
-    heart_rate_max: Mapped[Optional[float]] = mapped_column(Float)
-    heart_rate_average: Mapped[Optional[float]] = mapped_column(Float)
-    
-    spo2_min: Mapped[Optional[float]] = mapped_column(Float)
-    spo2_max: Mapped[Optional[float]] = mapped_column(Float)
-    spo2_average: Mapped[Optional[float]] = mapped_column(Float)
-    
-    respiration_min: Mapped[Optional[float]] = mapped_column(Float)
-    respiration_max: Mapped[Optional[float]] = mapped_column(Float)
-    respiration_average: Mapped[Optional[float]] = mapped_column(Float)
-    
-    hrv_min: Mapped[Optional[float]] = mapped_column(Float)
-    hrv_max: Mapped[Optional[float]] = mapped_column(Float)
-    hrv_average: Mapped[Optional[float]] = mapped_column(Float)
-
     date: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
 
 for symptom_name in symptom_descriptions:
     setattr(Summary, f"{symptom_name}_state", mapped_column(Integer, nullable=True))
-    
     setattr(Summary, f"{symptom_name}_logs", mapped_column(String, nullable=True))
-    
+    setattr(Summary, f"{symptom_name}_read", mapped_column(Integer, nullable=True, default=0))  # 0=unread 1=read
     if symptom_descriptions[symptom_name].get("likert", False):
         setattr(Summary, f"{symptom_name}_scale", mapped_column(Integer, nullable=True))
 
@@ -226,18 +215,38 @@ class ConversationLog(db.Model):
     date: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow) # Changed from created_at to date as per request
 
 
-class ReportNote(db.Model):
-    __tablename__ = "report_note" # Explicitly define table name
-    __relationship_keys__ = ["user"]
-    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(db.Integer, ForeignKey("user.id"))
-    user: Mapped["User"] = relationship(back_populates="report_notes")
-    patient_id: Mapped[int] = mapped_column(db.Integer, ForeignKey("patient.id"))
-    patient: Mapped["Patient"] = relationship(back_populates="report_notes")
+class Medication(db.Model):
+    """Medications prescribed or taken by a patient."""
+    __tablename__ = "medication"
+    __relationship_keys__ = ["patient"]
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
+    patient: Mapped["Patient"] = relationship(back_populates="medications")
 
+    drug_name: Mapped[str] = mapped_column(db.String(255), nullable=False)
+    dosage: Mapped[Optional[str]] = mapped_column(db.String(255))  # e.g. "10mg twice daily"
+    start_date: Mapped[datetime] = mapped_column(db.DateTime, nullable=False)
+    end_date: Mapped[Optional[datetime]] = mapped_column(db.DateTime)  # null = ongoing
+    recorded_by_user_id: Mapped[Optional[int]] = mapped_column(db.ForeignKey("user.id"))  # who entered it
+    notes: Mapped[Optional[str]] = mapped_column(db.Text)
+    created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
+
+
+class Note(db.Model):
+    """Clinical or AI-generated notes attached to a patient.
+    creator_type = 'user'  → user_id is set, shown in doctor UI
+    creator_type = 'ai'    → user_id is null, shown as AI summary
+    """
+    __tablename__ = "note"
+    __relationship_keys__ = ["patient"]
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(db.ForeignKey("patient.id"), nullable=False)
+    patient: Mapped["Patient"] = relationship(back_populates="notes")
+
+    user_id: Mapped[Optional[int]] = mapped_column(db.ForeignKey("user.id"))  # null if AI
+    creator_type: Mapped[str] = mapped_column(db.String(10), nullable=False)  # 'user' | 'ai'
     content: Mapped[str] = mapped_column(db.Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(db.DateTime, onupdate=datetime.utcnow)
 
 
 class AlexaIDNote(db.Model):

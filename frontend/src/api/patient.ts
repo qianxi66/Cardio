@@ -100,8 +100,8 @@ const wearableTimeseriesCache = new Map<
 >();
 const WEARABLE_CACHE_TTL_MS = 5 * 60 * 1000;
 
-export const getWearableTimeSeries = async (id: number, range = "24h") => {
-  const key = `${id}:${range}`;
+export const getWearableTimeSeries = async (id: number, date: string) => {
+  const key = `${id}:${date}`;
   const now = Date.now();
   const cached = wearableTimeseriesCache.get(key);
   if (cached && now - cached.cachedAt < WEARABLE_CACHE_TTL_MS) {
@@ -114,7 +114,7 @@ export const getWearableTimeSeries = async (id: number, range = "24h") => {
 
   const req = (api({
     url: `/patients/${id}/wearable/timeseries`,
-    params: { range },
+    params: { date },
     method: "GET",
   }) as Promise<WearableTimeSeries>)
     .then((data) => {
@@ -170,4 +170,31 @@ export const deleteNote = async (patient_id: number, note_id: number) => {
     url: `/patients/${patient_id}/notes/${note_id}`,
     method: "DELETE",
   });
+};
+
+export const markSymptomRead = async (
+  patient_id: number,
+  summary_id: number,
+  symptom: string,
+) => {
+  return await api({
+    url: `/patients/${patient_id}/summaries/${summary_id}/read`,
+    method: "PATCH",
+    data: { [symptom]: 1 },
+  });
+};
+
+export type WearableCoverage = Record<string, boolean>;
+
+export const getWearableCoverage = async (
+  patient_id: number,
+  dates: string[],
+): Promise<WearableCoverage> => {
+  if (!dates.length) return {};
+  const params = new URLSearchParams();
+  dates.forEach((d) => params.append("dates", d));
+  return (await api({
+    url: `/patients/${patient_id}/wearable-coverage?${params.toString()}`,
+    method: "GET",
+  })) as WearableCoverage;
 };

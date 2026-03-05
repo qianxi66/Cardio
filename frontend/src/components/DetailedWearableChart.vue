@@ -9,6 +9,7 @@ const props = withDefaults(
   defineProps<{
     patientId?: number;
     range?: "24h" | "7d";
+    date?: string;
     showLegend?: boolean;
     selectedSeries?: Record<string, boolean>;
   }>(),
@@ -38,32 +39,38 @@ const defaultTimes = [
 ];
 const times = ref<string[]>([...defaultTimes]);
 const rangeValue = computed(() => props.range ?? "24h");
+const dateValue = computed(() => props.date ?? "");
+const formattedDate = computed(() => {
+  if (!props.date) return "";
+  const parts = (props.date || "").split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : props.date;
+});
 const windowRef = ref<{ start_ts: number; end_ts: number } | null>(null);
 const seriesDefs = ref([
   {
     name: "Heart Rate",
-    color: "#4bbfd1",
+    color: "#0c81d1",
     data: [] as Array<number | null>,
     yAxisIndex: 0,
     lineType: "solid",
   },
   {
     name: "Respiration",
-    color: "#ffb700",
+    color: "#a586f4",
     data: [] as Array<number | null>,
     yAxisIndex: 1,
     lineType: "solid",
   },
   {
     name: "SpO2",
-    color: "#0fb54c",
+    color: "#63c0ff",
     data: [] as Array<number | null>,
     yAxisIndex: 2,
     lineType: [14, 3, 2, 3],
   },
   {
     name: "Heart Rate Variability",
-    color: "#705ddd",
+    color: "#41acc4",
     data: [] as Array<number | null>,
     yAxisIndex: 3,
     lineType: "solid",
@@ -303,12 +310,10 @@ const roundSeriesData = (seriesName: string, data: Array<number | null>) =>
 
 const applySeriesData = (payload?: WearableTimeSeries) => {
   windowRef.value = payload?.window ?? null;
-
-  const standardTimes = buildDefaultTimes(rangeValue.value);
-  const useDense24h = rangeValue.value === "24h";
-  const useDense7d = rangeValue.value === "7d";
-  const denseTimes = useDense24h ? buildDense24hTimes(windowRef.value) : standardTimes;
-  times.value = useDense24h ? denseTimes : standardTimes;
+  denseSlotEpochs.value = [];
+  // Use the dense times array from the backend (5-min bins) if available,
+  // otherwise fall back to the sparse 9-point placeholder grid.
+  times.value = payload?.times?.length ? payload.times : buildDefaultTimes("24h");
 
   if (!payload) {
     seriesDefs.value.forEach((series) => {
@@ -318,11 +323,6 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
     return;
   }
 
-  const backendTimes = payload.times ?? [];
-  if (useDense7d && backendTimes.length > 0) {
-    // Keep 7d series dense (backend 3h points), while axis labels stay sparse via formatter.
-    times.value = backendTimes;
-  }
   const seriesMap: Record<string, Array<number | null>> = {
     "Heart Rate": payload.series?.heart_rate ?? [],
     Respiration: payload.series?.respiration ?? [],
@@ -332,25 +332,10 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
   seriesDefs.value.forEach((series) => {
     if (series.name in seriesMap) {
       const raw = seriesMap[series.name] ?? [];
-      if (useDense24h) {
-        const mapped =
-          backendTimes.length > 0
-            ? mapBackendDataToDense24h(raw)
-            : normalizeSeriesLength([], denseTimes.length, null);
-        series.data = roundSeriesData(series.name, mapped);
-      } else if (useDense7d) {
-        const mapped =
-          backendTimes.length > 0
-            ? normalizeSeriesLength(raw, times.value.length, null)
-            : normalizeSeriesLength([], times.value.length, null);
-        series.data = roundSeriesData(series.name, mapped);
-      } else {
-        const mapped =
-          backendTimes.length > 0
-            ? mapBackendDataToDateSlots(backendTimes, raw, standardTimes)
-            : normalizeSeriesLength([], standardTimes.length, null);
-        series.data = roundSeriesData(series.name, mapped);
-      }
+      series.data = roundSeriesData(
+        series.name,
+        normalizeSeriesLength(raw, times.value.length, null),
+      );
       return;
     }
     if (series.name === "SpO2") {
@@ -371,23 +356,13 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
 
 const getBinSeconds = () => {
   const len = times.value.length;
-  if (!windowRef.value || len <= 1) return 1800;
-  if (rangeValue.value === "24h" && len > 12) return 300;
+  if (!windowRef.value || len <= 1) return 10800;
   return Math.round((windowRef.value.end_ts - windowRef.value.start_ts) / Math.max(1, len - 1));
 };
 
 const updateMarkerToCurrentTime = () => {
   const win = windowRef.value;
   if (!win || times.value.length === 0) return;
-  if (rangeValue.value === "24h" && denseSlotEpochs.value.length > 0) {
-    const nowEpoch = Math.floor(Date.now() / 1000);
-    const startEpoch = denseSlotEpochs.value[0];
-    const slotIdx = Math.round((nowEpoch - startEpoch) / 300);
-    const clampedIdx = Math.max(0, Math.min(times.value.length - 1, slotIdx));
-    markerIdx.value = clampedIdx;
-    markerTime.value = times.value[clampedIdx];
-    return;
-  }
   const now = Math.floor(Date.now() / 1000);
   const binSeconds = getBinSeconds();
   const span = win.end_ts - win.start_ts;
@@ -403,9 +378,18 @@ const fetchSeriesData = async (patientId?: number) => {
     applySeriesData();
     return;
   }
+  // Don't fetch (or show) data for future dates
+  if (dateValue.value) {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    if (dateValue.value > todayStr) {
+      applySeriesData();
+      return;
+    }
+  }
   isLoading.value = true;
   try {
-    const data = await getWearableTimeSeries(patientId, rangeValue.value);
+    const data = await getWearableTimeSeries(patientId, dateValue.value);
     applySeriesData(data);
   } catch (error) {
     console.error("Failed to fetch wearable series data", error);
@@ -417,7 +401,8 @@ const fetchSeriesData = async (patientId?: number) => {
 
 const resetChartForRange = () => {
   windowRef.value = null;
-  const nextTimes = rangeValue.value === "24h" ? buildDense24hTimes(null) : buildDefaultTimes(rangeValue.value);
+  denseSlotEpochs.value = [];
+  const nextTimes = buildDefaultTimes("24h");
   times.value = nextTimes;
   seriesDefs.value.forEach((series) => {
     series.data = normalizeSeriesLength([], nextTimes.length, null);
@@ -427,20 +412,9 @@ const resetChartForRange = () => {
   applyOption();
 };
 
+const THREE_HOUR_LABELS = new Set(["0:00", "3:00", "6:00", "9:00", "12:00", "15:00", "18:00", "21:00", "24:00"]);
 const formatXAxisLabel = (value: string) => {
-  if (rangeValue.value === "7d") {
-    if (!value.includes(" ")) {
-      return value;
-    }
-    if (value.endsWith("00:00")) {
-      return value.split(" ")[0];
-    }
-    return "";
-  }
-  if (rangeValue.value === "24h" && times.value.length > 12) {
-    return isLabeledTick24h(value) ? value : "";
-  }
-  return value;
+  return THREE_HOUR_LABELS.has(value) ? value : "";
 };
 
 const parseTimeLabel = (value: string) => {
@@ -565,7 +539,7 @@ const getTooltipPosition = (
 };
 
 const buildOption = (): echarts.EChartsOption => {
-  const isDense24h = rangeValue.value === "24h" && times.value.length > 300;
+  const isDense24h = times.value.length > 300;
   return {
   grid: {
     left: 0,
@@ -585,7 +559,7 @@ const buildOption = (): echarts.EChartsOption => {
     type: "category",
     boundaryGap: false,
     data: times.value,
-    name: rangeValue.value === "24h" ? "Last 24 Hrs" : "Last 7 days",
+    name: formattedDate.value ? `Wearable data for ${formattedDate.value}` : "Wearable Data",
     nameLocation: "middle",
     nameGap: isDense24h ? 56 : 48,
     nameTextStyle: {
@@ -610,14 +584,14 @@ const buildOption = (): echarts.EChartsOption => {
       max: 150,
       interval: 50,
       axisLabel: {
-        color: "#4bbfd1",
+        color: "#0c81d1",
         fontWeight: "bold",
         showMinLabel: true,
         showMaxLabel: true,
         hideOverlap: false,
         formatter: (value: number) => (value === 0 ? `${value}\n(bpm)` : `${value}`),
       },
-      axisLine: { show: true, lineStyle: { color: "#4bbfd1", width: 2 } },
+      axisLine: { show: true, lineStyle: { color: "#0c81d1", width: 2 } },
       axisTick: { show: false },
     },
     {
@@ -628,14 +602,14 @@ const buildOption = (): echarts.EChartsOption => {
       max: 20,
       interval: 5,
       axisLabel: {
-        color: "#ffb700",
+        color: "#a586f4",
         fontWeight: "bold",
         showMinLabel: true,
         showMaxLabel: true,
         hideOverlap: false,
         formatter: (value: number) => (value === 5 ? `${value}\n(bpm)` : `${value}`),
       },
-      axisLine: { show: true, lineStyle: { color: "#ffb700", width: 2 } },
+      axisLine: { show: true, lineStyle: { color: "#a586f4", width: 2 } },
       axisTick: { show: false },
     },
     {
@@ -646,13 +620,13 @@ const buildOption = (): echarts.EChartsOption => {
       interval: 2,
       axisLabel: {
         formatter: (value: number) => `${value}\n%`,
-        color: "#0fb54c",
+        color: "#63c0ff",
         fontWeight: "bold",
         showMinLabel: true,
         showMaxLabel: true,
         hideOverlap: false,
       },
-      axisLine: { show: true, lineStyle: { color: "#0fb54c", width: 2 } },
+      axisLine: { show: true, lineStyle: { color: "#63c0ff", width: 2 } },
       axisTick: { show: false },
     },
     {
@@ -663,14 +637,14 @@ const buildOption = (): echarts.EChartsOption => {
       max: 150,
       interval: 50,
       axisLabel: {
-        color: "#705ddd",
+        color: "#41acc4",
         fontWeight: "bold",
         showMinLabel: true,
         showMaxLabel: true,
         hideOverlap: false,
         formatter: (value: number) => (value === 0 ? `${value}\n(ms)` : `${value}`),
       },
-      axisLine: { show: true, lineStyle: { color: "#705ddd", width: 2 } },
+      axisLine: { show: true, lineStyle: { color: "#41acc4", width: 2 } },
       axisTick: { show: false },
     },
   ],
@@ -722,18 +696,12 @@ const toggleSeries = (name: string) => {
 const getNowMarkerPixelX = (): number | undefined => {
   if (!chart || !windowRef.value || !useCurrentTimeMarker.value) return undefined;
   const now = Math.floor(Date.now() / 1000);
-  let axisValue: number | undefined;
-  if (rangeValue.value === "24h" && denseSlotEpochs.value.length > 0) {
-    const startEpoch = denseSlotEpochs.value[0];
-    axisValue = Math.max(0, Math.min(denseSlotEpochs.value.length - 1, (now - startEpoch) / 300));
-  } else {
-    const { start_ts, end_ts } = windowRef.value;
-    const span = end_ts - start_ts;
-    if (span <= 0) return undefined;
-    const n = times.value.length;
-    if (n <= 0) return undefined;
-    axisValue = Math.max(0, Math.min(n - 1, ((now - start_ts) / span) * (n - 1)));
-  }
+  const { start_ts, end_ts } = windowRef.value;
+  const span = end_ts - start_ts;
+  if (span <= 0) return undefined;
+  const n = times.value.length;
+  if (n <= 0) return undefined;
+  const axisValue = Math.max(0, Math.min(n - 1, ((now - start_ts) / span) * (n - 1)));
   const pixel = chart.convertToPixel({ xAxisIndex: 0 }, axisValue);
   return typeof pixel === "number" ? pixel : undefined;
 };
@@ -775,7 +743,7 @@ const updateMarkerGraphic = () => {
             height: grid.height,
           },
           style: {
-            fill: "#705ddd",
+            fill: "#41acc4",
             opacity: 0,
           },
           z: 9,
@@ -791,7 +759,7 @@ const updateMarkerGraphic = () => {
             y2: grid.y + grid.height,
           },
           style: {
-            stroke: "#705ddd",
+            stroke: "#41acc4",
             lineWidth: 2,
             lineDash: [4, 4],
           },
@@ -902,7 +870,7 @@ watch(
 );
 
 watch(
-  () => props.range,
+  () => props.date,
   () => {
     // Prevent temporary dense x-axis labels while data is loading.
     resetChartForRange();

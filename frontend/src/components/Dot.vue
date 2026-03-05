@@ -12,6 +12,7 @@ const props = withDefaults(
     editable?: boolean;
     reviewable?: boolean;
     isRead?: boolean | number;
+    variant?: 'default' | 'wearable' | 'circle';
   }>(),
   {
     loading: false,
@@ -19,6 +20,7 @@ const props = withDefaults(
     editable: false,
     reviewable: false,
     isRead: 0,
+    variant: 'default',
   },
 );
 // on edit trigger
@@ -33,15 +35,6 @@ const dotColor = computed(() => {
   if (props.state === undefined || props.state < 0) return "#1C274C";
   return stateColors[props.state] || stateColors[0];
 });
-const isUnread = computed(() => {
-  if (props.isRead === undefined || props.isRead === null) return true;
-  if (typeof props.isRead === "number") return props.isRead === 0;
-  return !props.isRead;
-});
-const showUnreadAlert = computed(() => {
-  const state = props.state ?? 0;
-  return isUnread.value && state >= 2;
-});
 </script>
 
 <template>
@@ -50,23 +43,38 @@ const showUnreadAlert = computed(() => {
       class="dot"
       v-if="!props.loading && props.state >= 0"
     >
+      <!-- wearable variant: watch/timer icon -->
       <svg
+        v-if="props.variant === 'wearable'"
+        class="dot-svg"
+        viewBox="0 0 16 16"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M5 0H11L11.3803 3.0421C12.7003 3.94382 13.6417 5.35897 13.917 7H15V9H13.917C13.6417 10.641 12.7003 12.0562 11.3803 12.9579L11 16H5L4.61974 12.9579C3.03812 11.8775 2 10.06 2 8C2 5.94003 3.03812 4.12252 4.61974 3.0421L5 0ZM7 5V8.41421L9.29289 10.7071L10.7071 9.29289L9 7.58579V5H7Z" :fill="dotColor"/>
+      </svg>
+      <!-- circle variant -->
+      <svg
+        v-else-if="props.variant === 'circle'"
+        class="dot-svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <circle cx="12" cy="12" r="9" :fill="dotColor" />
+      </svg>
+      <!-- default variant: chat bubble -->
+      <svg
+        v-else
         class="dot-svg"
         viewBox="0 0 24 24"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
         <path
-          v-if="showUnreadAlert"
-          d="M12 22C17.5228 22 22 17.5228 22 12C22 11.094 21.8795 10.2162 21.6537 9.38161C21.5684 9.06633 21.1987 8.94083 20.9028 9.0791C20.3248 9.34916 19.68 9.5 19 9.5C16.5147 9.5 14.5 7.48528 14.5 5C14.5 4.31996 14.6508 3.67516 14.9209 3.09722C15.0592 2.80131 14.9337 2.4316 14.6184 2.3463C13.7838 2.12048 12.906 2 12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.04346 16.4525C3.22094 16.8088 3.28001 17.2161 3.17712 17.6006L2.58151 19.8267C2.32295 20.793 3.20701 21.677 4.17335 21.4185L6.39939 20.8229C6.78393 20.72 7.19121 20.7791 7.54753 20.9565C8.88837 21.6244 10.4003 22 12 22Z"
-          :fill="dotColor"
-        />
-        <path
-          v-else
           d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.04346 16.4525C3.22094 16.8088 3.28001 17.2161 3.17712 17.6006L2.58151 19.8267C2.32295 20.793 3.20701 21.677 4.17335 21.4185L6.39939 20.8229C6.78393 20.72 7.19121 20.7791 7.54753 20.9565C8.88837 21.6244 10.4003 22 12 22Z"
           :fill="dotColor"
         />
-        <circle v-if="showUnreadAlert" cx="19" cy="5" r="3" :fill="dotColor" />
       </svg>
     </div>
     <n-icon class="dot" v-else-if="!props.loading && props.state == -1">

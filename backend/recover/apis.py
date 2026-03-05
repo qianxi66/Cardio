@@ -13,11 +13,12 @@ import bcrypt
 from flask import abort, current_app, jsonify, request, g
 from .app import app
 from .db import (
+    AdmissionHistory,
     AlexaIDNote,
     ConversationLog,
-    Hospitalization,
+    Medication,
+    Note,
     Patient,
-    ReportNote,
     Risk,
     Summary,
     User,
@@ -30,7 +31,7 @@ from .config import (
     mongodb_client_kwargs,
     GREETINGS,
 )
-from .openai_utils import conversation, key_questions
+from .openai_utils import conversation, key_questions, summary as openai_summary
 from .symptoms import symptom_descriptions
 from pymongo import MongoClient
 import logging
@@ -45,8 +46,24 @@ MONGO_BACKOFF_SECONDS = 30
 _mongo_unavailable_until = 0.0
 EASTERN_TZ = ZoneInfo("America/New_York")
 
+# Persistent singleton MongoDB client (connection pool reused across requests)
+_shared_mongo_client = None
+
+def _get_shared_mongo_client():
+    """Return a module-level MongoClient singleton, creating it on first call."""
+    global _shared_mongo_client
+    if _shared_mongo_client is None:
+        try:
+            _shared_mongo_client = MongoClient(
+                mongodb_url, **mongodb_client_kwargs, serverSelectionTimeoutMS=3000
+            )
+        except Exception as e:
+            logging.warning("Failed to create shared MongoDB client: %s", e)
+    return _shared_mongo_client
+
 
 def _get_mongo_client():
+    """Create a fresh MongoClient per-request, backing off if MongoDB is unavailable."""
     global _mongo_unavailable_until
     now = time.time()
     if now < _mongo_unavailable_until:
@@ -95,7 +112,11 @@ def _build_labels(start_dt, end_dt, bin_seconds, label_style):
     cursor = start_dt
     while cursor <= end_dt:
         if label_style == "time":
-            labels.append(cursor.strftime("%-H:%M"))
+            # Use "24:00" instead of "0:00" for the end-of-day midnight sentinel
+            if cursor == end_dt and cursor.hour == 0 and cursor.minute == 0 and cursor != start_dt:
+                labels.append("24:00")
+            else:
+                labels.append(cursor.strftime("%-H:%M"))
         else:
             labels.append(cursor.strftime("%m/%d %H:%M"))
         cursor += timedelta(seconds=bin_seconds)
@@ -967,20 +988,19 @@ def get_patient(id):
 
         patient_dict = _columns_dict(patient)
         patient_dict["users"] = [_user_dict(user) for user in patient.users]
-        patient_dict["hospitalizations"] = [
-            _columns_dict(item) for item in patient.hospitalizations
+        patient_dict["admission_histories"] = [
+            _columns_dict(item) for item in patient.admission_histories
         ]
         patient_dict["summaries"] = [_columns_dict(item) for item in patient.summaries]
         patient_dict["risks"] = [_columns_dict(item) for item in patient.risks]
         patient_dict["conversation_logs"] = [
             _columns_dict(item) for item in patient.conversation_logs
         ]
-        patient_dict["report_notes"] = [
-            {
-                **_columns_dict(note),
-                "user": _user_dict(note.user) if note.user else None,
-            }
-            for note in patient.report_notes
+        patient_dict["medications"] = [
+            _columns_dict(item) for item in patient.medications
+        ]
+        patient_dict["notes"] = [
+            _columns_dict(note) for note in patient.notes
         ]
 
         return jsonify(patient_dict)
@@ -999,18 +1019,19 @@ def get_patient_wearable_timeseries(id):
         if error:
             return error
 
-        range_param = request.args.get("range", "24h").strip().lower()
-        if range_param == "7d":
-            bin_seconds = 3 * 3600
-            start_dt, now_dt = _utc_midnight_window(days=7)
-            label_style = "date"
+        date_param = request.args.get("date", "").strip()
+        if date_param:
+            try:
+                day_start = datetime.strptime(date_param, "%Y-%m-%d").replace(tzinfo=EASTERN_TZ)
+            except ValueError:
+                day_start = datetime.now(EASTERN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
         else:
-            bin_seconds = 5 * 60   #aggregated by 5 minutes
-            start_dt, now_dt, _anchor_dt = _rolling_window_from_next_hour(hours=24)
-            label_style = "time"
-        start_ts = int(start_dt.timestamp())
-        end_ts = int(now_dt.timestamp())
-        labels = _build_labels(start_dt, now_dt, bin_seconds, label_style)
+            day_start = datetime.now(EASTERN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        bin_seconds = 5 * 60   # 5-minute bins → dense 288 data points per day
+        start_ts = int(day_start.timestamp())
+        end_ts = int(day_end.timestamp())
+        labels = _build_labels(day_start, day_end, bin_seconds, "time")
 
         series = {
             "heart_rate": [],
@@ -1036,7 +1057,7 @@ def get_patient_wearable_timeseries(id):
                         "end_ts": end_ts,
                         "timezone": "America/New_York",
                     },
-                    "range": range_param,
+                    "date": date_param,
                 }
             )
 
@@ -1054,7 +1075,7 @@ def get_patient_wearable_timeseries(id):
                         "end_ts": end_ts,
                         "timezone": "America/New_York",
                     },
-                    "range": range_param,
+                    "date": date_param,
                 }
             )
 
@@ -1097,7 +1118,7 @@ def get_patient_wearable_timeseries(id):
                             "end_ts": end_ts,
                             "timezone": "America/New_York",
                         },
-                        "range": range_param,
+                        "date": date_param,
                     }
                 )
 
@@ -1152,7 +1173,7 @@ def get_patient_wearable_timeseries(id):
                     "end_ts": end_ts,
                     "timezone": "America/New_York",
                 },
-                "range": range_param,
+                "date": date_param,
             }
         )
     except Exception as e:
@@ -1160,37 +1181,39 @@ def get_patient_wearable_timeseries(id):
         return jsonify({"error": "An internal error occurred"}), 500
 
 
-@current_app.route("/patients/<int:id>/hospitalizations", methods=["GET"])
+@current_app.route("/patients/<int:id>/admission_history", methods=["GET"])
 @login_required
-def get_hospitalizations(id):
+def get_admission_history(id):
     patient, error = _get_patient_for_user(id, g.current_user.id)
     if error:
         return error
-    items = Hospitalization.query.filter_by(patient_id=patient.id).order_by(
-        Hospitalization.date.desc()
+    items = AdmissionHistory.query.filter_by(patient_id=patient.id).order_by(
+        AdmissionHistory.admission_date.desc()
     ).all()
     return jsonify([_columns_dict(item) for item in items])
 
 
-@current_app.route("/patients/<int:id>/hospitalizations", methods=["POST"])
+@current_app.route("/patients/<int:id>/admission_history", methods=["POST"])
 @login_required
-def create_hospitalization(id):
+def create_admission_history(id):
     patient, error = _get_patient_for_user(id, g.current_user.id)
     if error:
         return error
     data = request.get_json() or {}
-    event = data.get("event")
-    if not event:
-        return jsonify({"message": "Missing fields: event"}), 400
-    date_value = _parse_datetime(data.get("date")) or datetime.utcnow()
-    hospitalization = Hospitalization(
+    admission_date = _parse_datetime(data.get("admission_date"))
+    if not admission_date:
+        return jsonify({"message": "Missing fields: admission_date"}), 400
+    record = AdmissionHistory(
         patient_id=patient.id,
-        date=date_value,
-        event=event,
+        admission_date=admission_date,
+        discharge_date=_parse_datetime(data.get("discharge_date")),
+        diagnosis=data.get("diagnosis"),
+        symptoms=data.get("symptoms"),
+        notes=data.get("notes"),
     )
-    db.session.add(hospitalization)
+    db.session.add(record)
     db.session.commit()
-    return jsonify(_columns_dict(hospitalization)), 201
+    return jsonify(_columns_dict(record)), 201
 
 
 @current_app.route("/patients/<int:id>/summaries", methods=["GET"])
@@ -1215,32 +1238,44 @@ def create_summary(id):
     date_value = _parse_datetime(data.get("date"))
     summary = Summary(
         patient_id=patient.id,
-        heart_rate_min=data.get("heart_rate_min"),
-        heart_rate_max=data.get("heart_rate_max"),
-        heart_rate_average=data.get("heart_rate_average"),
-        spo2_min=data.get("spo2_min"),
-        spo2_max=data.get("spo2_max"),
-        spo2_average=data.get("spo2_average"),
-        respiration_min=data.get("respiration_min"),
-        respiration_max=data.get("respiration_max"),
-        respiration_average=data.get("respiration_average"),
-        hrv_min=data.get("hrv_min"),
-        hrv_max=data.get("hrv_max"),
-        hrv_average=data.get("hrv_average"),
-        short_of_breath=data.get("short_of_breath"),
-        chest_discomfort=data.get("chest_discomfort"),
-        fatigue=data.get("fatigue"),
-        palpitation=data.get("palpitation"),
-        swelling=data.get("swelling"),
-        syncope=data.get("syncope"),
         date=date_value or datetime.utcnow(),
     )
+    # Optionally accept symptom state/log overrides from request body
+    for symptom_name in symptom_descriptions:
+        state_val = data.get(f"{symptom_name}_state")
+        logs_val = data.get(f"{symptom_name}_logs")
+        if state_val is not None:
+            setattr(summary, f"{symptom_name}_state", state_val)
+        if logs_val is not None:
+            setattr(summary, f"{symptom_name}_logs", logs_val)
     db.session.add(summary)
     db.session.commit()
     return jsonify(_columns_dict(summary)), 201
 
 
-@current_app.route("/patients/<int:id>/risks", methods=["GET"])
+@current_app.route("/patients/<int:id>/summaries/<int:summary_id>/read", methods=["PATCH"])
+@login_required
+def mark_summary_read(id, summary_id):
+    """Mark one or more symptoms as read (1) or unread (0) on a summary.
+    Body: { "syncope": 1, "short_of_breath": 1, ... }
+    """
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    summary = Summary.query.filter_by(id=summary_id, patient_id=patient.id).first()
+    if summary is None:
+        return jsonify({"message": "Summary not found"}), 404
+    data = request.get_json() or {}
+    updated = []
+    for symptom_name, value in data.items():
+        if symptom_name in symptom_descriptions and isinstance(value, int) and value in (0, 1):
+            setattr(summary, f"{symptom_name}_read", value)
+            updated.append(symptom_name)
+    if not updated:
+        return jsonify({"message": "No valid symptom fields provided"}), 400
+    db.session.add(summary)
+    db.session.commit()
+    return jsonify({"updated": updated}), 200
 @login_required
 def get_risks(id):
     patient, error = _get_patient_for_user(id, g.current_user.id)
@@ -1274,6 +1309,53 @@ def create_risk(id):
     db.session.add(risk)
     db.session.commit()
     return jsonify(_columns_dict(risk)), 201
+
+
+@current_app.route("/patients/<int:id>/wearable-coverage", methods=["GET"])
+@login_required
+def get_wearable_coverage(id):
+    """Return per-date wearable data availability from MongoDB.
+
+    Query params:
+      dates: repeated YYYY-MM-DD strings, e.g. ?dates=2026-03-01&dates=2026-03-02
+    Returns JSON: {"2026-03-01": true, "2026-03-02": false, ...}
+    Any data in garmin_hr / garmin_respiration / garmin_ibi / garmin_stress → true.
+    MongoDB documents use field ``uid`` matching Patient.participant_id.
+    """
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    dates_str = request.args.getlist("dates")
+    participant_id = patient.participant_id
+    coverage = {d: False for d in dates_str}
+    if not participant_id or not dates_str:
+        return jsonify(coverage)
+    wearable_collections = ["garmin_hr", "garmin_respiration", "garmin_ibi", "garmin_stress"]
+    try:
+        client = _get_shared_mongo_client()
+        if client is None:
+            return jsonify(coverage)
+        mongo_db = client["study_db"]
+        for date_str in dates_str:
+            try:
+                day_start = datetime.strptime(date_str, "%Y-%m-%d")
+                day_end = day_start + timedelta(days=1)
+                ts_start = int(day_start.timestamp())
+                ts_end = int(day_end.timestamp())
+                query = {
+                    "uid": participant_id,
+                    "timestamp": {"$gte": ts_start, "$lt": ts_end},
+                }
+                has_data = any(
+                    mongo_db[col].count_documents(query, limit=1) > 0
+                    for col in wearable_collections
+                )
+                coverage[date_str] = has_data
+            except Exception:
+                pass
+    except Exception as e:
+        logging.warning("MongoDB unavailable for wearable-coverage: %s", e)
+    return jsonify(coverage)
 
 
 @current_app.route("/patients/<int:id>/conversation_logs", methods=["GET"])
@@ -1314,24 +1396,53 @@ def create_conversation_log_for_patient(id):
     return jsonify(_columns_dict(log)), 201
 
 
+@current_app.route("/patients/<int:id>/medications", methods=["GET"])
+@login_required
+def get_medications(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    items = Medication.query.filter_by(patient_id=patient.id).order_by(
+        Medication.start_date.desc()
+    ).all()
+    return jsonify([_columns_dict(item) for item in items])
+
+
+@current_app.route("/patients/<int:id>/medications", methods=["POST"])
+@login_required
+def create_medication(id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    data = request.get_json() or {}
+    drug_name = data.get("drug_name")
+    start_date = _parse_datetime(data.get("start_date"))
+    if not drug_name or not start_date:
+        return jsonify({"message": "Missing fields: drug_name, start_date"}), 400
+    med = Medication(
+        patient_id=patient.id,
+        drug_name=drug_name,
+        dosage=data.get("dosage"),
+        start_date=start_date,
+        end_date=_parse_datetime(data.get("end_date")),
+        recorded_by_user_id=g.current_user.id,
+        notes=data.get("notes"),
+    )
+    db.session.add(med)
+    db.session.commit()
+    return jsonify(_columns_dict(med)), 201
+
+
 @current_app.route("/patients/<int:id>/notes", methods=["GET"])
 @login_required
 def get_patient_notes(id):
     patient, error = _get_patient_for_user(id, g.current_user.id)
     if error:
         return error
-    notes = ReportNote.query.options(joinedload(ReportNote.user)).filter_by(
-        patient_id=patient.id
-    ).order_by(ReportNote.created_at.desc()).all()
-    return jsonify(
-        [
-            {
-                **_columns_dict(note),
-                "user": _user_dict(note.user) if note.user else None,
-            }
-            for note in notes
-        ]
-    )
+    notes = Note.query.filter_by(patient_id=patient.id).order_by(
+        Note.created_at.desc()
+    ).all()
+    return jsonify([_columns_dict(note) for note in notes])
 
 
 @current_app.route("/patients/<int:id>/notes", methods=["POST"])
@@ -1344,11 +1455,11 @@ def create_patient_note(id):
     content = data.get("content")
     if not content:
         return jsonify({"message": "Missing fields: content"}), 400
-    note = ReportNote(
+    note = Note(
         patient_id=patient.id,
         user_id=g.current_user.id,
+        creator_type="user",
         content=content,
-        created_at=datetime.utcnow(),
     )
     db.session.add(note)
     db.session.commit()
@@ -1361,7 +1472,7 @@ def delete_patient_note(id, note_id):
     patient, error = _get_patient_for_user(id, g.current_user.id)
     if error:
         return error
-    note = ReportNote.query.filter_by(id=note_id, patient_id=patient.id).first()
+    note = Note.query.filter_by(id=note_id, patient_id=patient.id).first()
     if not note:
         return jsonify({"message": "Note not found"}), 404
     db.session.delete(note)
@@ -1575,6 +1686,99 @@ def get_or_create_summary(patient_id, target_date):
     return summary
 
 
+def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
+    """Generate or refresh the AI-authored Note for a patient on the given day.
+
+    Must be called within a Flask application context (does not create its own).
+    """
+    day_end = day_start + timedelta(days=1)
+
+    # Conversation logs for the day
+    logs = (
+        ConversationLog.query.filter_by(patient_id=patient_id)
+        .filter(ConversationLog.date >= day_start, ConversationLog.date < day_end)
+        .order_by(ConversationLog.date.asc())
+        .all()
+    )
+    messages_json = json.dumps([
+        {"id": log.id, "content": log.content, "role": log.role}
+        for log in logs
+    ])
+
+    # Wearable stats already synced by cardio_summary_sync into the Summary row
+    sum_obj = (
+        Summary.query.filter_by(patient_id=patient_id)
+        .filter(Summary.date >= day_start, Summary.date < day_end)
+        .first()
+    )
+    wearable_data: dict = {}
+    symptoms_data: dict = {}
+    if sum_obj:
+        hr = getattr(sum_obj, "heart_rate_average", None)
+        resp = getattr(sum_obj, "respiration_average", None)
+        hrv = getattr(sum_obj, "hrv_average", None)
+        if hr is not None:
+            wearable_data["heart_rate_avg_bpm"] = hr
+        if resp is not None:
+            wearable_data["respiration_avg_bpm"] = resp
+        if hrv is not None:
+            wearable_data["hrv_rmssd_avg_ms"] = hrv
+        symptoms_data = {
+            k: {"state": getattr(sum_obj, f"{k}_state", 0) or 0}
+            for k in symptom_descriptions
+        }
+
+    # Skip if there is nothing to summarise
+    if not logs and not wearable_data:
+        return
+
+    try:
+        result_raw = openai_summary(
+            messages_json,
+            json.dumps(symptoms_data),
+            wearable_data=wearable_data or None,
+        )
+        result = json.loads(result_raw)
+        items = result.get("result", [])
+        content = " | ".join(
+            item.get("content", "") for item in items if item.get("content")
+        ).strip()
+        if not content:
+            return
+    except Exception as exc:
+        logging.warning(
+            "AI note generation failed for patient_id=%s date=%s: %s",
+            patient_id, day_start.date(), exc,
+        )
+        return
+
+    # Upsert: update today's AI note or create a new one
+    existing = (
+        Note.query.filter_by(patient_id=patient_id, creator_type="ai")
+        .filter(Note.created_at >= day_start, Note.created_at < day_end)
+        .first()
+    )
+    if existing:
+        existing.content = content
+        existing.created_at = datetime.utcnow()
+    else:
+        db.session.add(Note(
+            patient_id=patient_id,
+            creator_type="ai",
+            content=content,
+            created_at=datetime.utcnow(),
+        ))
+    try:
+        db.session.commit()
+        logging.info(
+            "AI note upserted for patient_id=%s date=%s",
+            patient_id, day_start.date(),
+        )
+    except Exception as exc:
+        db.session.rollback()
+        logging.warning("AI note commit failed for patient_id=%s: %s", patient_id, exc)
+
+
 def process_patient_summary(patient_id, target_date):
     """
     Process conversation logs for a patient on target_date: run key_questions
@@ -1612,6 +1816,7 @@ def process_patient_summary(patient_id, target_date):
         db.session.add(summary)
         db.session.commit()
         logging.info("process_patient_summary done for patient_id=%s date=%s", patient_id, target_date)
+        _generate_ai_note_for_patient(patient_id, day_start)
 
 
 def session_end_hook(alexa_user_id):

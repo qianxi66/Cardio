@@ -101,7 +101,7 @@ watch(
     }
     loading.value = true;
     const id = parseInt(patient_id.value as string);
-    conversationLogs.value = await getConversationLogs(id);
+    conversationLogs.value = (await getConversationLogs(id)) ?? [];
     loading.value = false;
   },
   { immediate: true },
@@ -119,7 +119,10 @@ const selectedSeries = ref<Record<string, boolean>>({
   SpO2: true,
   "Heart Rate Variability": true,
 });
-const wearableRange = ref<"24h" | "7d">("24h");
+const wearableDate = computed(() => {
+  if (!conversationDate.value) return format(new Date(), "yyyy-MM-dd");
+  return format(new Date(conversationDate.value), "yyyy-MM-dd");
+});
 const toggleSeries = (name: string) => {
   selectedSeries.value = {
     ...selectedSeries.value,
@@ -155,33 +158,13 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
         class="summary-card detailed-wearable-card indigo-title full-title-bar"
       >
         <template #title-extra>
-          <div class="wearable-range-switch">
-            <button
-              type="button"
-              class="range-btn"
-              :class="{ active: wearableRange === '24h' }"
-              @click="wearableRange = '24h'"
-            >
-              <span class="range-dot" aria-hidden="true"></span>
-              <span>Last 24 Hrs</span>
-            </button>
-            <button
-              type="button"
-              class="range-btn"
-              :class="{ active: wearableRange === '7d' }"
-              @click="wearableRange = '7d'"
-            >
-              <span class="range-dot" aria-hidden="true"></span>
-              <span>Last 7 days</span>
-            </button>
-          </div>
         </template>
         <div class="wearable-dual-chart">
           <div class="chart-section">
             <div class="chart-wrapper">
               <DetailedWearableChart
                 :patient-id="patientIdParam ?? undefined"
-                :range="wearableRange"
+                :date="wearableDate"
                 :selected-series="selectedSeries"
                 @toggle-series="toggleSeries"
               />

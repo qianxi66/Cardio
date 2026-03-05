@@ -13,15 +13,26 @@ export type Patient = {
   cancer_type?: string;
   cancer_stage?: string;
   treatment_type?: string;
+  treatment_plan?: string;
+  treatment_cycle?: string;
+  next_appointment_date?: Date | string;
   last_read_at?: Date | string;
-  hospitalizations?: {
-    date?: string;
-    event?: string;
+  admission_histories?: {
+    admission_date?: string;
+    discharge_date?: string;
+    diagnosis?: string;
+    symptoms?: string;
+  }[];
+  medications?: {
+    drug_name?: string;
+    dosage?: string;
+    start_date?: string;
+    end_date?: string;
   }[];
   summaries?: Summary[];
   risks?: Risk[];
   conversation_logs?: ConversationLog[];
-  report_notes?: ReportNote[];
+  notes?: { id: number; content: string; creator_type: string; created_at: string }[];
   read?: boolean;
   reviewed?: boolean;
   state?: number;
@@ -39,6 +50,9 @@ export type UpdatePatientRequest = {
   cancer_type?: string;
   cancer_stage?: string;
   treatment_type?: string;
+  treatment_plan?: string;
+  treatment_cycle?: string;
+  next_appointment_date?: string;
   user?: number[];
 };
 export type UpdatePatientResponse = {
@@ -57,6 +71,9 @@ export type CreatePatientRequest = {
   cancer_type?: string;
   cancer_stage?: string;
   treatment_type?: string;
+  treatment_plan?: string;
+  treatment_cycle?: string;
+  next_appointment_date?: string;
   user: number[];
 };
 // Define the type for the token object
@@ -111,36 +128,34 @@ export type ConversationLog = {
 export type Summary = {
   id: number;
   patient_id: number;
-  heart_rate_min?: number;
-  heart_rate_max?: number;
-  heart_rate_average?: number;
-  spo2_min?: number;
-  spo2_max?: number;
-  spo2_average?: number;
-  respiration_min?: number;
-  respiration_max?: number;
-  respiration_average?: number;
-  hrv_min?: number;
-  hrv_max?: number;
-  hrv_average?: number;
-  short_of_breath?: boolean;
-  chest_discomfort?: boolean;
-  fatigue?: boolean;
-  palpitation?: boolean;
-  swelling?: boolean;
-  syncope?: boolean;
-  short_of_breath_state?: number;
-  short_of_breath_logs?: string;
-  chest_discomfort_state?: number;
-  chest_discomfort_logs?: string;
-  fatigue_state?: number;
-  fatigue_logs?: string;
-  palpitation_state?: number;
-  palpitation_logs?: string;
-  swelling_state?: number;
-  swelling_logs?: string;
+  // syncope
   syncope_state?: number;
   syncope_logs?: string;
+  syncope_read?: number;
+  // palpitation
+  palpitation_state?: number;
+  palpitation_logs?: string;
+  palpitation_read?: number;
+  // short_of_breath
+  short_of_breath_state?: number;
+  short_of_breath_logs?: string;
+  short_of_breath_read?: number;
+  // chest_discomfort
+  chest_discomfort_state?: number;
+  chest_discomfort_logs?: string;
+  chest_discomfort_read?: number;
+  // swelling
+  swelling_state?: number;
+  swelling_logs?: string;
+  swelling_read?: number;
+  // heart_rate (wearable)
+  heart_rate_state?: number;
+  heart_rate_logs?: string;
+  heart_rate_read?: number;
+  // respiration (wearable)
+  respiration_state?: number;
+  respiration_logs?: string;
+  respiration_read?: number;
   date: Date | string;
 };
 
