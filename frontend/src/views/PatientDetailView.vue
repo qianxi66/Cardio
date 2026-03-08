@@ -99,7 +99,7 @@ const formatPatientDate = (value?: string | Date | null) => {
   if (Number.isNaN(parsed.getTime())) {
     return "--";
   }
-  return format(parsed, "dd/MM/yyyy");
+  return format(parsed, "yyyy-MM-dd");
 };
 const nextAppointmentDate = computed(() => {
   const data = patient.value as
@@ -141,8 +141,8 @@ const aiSummaryBodyText = computed(() => {
   const cleanedContent = match.content
     .trim()
     .replace(/^ai\s*summary\s*:?\s*/i, "");
-  const timeLabel = createdAt ? format(createdAt, "HH:mm") : "--:--";
-  return `${format(selectedDate, "MM/dd/yyyy")} ${timeLabel} ${cleanedContent}`;
+  const timeLabel = createdAt ? format(createdAt, "yyyy-MM-dd hh:mm a").toLowerCase() : "--";
+  return `${timeLabel} ${cleanedContent}`;
 });
 
 const parseNoteTime = (value?: Date | string) => {
@@ -387,7 +387,7 @@ const dayOverviewRows = computed(() => {
         id: summary.id,
         summary,
         timestamp: parsed ? parsed.getTime() : null,
-        dateLabel: parsed ? format(parsed, "MM/dd/yyyy") : "--",
+        dateLabel: parsed ? format(parsed, "yyyy-MM-dd") : "--",
         isSelected: !!selectedKey && !!summaryKey && selectedKey === summaryKey,
       };
     })

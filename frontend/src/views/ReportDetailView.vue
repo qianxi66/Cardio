@@ -97,8 +97,8 @@ const parseDateValue = (value?: string | Date) => {
 
 const formatLogTime = (value?: string | Date) => {
   const parsed = parseDateValue(value);
-  if (!parsed) return "--:--:--";
-  return format(parsed, "HH:mm:ss");
+  if (!parsed) return "--";
+  return format(parsed, "yyyy-MM-dd hh:mm a").toLowerCase();
 };
 
 const dateKey = (value: Date) => format(value, "yyyy-MM-dd");
