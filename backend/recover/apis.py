@@ -1091,6 +1091,10 @@ def get_patient_wearable_timeseries(id):
         end_ts = int(day_end.timestamp())
         labels = _build_labels(day_start, day_end, bin_seconds, "time")
 
+        def finalize(payload):
+            payload["elapsed_ms"] = int((time.time() - start_time) * 1000)
+            return jsonify(payload)
+
         cache_key = ("wearable_timeseries", g.current_user.id, patient.id, day_key)
         cached_payload = _cache_get(cache_key)
         if cached_payload is not None:
@@ -1103,9 +1107,6 @@ def get_patient_wearable_timeseries(id):
         }
 
         participant_id = patient.participant_id
-        def finalize(payload):
-            payload["elapsed_ms"] = int((time.time() - start_time) * 1000)
-            return jsonify(payload)
 
         if not participant_id:
             series["heart_rate"] = [None] * len(labels)
