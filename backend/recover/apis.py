@@ -1047,6 +1047,13 @@ def get_patient(id):
                 d["created_by"] = user.username if user else None
             else:
                 d["created_by"] = None
+            if getattr(note, "created_at", None) is not None:
+                try:
+                    created_utc = note.created_at.replace(tzinfo=timezone.utc)
+                    created_eastern = created_utc.astimezone(EASTERN_TZ)
+                    d["created_at"] = created_eastern.isoformat()
+                except Exception:
+                    pass
             patient_dict["notes"].append(d)
         patient_dict["preadmission_medications"] = [
             _columns_dict(item) for item in patient.preadmission_medications
@@ -1086,7 +1093,7 @@ def get_patient_wearable_timeseries(id):
             day_start = datetime.now(EASTERN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
         day_key = day_start.strftime("%Y-%m-%d")
-        bin_seconds = 5 * 60   # 5-minute bins → dense 288 data points per day
+        bin_seconds = 15 * 60  # 15-minute bins → 96 data points per day
         start_ts = int(day_start.timestamp())
         end_ts = int(day_end.timestamp())
         labels = _build_labels(day_start, day_end, bin_seconds, "time")
@@ -1419,7 +1426,11 @@ def get_wearable_coverage(id):
     Query params:
       dates: repeated YYYY-MM-DD strings, e.g. ?dates=2026-03-01&dates=2026-03-02
     Returns JSON: {"2026-03-01": true, "2026-03-02": false, ...}
-    Any data in garmin_hr / garmin_respiration / garmin_ibi / garmin_stress → true.
+    A date is true only when there is plottable wearable data, aligned with
+    the timeseries endpoint semantics:
+      - garmin_hr.heart_rate > 0
+      - garmin_respiration.respiration > 0
+      - garmin_ibi.bbi > 0
     MongoDB documents use field ``uid`` matching Patient.participant_id.
     """
     patient, error = _get_patient_for_user(id, g.current_user.id)
@@ -1436,7 +1447,6 @@ def get_wearable_coverage(id):
     if not participant_id or not dates_str:
         _cache_set(cache_key, coverage)
         return jsonify(coverage)
-    wearable_collections = ["garmin_hr", "garmin_respiration", "garmin_ibi", "garmin_stress"]
     try:
         client = _get_shared_mongo_client()
         if client is None:
@@ -1448,13 +1458,29 @@ def get_wearable_coverage(id):
                 day_end = day_start + timedelta(days=1)
                 ts_start = int(day_start.timestamp())
                 ts_end = int(day_end.timestamp())
-                query = {
+                base_query = {
                     "uid": participant_id,
                     "timestamp": {"$gte": ts_start, "$lt": ts_end},
                 }
-                has_data = any(
-                    mongo_db[col].count_documents(query, limit=1) > 0
-                    for col in wearable_collections
+                hr_query = {
+                    **base_query,
+                    "heart_rate": {"$type": "number", "$gt": 0},
+                }
+                respiration_query = {
+                    **base_query,
+                    "respiration": {"$type": "number", "$gt": 0},
+                }
+                ibi_query = {
+                    **base_query,
+                    "bbi": {"$type": "number", "$gt": 0},
+                }
+                has_data = (
+                    mongo_db["garmin_hr"].find_one(hr_query, {"_id": 1}) is not None
+                    or mongo_db["garmin_respiration"].find_one(
+                        respiration_query, {"_id": 1}
+                    )
+                    is not None
+                    or mongo_db["garmin_ibi"].find_one(ibi_query, {"_id": 1}) is not None
                 )
                 coverage[date_str] = has_data
             except Exception:
@@ -1559,6 +1585,14 @@ def get_patient_notes(id):
             d["created_by"] = user.username if user else None
         else:
             d["created_by"] = None
+        # normalize created_at to US Eastern for frontend display
+        if getattr(note, "created_at", None) is not None:
+            try:
+                created_utc = note.created_at.replace(tzinfo=timezone.utc)
+                created_eastern = created_utc.astimezone(EASTERN_TZ)
+                d["created_at"] = created_eastern.isoformat()
+            except Exception:
+                pass
         result.append(d)
     return jsonify(result)
 
@@ -1582,7 +1616,35 @@ def create_patient_note(id):
     db.session.add(note)
     db.session.commit()
     _invalidate_patient_related_cache(patient.id)
-    return jsonify(_columns_dict(note)), 201
+    d = _columns_dict(note)
+    if note.user_id:
+        user = User.query.get(note.user_id)
+        d["created_by"] = user.username if user else None
+    else:
+        d["created_by"] = None
+    return jsonify(d), 201
+
+
+@current_app.route("/patients/<int:id>/notes/<int:note_id>", methods=["PATCH"])
+@login_required
+def update_patient_note(id, note_id):
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+    note = Note.query.filter_by(id=note_id, patient_id=patient.id).first()
+    if not note:
+        return jsonify({"message": "Note not found"}), 404
+
+    data = request.get_json() or {}
+    content = data.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return jsonify({"message": "Missing fields: content"}), 400
+
+    note.content = content.strip()
+    db.session.add(note)
+    db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
+    return jsonify(_columns_dict(note)), 200
 
 
 @current_app.route("/patients/<int:id>/preadmission_medications", methods=["GET"])

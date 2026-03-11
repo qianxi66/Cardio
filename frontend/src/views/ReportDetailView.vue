@@ -157,6 +157,14 @@ const logsForDate = computed(() => {
   return conversationLogs.value;
 });
 
+const emptyLogsMessage = computed(() => {
+  const target = conversationDate.value ? new Date(conversationDate.value) : null;
+  if (!target || Number.isNaN(target.getTime())) {
+    return "No conversation logs";
+  }
+  return `No conversation logs for ${format(target, "yyyy-MM-dd")}`;
+});
+
 // Keyword patterns for symptom-based conversation log highlighting
 const symptomPatterns: Record<string, RegExp> = {
   syncope: /faint|pass(?:ed|ing)?\s*out|dizz(?:y|iness)|lightheaded|syncop/i,
@@ -240,12 +248,14 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
           v-for="log in logsForDate"
           :key="log.id"
         >
-          <div class="log-role">{{ log.role === "assistant" ? "Assistant" : "Patient" }}</div>
+          <div class="log-meta">
+            <div class="log-role">{{ log.role === "assistant" ? "Assistant" : "Patient" }}</div>
+            <div class="log-time">{{ formatLogTime(log.date) }}</div>
+          </div>
           <div class="log-content">{{ log.content }}</div>
-          <div class="log-time">{{ formatLogTime(log.date) }}</div>
         </div>
       </div>
-      <div v-else class="log-empty-message">No conversation logs</div>
+      <div v-else class="log-empty-message">{{ emptyLogsMessage }}</div>
     </ColoredCard>
   </div>
 </template>
@@ -385,8 +395,9 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 }
 .log-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   scroll-margin-top: 8px;
   position: relative;
   padding: 10px 14px;
@@ -397,6 +408,12 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
 .log-row.log-patient {
   padding: 5px 14px;
   background: #f5f5f5;
+}
+.log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 .log-row.log-selected::after {
   content: "";
@@ -410,14 +427,12 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   pointer-events: none;
 }
 .log-role {
-  flex: 0 0 92px;
   font-size: 14px;
   font-weight: 700;
   color: #4f4f4f;
 }
 .log-content {
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
   line-height: 1.35;
   font-size: 14px;
   color: #3f3f3f;
@@ -425,8 +440,6 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
   word-break: break-word;
 }
 .log-time {
-  flex: 0 0 88px;
-  text-align: right;
   font-size: 14px;
   color: #8c8c8c;
 }

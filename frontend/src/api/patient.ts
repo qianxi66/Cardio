@@ -172,6 +172,14 @@ export const deleteNote = async (patient_id: number, note_id: number) => {
   });
 };
 
+export const updateNote = async (patient_id: number, note_id: number, content: string) => {
+  return await api({
+    url: `/patients/${patient_id}/notes/${note_id}`,
+    method: "PATCH",
+    data: { content },
+  });
+};
+
 export const markSymptomRead = async (
   patient_id: number,
   summary_id: number,

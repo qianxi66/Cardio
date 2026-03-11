@@ -5,7 +5,7 @@ import { useRouter } from "vue-router";
 import type { DrawerPlacement } from "naive-ui";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
-import { markSymptomRead, updateSummarySymptomState } from "@/api/patient";
+import { markSymptomRead, updateSummarySymptomState, updateNote, createNote, deleteNote } from "@/api/patient";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
 import { computed, watch, ref, inject, nextTick, onMounted, onBeforeUnmount, type Component } from "vue";
@@ -114,36 +114,168 @@ const nextAppointmentDate = computed(() => {
   return formatPatientDate(value ?? null);
 });
 
-const aiSummaryBodyText = computed(() => {
+const aiSummaryBody = computed(() => {
   const notes = patient.value?.notes ?? [];
   const selectedDate = dailySummaryDate.value ? new Date(dailySummaryDate.value) : null;
   if (!selectedDate || Number.isNaN(selectedDate.getTime())) {
-    return "no data for this date";
+    return { body: "no data for this date", time: "" };
   }
   const selectedKey = dateKey(selectedDate);
 
   const match = notes
-    .filter((note) => {
-      if (note.creator_type?.toLowerCase() !== "ai") return false;
+    .filter((note: any) => {
       const created = parseDateValue(note.created_at);
       return created ? dateKey(created) === selectedKey : false;
     })
-    .sort((a, b) => {
+    .sort((a: any, b: any) => {
       const at = parseDateValue(a.created_at)?.getTime() ?? 0;
       const bt = parseDateValue(b.created_at)?.getTime() ?? 0;
       return bt - at;
     })[0];
 
   if (!match?.content?.trim()) {
-    return "no data for this date";
+    return { body: "no data for this date", time: "" };
   }
   const createdAt = parseDateValue(match.created_at);
-  const cleanedContent = match.content
-    .trim()
-    .replace(/^ai\s*summary\s*:?\s*/i, "");
-  const timeLabel = createdAt ? format(createdAt, "yyyy-MM-dd hh:mm a").toLowerCase() : "--";
-  return `${timeLabel} ${cleanedContent}`;
+  const isAi = String(match.creator_type || "").toLowerCase() === "ai";
+  const rawBody = match.content.trim();
+  const body = isAi ? stripAiSummaryPrefix(rawBody) : rawBody;
+  const time = createdAt ? format(createdAt, "yyyy-MM-dd HH:mm") : "";
+  return { body, time };
 });
+
+type DailySummaryEditableRow = {
+  noteId: number;
+  dateLabel: string;
+  content: string;
+  creatorLabel: string;
+  createdAtMs: number;
+};
+
+const stripAiSummaryPrefix = (content?: string) => {
+  return (content || "").trim().replace(/^ai\s*summary\s*:?\s*/i, "");
+};
+
+const dailySummaryRows = computed<DailySummaryEditableRow[]>(() => {
+  const notes = patient.value?.notes ?? [];
+  const rows: DailySummaryEditableRow[] = notes
+    .map((note: any) => {
+      const created = parseDateValue(note.created_at);
+      const createdAtMs = created?.getTime() ?? 0;
+      const isAi = String(note.creator_type || "").toLowerCase() === "ai";
+      const dateLabel = created ? format(created, "yyyy-MM-dd HH:mm") : "--";
+      const creatorLabel =
+        (isAi && "AI") ||
+        (note.created_by as string | undefined) ||
+        (note.user?.username as string | undefined) ||
+        (note.creator_type as string | undefined) ||
+        "User";
+      const baseContent = isAi ? stripAiSummaryPrefix(note.content) : (note.content || "");
+      return {
+        noteId: note.id as number,
+        dateLabel,
+        content: baseContent,
+        creatorLabel,
+        createdAtMs,
+      };
+    })
+    .filter((row) => typeof row.noteId === "number");
+
+  return rows.sort((a, b) => b.createdAtMs - a.createdAtMs);
+});
+
+const dailySummaryEditorVisible = ref(false);
+const dailySummaryDrafts = ref<Record<number, string>>({});
+const dailySummarySaving = ref(false);
+const newNoteInput = ref("");
+const newNoteSaving = ref(false);
+
+const openDailySummaryEditor = () => {
+  const nextDrafts: Record<number, string> = {};
+  dailySummaryRows.value.forEach((row) => {
+    nextDrafts[row.noteId] = row.content;
+  });
+  dailySummaryDrafts.value = nextDrafts;
+  newNoteInput.value = "";
+  dailySummaryEditorVisible.value = true;
+};
+
+const saveAllDailySummaries = async () => {
+  const patientId = patientIdParam.value;
+  if (!patientId) return;
+  dailySummarySaving.value = true;
+  let hasError = false;
+  try {
+    for (const row of dailySummaryRows.value) {
+      const nextContent = (dailySummaryDrafts.value[row.noteId] ?? "").trim();
+      if (!nextContent || nextContent === row.content) continue;
+      await updateNote(patientId, row.noteId, nextContent);
+      if (patient.value?.notes) {
+        const target = patient.value.notes.find((n) => n.id === row.noteId);
+        if (target) {
+          target.content = nextContent;
+        }
+      }
+    }
+  } catch (error) {
+    hasError = true;
+    console.error("Failed to save daily summaries", error);
+  } finally {
+    dailySummarySaving.value = false;
+  }
+  if (!hasError) {
+    dailySummaryEditorVisible.value = false;
+  }
+};
+
+const sendNewNote = async () => {
+  const content = newNoteInput.value?.trim();
+  if (!content) return;
+  const patientId = patientIdParam.value;
+  if (!patientId) return;
+  newNoteSaving.value = true;
+  try {
+    const created = (await createNote(patientId, content)) as {
+      id: number;
+      content: string;
+      creator_type: string;
+      created_at: string;
+      created_by?: string;
+    };
+    if (patient.value?.notes) {
+      const noteForList = {
+        id: created.id,
+        content: created.content,
+        creator_type: created.creator_type || "user",
+        created_at: created.created_at,
+        created_by: created.created_by,
+      };
+      patient.value.notes.unshift(noteForList);
+    }
+    dailySummaryDrafts.value[created.id] = created.content;
+    newNoteInput.value = "";
+  } catch (error) {
+    console.error("Failed to create note", error);
+  } finally {
+    newNoteSaving.value = false;
+  }
+};
+
+const deleteDailySummary = async (noteId: number) => {
+  const patientId = patientIdParam.value;
+  if (!patientId) return;
+  try {
+    await deleteNote(patientId, noteId);
+    if (patient.value?.notes) {
+      patient.value.notes = patient.value.notes.filter((n: any) => n.id !== noteId);
+    }
+    const nextDrafts = { ...dailySummaryDrafts.value };
+    delete nextDrafts[noteId];
+    dailySummaryDrafts.value = nextDrafts;
+  } catch (error) {
+    console.error("Failed to delete daily summary note", error);
+  }
+};
 
 const parseNoteTime = (value?: Date | string) => {
   if (!value) return 0;
@@ -614,40 +746,18 @@ watch(loading, () => nextTick(updateConnectors));
                   />
                 </svg>
               </div>
-              <div class="patient-name">
+              <button
+                type="button"
+                class="patient-name patient-name-trigger"
+                @click="$router.push(`/patient/${patient_id}/update`)"
+              >
                 {{ patientName }}
-              </div>
+              </button>
               <div class="patient-meta">
                 {{ patient!.age ? patient!.age + " y.o." : "" }}
                 {{ patient!.gender }}
               </div>
               <div class="patient-nav-spacer"></div>
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <n-button
-                    quaternary
-                    circle
-                    @click="$router.push(`/patient/${patient_id}/update`)"
-                  >
-                    <template #icon>
-                      <n-icon :size="22">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 16 16"
-                        >
-                          <g fill="none">
-                            <path
-                              d="M12.007 6.81l-5.949 5.95c-.319.318-.719.545-1.156.654l-2.283.57a.498.498 0 0 1-.604-.603l.57-2.283a2.49 2.49 0 0 1 .656-1.156l5.948-5.95l2.818 2.817zm1.41-4.226c.777.778.777 2.039 0 2.817l-.706.704l-2.817-2.818l.705-.703a1.992 1.992 0 0 1 2.817 0z"
-                              fill="currentColor"
-                            ></path>
-                          </g>
-                        </svg>
-                      </n-icon>
-                    </template>
-                  </n-button>
-                </template>
-                Edit Patient
-              </n-tooltip>
             </div>
             <template #loading>
               <div class="row patient-header">
@@ -702,32 +812,47 @@ watch(loading, () => nextTick(updateConnectors));
               </div>
               <div v-if="patient" class="patient-action-bar">
                 <div class="patient-action-cell">
-                  <button type="button" class="panel-title panel-drawer-trigger" @click="openAdmissionDrawer">
+                  <button
+                    type="button"
+                    class="panel-title panel-drawer-trigger"
+                    @click="openAdmissionDrawer"
+                  >
                     Admission History
                   </button>
                 </div>
                 <div class="patient-action-cell">
-                  <button type="button" class="panel-title panel-drawer-trigger" @click="openMedicationDrawer">
-                    Medications
-                  </button>
-                </div>
-                <div class="patient-action-cell">
-                  <button type="button" class="panel-title panel-drawer-trigger" @click="openNotesDrawer">
-                    Notes
-                  </button>
-                </div>
-                <div class="patient-action-cell">
-                  <button type="button" class="panel-title panel-drawer-trigger" @click="openPreadmissionMedDrawer">
-                    Pre-Admission Meds
-                  </button>
-                </div>
-                <div class="patient-action-cell">
-                  <button type="button" class="panel-title panel-drawer-trigger" @click="openIOMetricDrawer">
+                  <button
+                    type="button"
+                    class="panel-title panel-drawer-trigger"
+                    @click="openIOMetricDrawer"
+                  >
                     I/O Metrics
                   </button>
                 </div>
                 <div class="patient-action-cell">
-                  <button type="button" class="panel-title panel-drawer-trigger" @click="openMedExecDrawer">
+                  <button
+                    type="button"
+                    class="panel-title panel-drawer-trigger"
+                    @click="openMedicationDrawer"
+                  >
+                    Medications
+                  </button>
+                </div>
+                <div class="patient-action-cell">
+                  <button
+                    type="button"
+                    class="panel-title panel-drawer-trigger"
+                    @click="openPreadmissionMedDrawer"
+                  >
+                    Pre-Adm Meds
+                  </button>
+                </div>
+                <div class="patient-action-cell">
+                  <button
+                    type="button"
+                    class="panel-title panel-drawer-trigger"
+                    @click="openMedExecDrawer"
+                  >
                     Med Execution
                   </button>
                 </div>
@@ -773,9 +898,25 @@ watch(loading, () => nextTick(updateConnectors));
                   d="M21 10.975V8a2 2 0 0 0-2-2h-6V4.688c.305-.274.5-.668.5-1.11a1.5 1.5 0 0 0-3 0c0 .442.195.836.5 1.11V6H5a2 2 0 0 0-2 2v2.998l-.072.005A.999.999 0 0 0 2 12v2a1 1 0 0 0 1 1v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a1 1 0 0 0 1-1v-1.938a1.004 1.004 0 0 0-.072-.455c-.202-.488-.635-.605-.928-.632zM7 12c0-1.104.672-2 1.5-2s1.5.896 1.5 2-.672 2-1.5 2S7 13.104 7 12zm8.998 6c-1.001-.003-7.997 0-7.998 0v-2s7.001-.002 8.002 0l-.004 2zm-.498-4c-.828 0-1.5-.896-1.5-2s.672-2 1.5-2 1.5.896 1.5 2-.672 2-1.5 2z"
                 />
               </svg>
-              <span>AI-Generated Daily Summary</span>
+              <span>Daily Summary</span>
+              <button
+                type="button"
+                class="ai-summary-edit-trigger"
+                aria-label="Edit patient"
+                @click="openDailySummaryEditor"
+              >
+                <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <path
+                    d="M12.007 6.81l-5.949 5.95c-.319.318-.719.545-1.156.654l-2.283.57a.498.498 0 0 1-.604-.603l.57-2.283a2.49 2.49 0 0 1 .656-1.156l5.948-5.95l2.818 2.817zm1.41-4.226c.777.778.777 2.039 0 2.817l-.706.704l-2.817-2.818l.705-.703a1.992 1.992 0 0 1 2.817 0z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </button>
             </div>
-            <div class="ai-summary-body">{{ aiSummaryBodyText }}</div>
+            <div class="ai-summary-body">
+              <span class="ai-summary-body-text">{{ aiSummaryBody.body }}</span>
+              <span class="ai-summary-body-time">{{ aiSummaryBody.time }}</span>
+            </div>
           </div>
           <div class="day-overview-table">
             <div class="table-row day-overview-header">
@@ -1093,6 +1234,88 @@ watch(loading, () => nextTick(updateConnectors));
         <div v-else class="overview-row-empty">No medication execution records.</div>
       </n-drawer-content>
     </n-drawer>
+
+    <n-modal
+      v-model:show="dailySummaryEditorVisible"
+      preset="card"
+      title="Edit Daily Summaries"
+      style="width: min(920px, 92vw)"
+    >
+      <div class="summary-editor-panel">
+        <div class="summary-editor-list" v-if="dailySummaryRows.length">
+          <div
+            v-for="row in dailySummaryRows"
+            :key="row.noteId"
+            class="summary-editor-row"
+          >
+            <div class="summary-editor-input">
+              <n-input
+                v-model:value="dailySummaryDrafts[row.noteId]"
+                type="textarea"
+                :autosize="{ minRows: 2, maxRows: 5 }"
+              />
+            </div>
+            <div class="summary-editor-meta">
+              <div class="summary-editor-meta-main">
+                <div class="summary-editor-time">{{ row.dateLabel }}</div>
+                <div class="summary-editor-creator">
+                  Created by
+                  <span class="summary-editor-creator-name">{{ row.creatorLabel }}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="summary-editor-delete-btn"
+                aria-label="Delete note"
+                @click="deleteDailySummary(row.noteId)"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
+                  <path d="M9 9L15 15M15 9L9 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="summary-editor-empty">No daily summaries</div>
+        <div class="summary-editor-footer">
+          <div class="summary-editor-new-note">
+            <n-input
+              v-model:value="newNoteInput"
+              placeholder="type your notes here"
+              size="small"
+              clearable
+              :disabled="newNoteSaving"
+              @keydown.enter.prevent="sendNewNote"
+            />
+            <button
+              type="button"
+              class="summary-editor-send-btn"
+              :disabled="newNoteSaving || !newNoteInput?.trim()"
+              aria-label="Send note"
+              @click="sendNewNote"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M10.3009 13.6949L20.102 3.89742M10.5795 14.1355L12.8019 18.5804C13.339 19.6545 13.6075 20.1916 13.9458 20.3356C14.2394 20.4606 14.575 20.4379 14.8492 20.2747C15.1651 20.0866 15.3591 19.5183 15.7472 18.3818L19.9463 6.08434C20.2845 5.09409 20.4535 4.59896 20.3378 4.27142C20.2371 3.98648 20.013 3.76234 19.7281 3.66167C19.4005 3.54595 18.9054 3.71502 17.9151 4.05315L5.61763 8.2523C4.48114 8.64037 3.91289 8.83441 3.72478 9.15032C3.56153 9.42447 3.53891 9.76007 3.66389 10.0536C3.80791 10.3919 4.34498 10.6605 5.41912 11.1975L9.86397 13.42C10.041 13.5085 10.1295 13.5527 10.2061 13.6118C10.2742 13.6643 10.3352 13.7253 10.3876 13.7933C10.4468 13.87 10.491 13.9585 10.5795 14.1355Z"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+          <n-button
+            type="primary"
+            :loading="dailySummarySaving"
+            @click="saveAllDailySummaries"
+          >
+            Save
+          </n-button>
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -1126,7 +1349,7 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .connector-tail {
   left: calc(53% - 10px);
-  top: 41%;
+  top: 38%;
   width: 10px;
   height: 4px;
 }
@@ -1169,7 +1392,7 @@ watch(loading, () => nextTick(updateConnectors));
   overflow-y: hidden;
 }
 .information {
-  flex: 4 1 0;
+  flex: 3 1 0;
   min-height: 0;
 }
 .patient-avatar {
@@ -1195,6 +1418,17 @@ watch(loading, () => nextTick(updateConnectors));
   line-height: 36px;
   font-weight: 700;
 }
+.patient-name-trigger {
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.patient-name-trigger:hover {
+  text-decoration: underline;
+}
 .patient-meta {
   font-size: 14px;
   line-height: 30px;
@@ -1209,6 +1443,7 @@ watch(loading, () => nextTick(updateConnectors));
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  padding-top: 26px;
 }
 .detailed-wearable-card {
   flex: 1 1 0;
@@ -1385,7 +1620,7 @@ watch(loading, () => nextTick(updateConnectors));
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  row-gap: 4px;
+  row-gap: 8px;
 }
 .patient-plan-box {
   background-color: #fff;
@@ -1393,7 +1628,7 @@ watch(loading, () => nextTick(updateConnectors));
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  row-gap: 4px;
+  row-gap: 8px;
 }
 .patient-info-box .detail-line {
   flex: 0 0 auto;
@@ -1410,7 +1645,7 @@ watch(loading, () => nextTick(updateConnectors));
   column-gap: 10px;
   row-gap: 6px;
   align-items: center;
-  margin-top: 6px;
+  margin-top: 12px;
 }
 .patient-action-cell {
   flex: 0 0 auto;
@@ -1433,12 +1668,9 @@ watch(loading, () => nextTick(updateConnectors));
   display: flex;
   flex-direction: column;
   row-gap: 0px;
-  height: 100%;
-  min-height: 0;
 }
 .basic-top-section {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
 }
@@ -1468,7 +1700,7 @@ watch(loading, () => nextTick(updateConnectors));
   min-width: 0;
 }
 .day-navigator {
-  flex: 6 1 0;
+  flex: 7 1 0;
   min-height: 0;
 }
 .day-navigator :deep(.n-card__content) {
@@ -1499,6 +1731,139 @@ watch(loading, () => nextTick(updateConnectors));
   font-weight: 700;
   color: #053251;
 }
+.ai-summary-edit-trigger {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #053251;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-summary-edit-trigger svg {
+  width: 20px;
+  height: 20px;
+}
+.summary-editor-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+.summary-editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+.summary-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(150px, 0.4fr);
+  gap: 10px;
+  align-items: start;
+}
+.summary-editor-input {
+  min-width: 0;
+}
+.summary-editor-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #444;
+  padding-top: 4px;
+}
+.summary-editor-meta-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.summary-editor-time {
+  font-weight: 700;
+  color: #053251;
+}
+.summary-editor-creator {
+  color: #666;
+}
+.summary-editor-creator-name {
+  font-weight: 600;
+  margin-left: 4px;
+}
+.summary-editor-delete-btn {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.summary-editor-delete-btn:hover {
+  background: #f0f0f0;
+  color: #cc0000;
+}
+.summary-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 87px;
+  border-top: 1px solid #e5e5e5;
+  margin-top: 12px;
+  padding-top: 12px;
+  background: #fff;
+}
+.summary-editor-new-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.summary-editor-new-note .n-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.summary-editor-new-note .n-input :deep(input::placeholder) {
+  color: #999;
+}
+.summary-editor-send-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: #053251;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.summary-editor-send-btn:hover:not(:disabled) {
+  background: #e9edf5;
+}
+.summary-editor-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.summary-editor-empty {
+  color: #999999;
+  text-align: center;
+  padding: 20px 0;
+}
 .ai-summary-title-icon {
   width: 20px;
   height: 20px;
@@ -1506,11 +1871,29 @@ watch(loading, () => nextTick(updateConnectors));
   padding-left: 4px;
 }
 .ai-summary-body {
-  height: 42px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 42px;
   font-size: 14px;
   color: #333;
   line-height: 1.5;
   overflow: hidden;
+}
+.ai-summary-body-text {
+  flex: 0 1 74%;
+  padding-left: 6px;
+  padding-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ai-summary-body-time {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: #666;
 }
 .day-overview-table {
   flex: 1 1 0;

@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import { getWearableTimeSeries, type WearableTimeSeries } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
+import { format } from "date-fns";
 
 const props = withDefaults(
   defineProps<{
@@ -40,11 +41,6 @@ const defaultTimes = [
 const times = ref<string[]>([...defaultTimes]);
 const rangeValue = computed(() => props.range ?? "24h");
 const dateValue = computed(() => props.date ?? "");
-const formattedDate = computed(() => {
-  if (!props.date) return "";
-  const parts = (props.date || "").split("-");
-  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : props.date;
-});
 const windowRef = ref<{ start_ts: number; end_ts: number } | null>(null);
 const seriesDefs = ref([
   {
@@ -97,6 +93,8 @@ const markerIdx = ref(0);
 let nowMarkerInterval: ReturnType<typeof setInterval> | null = null;
 
 const DEFAULT_TIMEZONE = "America/New_York";
+const ALERT_COLOR = "#eb4c44";
+const TOOLTIP_NORMAL_COLOR = "#808080";
 
 const getTimeZone = (win?: { timezone?: string } | null) => win?.timezone || DEFAULT_TIMEZONE;
 
@@ -247,7 +245,7 @@ const buildDense24hTimes = (win?: { end_ts: number; timezone?: string } | null) 
   const startEpoch = endEpoch - 24 * 60 * 60;
   const labels: string[] = [];
   const epochs: number[] = [];
-  for (let sec = startEpoch; sec <= endEpoch; sec += 5 * 60) {
+  for (let sec = startEpoch; sec <= endEpoch; sec += 15 * 60) {
     labels.push(formatHourMinuteInZone(sec, timeZone));
     epochs.push(sec);
   }
@@ -308,10 +306,52 @@ const roundSeriesValue = (seriesName: string, value: number | null): number | nu
 const roundSeriesData = (seriesName: string, data: Array<number | null>) =>
   data.map((value) => roundSeriesValue(seriesName, value));
 
+const isAlertValue = (seriesName: string, value: number | null): boolean => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return false;
+  if (seriesName === "Heart Rate") return value > 120 || value < 60;
+  if (seriesName === "Respiration") return value > 24 || value < 8;
+  if (seriesName === "SpO2") return value < 94;
+  if (seriesName === "Heart Rate Variability") return value < 15;
+  return false;
+};
+
+const splitSeriesByAlert = (seriesName: string, data: Array<number | null>) => {
+  const normal: Array<number | null> = [];
+  const alert: Array<number | null> = [];
+  data.forEach((value) => {
+    if (value === null || value === undefined || !Number.isFinite(value)) {
+      normal.push(null);
+      alert.push(null);
+      return;
+    }
+    if (isAlertValue(seriesName, value)) {
+      normal.push(null);
+      alert.push(value);
+      return;
+    }
+    normal.push(value);
+    alert.push(null);
+  });
+  return { normal, alert };
+};
+
+const getTooltipValue = (raw: unknown): number | null => {
+  if (Array.isArray(raw)) {
+    const value = raw[1];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+};
+
+const formatTooltipValue = (seriesName: string, value: number) => {
+  if (seriesName === "Heart Rate") return `${Math.round(value)}`;
+  return `${Math.round(value * 10) / 10}`;
+};
+
 const applySeriesData = (payload?: WearableTimeSeries) => {
   windowRef.value = payload?.window ?? null;
   denseSlotEpochs.value = [];
-  // Use the dense times array from the backend (5-min bins) if available,
+  // Use the dense times array from the backend (15-min bins) if available,
   // otherwise fall back to the sparse 9-point placeholder grid.
   times.value = payload?.times?.length ? payload.times : buildDefaultTimes("24h");
 
@@ -539,14 +579,13 @@ const getTooltipPosition = (
 };
 
 const buildOption = (): echarts.EChartsOption => {
-  const isDense24h = times.value.length > 300;
+  const isDense24h = times.value.length > 50;
   return {
   grid: {
     left: 0,
     right: 20,
     top: 20,
-    // Keep extra room for rotated ticks + axis name in dense 24h mode.
-    bottom: isDense24h ? 68 : 36,
+    bottom: isDense24h ? 52 : 30,
     containLabel: true,
   },
   tooltip: {
@@ -554,12 +593,54 @@ const buildOption = (): echarts.EChartsOption => {
     confine: true,
     appendToBody: false,
     position: getTooltipPosition,
+    formatter: (params: any) => {
+      const items = Array.isArray(params) ? params : [params];
+      if (!items.length) return "";
+      const dataIndex = items[0]?.dataIndex ?? 0;
+      let timeLabel: string;
+      if (windowRef.value && times.value.length > 1) {
+        const { start_ts, end_ts } = windowRef.value;
+        const binSeconds = (end_ts - start_ts) / Math.max(1, times.value.length - 1);
+        const epoch = start_ts + dataIndex * binSeconds;
+        timeLabel = format(new Date(epoch * 1000), "yyyy-MM-dd HH:mm");
+      } else {
+        timeLabel = items[0]?.axisValueLabel ?? items[0]?.name ?? "";
+      }
+      const bySeries = new Map<string, { value: number | null }>();
+      items.forEach((item: any) => {
+        const rawName = String(item?.seriesName || "");
+        const seriesName = rawName.endsWith(" (Alert)")
+          ? rawName.slice(0, -8)
+          : rawName;
+        const value = getTooltipValue(item?.value);
+        const existing = bySeries.get(seriesName);
+        if (!existing || (existing.value === null && value !== null)) {
+          bySeries.set(seriesName, { value });
+        }
+      });
+      const rows = seriesDefs.value
+        .map((series) => {
+          const value = bySeries.get(series.name)?.value ?? null;
+          const displayValue = value === null ? "--" : formatTooltipValue(series.name, value);
+          const isAlert = value !== null && isAlertValue(series.name, value);
+          const rowColor = isAlert ? ALERT_COLOR : TOOLTIP_NORMAL_COLOR;
+          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;color:${rowColor};font-weight:700;">
+            <span>${series.name}</span>
+            <span>${displayValue}</span>
+          </div>`;
+        })
+        .join("");
+      return `<div>
+        <div style="margin-bottom:4px;font-weight:700;">${timeLabel}</div>
+        ${rows}
+      </div>`;
+    },
   },
   xAxis: {
     type: "category",
     boundaryGap: false,
     data: times.value,
-    name: formattedDate.value ? `Wearable data for ${formattedDate.value}` : "Wearable Data",
+    name: "Time",
     nameLocation: "middle",
     nameGap: isDense24h ? 56 : 48,
     nameTextStyle: {
@@ -598,16 +679,16 @@ const buildOption = (): echarts.EChartsOption => {
       type: "value",
       position: "left",
       offset: 40,
-      min: 5,
-      max: 20,
-      interval: 5,
+      min: 10,
+      max: 40,
+      interval: 10,
       axisLabel: {
         color: "#a586f4",
         fontWeight: "bold",
         showMinLabel: true,
         showMaxLabel: true,
         hideOverlap: false,
-        formatter: (value: number) => (value === 5 ? `${value}\n(bpm)` : `${value}`),
+        formatter: (value: number) => (value === 10 ? `${value}\n(bpm)` : `${value}`),
       },
       axisLine: { show: true, lineStyle: { color: "#a586f4", width: 2 } },
       axisTick: { show: false },
@@ -648,25 +729,49 @@ const buildOption = (): echarts.EChartsOption => {
       axisTick: { show: false },
     },
   ],
-  series: seriesDefs.value.map((series) => {
+  series: seriesDefs.value.flatMap((series) => {
     const isActive = getSeriesSelected(series.name);
-    return {
-      name: series.name,
-      type: "line",
-      yAxisIndex: series.yAxisIndex,
-      data: isActive ? series.data : [],
-      smooth: true,
-      connectNulls: false,
-      showSymbol: false,
-      symbol: "none",
-      symbolSize: 0,
-      lineStyle: {
-        color: series.color,
-        type: series.lineType as any,
+    const data = isActive ? series.data : [];
+    const split = splitSeriesByAlert(series.name, data);
+    return [
+      {
+        name: series.name,
+        type: "line",
+        yAxisIndex: series.yAxisIndex,
+        data: split.normal,
+        smooth: true,
+        connectNulls: false,
+        showSymbol: false,
+        symbol: "none",
+        symbolSize: 0,
+        lineStyle: {
+          color: series.color,
+          type: series.lineType as any,
+        },
+        itemStyle: { color: series.color },
+        markLine: undefined,
+        z: 2,
       },
-      itemStyle: { color: series.color },
-      markLine: undefined,
-    };
+      {
+        name: `${series.name} (Alert)`,
+        type: "line",
+        yAxisIndex: series.yAxisIndex,
+        data: split.alert,
+        smooth: true,
+        connectNulls: false,
+        showSymbol: false,
+        symbol: "none",
+        symbolSize: 0,
+        lineStyle: {
+          color: ALERT_COLOR,
+          type: series.lineType as any,
+          width: 3,
+        },
+        itemStyle: { color: ALERT_COLOR },
+        markLine: undefined,
+        z: 3,
+      },
+    ];
   }),
   };
 };
@@ -938,7 +1043,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  min-height: 220px;
+  min-height: 264px;
   width: 100%;
   min-width: 0;
   overflow: hidden;
