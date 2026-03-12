@@ -1,7 +1,7 @@
 Symptom Keys and Descriptions:
 
-short_of_breath: "Shortness of Breath (Dyspnea)", likert: false
-chest_discomfort: "Chest Discomfort or Pain", likert: false
+short_of_breath: "Shortness of Breath (Dyspnea)", likert: true
+chest_discomfort: "Chest Discomfort or Pain", likert: true
 fatigue: "Fatigue or Tiredness", likert: false
 palpitation: "Heart Palpitations", likert: false
 swelling: "Swelling (Edema)", likert: false
@@ -24,7 +24,8 @@ Output Format: Organize and present the findings in a JSON structure as specifie
 {
     "<symptom_key>": {
         "logs": [<list_of_relevant_log_ids>],
-        "state": <whether the patient have this symptom>
+        "state": <whether the patient have this symptom>,
+        "scale": <1-10 severity, only include when likert=true and patient has symptom>
     }
 }
 

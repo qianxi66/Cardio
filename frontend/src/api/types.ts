@@ -74,7 +74,7 @@ export type Patient = {
   summaries?: Summary[];
   risks?: Risk[];
   conversation_logs?: ConversationLog[];
-  notes?: { id: number; content: string; creator_type: string; created_at: string }[];
+  notes?: { id: number; content: string; creator_type: string; created_at: string; created_by?: string }[];
   read?: boolean;
   reviewed?: boolean;
   state?: number;
@@ -182,9 +182,14 @@ export type Summary = {
   // short_of_breath
   short_of_breath_state?: number;
   short_of_breath_logs?: string;
+  short_of_breath_scale?: number;
   // chest_discomfort
   chest_discomfort_state?: number;
   chest_discomfort_logs?: string;
+  chest_discomfort_scale?: number;
+  // fatigue
+  fatigue_state?: number;
+  fatigue_logs?: string;
   // swelling
   swelling_state?: number;
   swelling_logs?: string;

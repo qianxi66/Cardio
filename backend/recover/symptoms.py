@@ -21,7 +21,7 @@ symptom_descriptions = {
         "display_name": "Breath",
         "max_scale": 4,
         "color": "#eb4c44",
-        "likert": False,
+        "likert": True,
         "source": "conversation",
     },
     "chest_discomfort": {
@@ -29,6 +29,14 @@ symptom_descriptions = {
         "display_name": "Chest",
         "max_scale": 4,
         "color": "#eb4c44",
+        "likert": True,
+        "source": "conversation",
+    },
+    "fatigue": {
+        "description": "Fatigue or Tiredness",
+        "display_name": "Fatigue",
+        "max_scale": 4,
+        "color": "#f9d965",
         "likert": False,
         "source": "conversation",
     },

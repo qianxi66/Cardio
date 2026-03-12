@@ -1034,7 +1034,8 @@ def get_patient(id):
         patient_dict["summaries"] = [_columns_dict(item) for item in patient.summaries]
         patient_dict["risks"] = [_columns_dict(item) for item in patient.risks]
         patient_dict["conversation_logs"] = [
-            _columns_dict(item) for item in patient.conversation_logs
+            _columns_dict(item)
+            for item in sorted(patient.conversation_logs, key=lambda x: x.date or datetime.min)
         ]
         patient_dict["medications"] = [
             _columns_dict(item) for item in patient.medications
@@ -1454,7 +1455,9 @@ def get_wearable_coverage(id):
         mongo_db = client["study_db"]
         for date_str in dates_str:
             try:
-                day_start = datetime.strptime(date_str, "%Y-%m-%d")
+                # Keep date-bucket semantics consistent with wearable timeseries API:
+                # interpret requested date in US Eastern timezone.
+                day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=EASTERN_TZ)
                 day_end = day_start + timedelta(days=1)
                 ts_start = int(day_start.timestamp())
                 ts_end = int(day_end.timestamp())
@@ -1498,7 +1501,7 @@ def get_conversation_logs(id):
     if error:
         return error
     items = ConversationLog.query.filter_by(patient_id=patient.id).order_by(
-        ConversationLog.date.desc()
+        ConversationLog.date.asc()
     ).all()
     return jsonify([_columns_dict(item) for item in items])
 
@@ -1622,6 +1625,13 @@ def create_patient_note(id):
         d["created_by"] = user.username if user else None
     else:
         d["created_by"] = None
+    if getattr(note, "created_at", None) is not None:
+        try:
+            created_utc = note.created_at.replace(tzinfo=timezone.utc)
+            created_eastern = created_utc.astimezone(EASTERN_TZ)
+            d["created_at"] = created_eastern.isoformat()
+        except Exception:
+            pass
     return jsonify(d), 201
 
 
@@ -1644,7 +1654,20 @@ def update_patient_note(id, note_id):
     db.session.add(note)
     db.session.commit()
     _invalidate_patient_related_cache(patient.id)
-    return jsonify(_columns_dict(note)), 200
+    d = _columns_dict(note)
+    if note.user_id:
+        user = User.query.get(note.user_id)
+        d["created_by"] = user.username if user else None
+    else:
+        d["created_by"] = None
+    if getattr(note, "created_at", None) is not None:
+        try:
+            created_utc = note.created_at.replace(tzinfo=timezone.utc)
+            created_eastern = created_utc.astimezone(EASTERN_TZ)
+            d["created_at"] = created_eastern.isoformat()
+        except Exception:
+            pass
+    return jsonify(d), 200
 
 
 @current_app.route("/patients/<int:id>/preadmission_medications", methods=["GET"])
@@ -1910,6 +1933,14 @@ def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
     Must be called within a Flask application context (does not create its own).
     """
     day_end = day_start + timedelta(days=1)
+    # day_start/day_end are ET-day buckets (naive). Convert note timestamps/window
+    # to UTC-naive before persisting/querying Note.created_at.
+    day_start_et = day_start.replace(tzinfo=EASTERN_TZ)
+    day_end_et = day_end.replace(tzinfo=EASTERN_TZ)
+    note_time_et = day_start_et.replace(hour=20, minute=0, second=0, microsecond=0)
+    note_time = note_time_et.astimezone(timezone.utc).replace(tzinfo=None)
+    note_window_start = day_start_et.astimezone(timezone.utc).replace(tzinfo=None)
+    note_window_end = day_end_et.astimezone(timezone.utc).replace(tzinfo=None)
 
     # Conversation logs for the day
     logs = (
@@ -1931,6 +1962,7 @@ def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
     )
     wearable_data: dict = {}
     symptoms_data: dict = {}
+    day_log_ids = {log.id for log in logs}
     if sum_obj:
         hr = getattr(sum_obj, "heart_rate_average", None)
         resp = getattr(sum_obj, "respiration_average", None)
@@ -1941,13 +1973,58 @@ def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
             wearable_data["respiration_avg_bpm"] = resp
         if hrv is not None:
             wearable_data["hrv_rmssd_avg_ms"] = hrv
-        symptoms_data = {
-            k: {"state": getattr(sum_obj, f"{k}_state", 0) or 0}
-            for k in symptom_descriptions
-        }
+        for key, meta in symptom_descriptions.items():
+            state_val = int(getattr(sum_obj, f"{key}_state", 0) or 0)
+            is_conversation_source = meta.get("source") == "conversation"
+            if is_conversation_source:
+                raw_logs = getattr(sum_obj, f"{key}_logs", "[]") or "[]"
+                try:
+                    log_ids = [int(v) for v in json.loads(raw_logs)]
+                except Exception:
+                    log_ids = []
+                valid_log_ids = [log_id for log_id in log_ids if log_id in day_log_ids]
+                if valid_log_ids:
+                    symptoms_data[key] = {"state": state_val, "logs": valid_log_ids}
+                else:
+                    # Prevent fabricated conversational details when no valid logs exist.
+                    symptoms_data[key] = {"state": 0, "logs": []}
+                if meta.get("likert", False):
+                    raw_scale = getattr(sum_obj, f"{key}_scale", 0) or 0
+                    try:
+                        scale_val = int(raw_scale)
+                    except Exception:
+                        scale_val = 0
+                    symptoms_data[key]["scale"] = (
+                        max(1, min(10, scale_val))
+                        if symptoms_data[key]["state"] >= 2 and scale_val > 0
+                        else 0
+                    )
+            else:
+                symptoms_data[key] = {"state": state_val}
 
-    # Skip if there is nothing to summarise
+    # If both data sources are absent, write a no-data placeholder instead of hallucinating.
     if not logs and not wearable_data:
+        content = "AI Summary: No valid conversation or wearable data available for today."
+        existing = (
+            Note.query.filter_by(patient_id=patient_id, creator_type="ai")
+            .filter(Note.created_at >= note_window_start, Note.created_at < note_window_end)
+            .first()
+        )
+        if existing:
+            existing.content = content
+            existing.created_at = note_time
+        else:
+            db.session.add(Note(
+                patient_id=patient_id,
+                creator_type="ai",
+                content=content,
+                created_at=note_time,
+            ))
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            logging.warning("AI no-data note commit failed for patient_id=%s: %s", patient_id, exc)
         return
 
     try:
@@ -1973,18 +2050,18 @@ def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
     # Upsert: update today's AI note or create a new one
     existing = (
         Note.query.filter_by(patient_id=patient_id, creator_type="ai")
-        .filter(Note.created_at >= day_start, Note.created_at < day_end)
+        .filter(Note.created_at >= note_window_start, Note.created_at < note_window_end)
         .first()
     )
     if existing:
         existing.content = content
-        existing.created_at = datetime.utcnow()
+        existing.created_at = note_time
     else:
         db.session.add(Note(
             patient_id=patient_id,
             creator_type="ai",
             content=content,
-            created_at=datetime.utcnow(),
+            created_at=note_time,
         ))
     try:
         db.session.commit()
@@ -2027,10 +2104,19 @@ def process_patient_summary(patient_id, target_date):
         for key in response:
             if key not in symptom_descriptions:
                 continue
-            setattr(summary, f"{key}_state", response[key].get("state", 0))
+            state_val = response[key].get("state", 0)
+            setattr(summary, f"{key}_state", state_val)
             setattr(summary, f"{key}_logs", json.dumps(response[key].get("logs", [])))
-            if "scale" in response[key] and hasattr(summary, f"{key}_scale"):
-                setattr(summary, f"{key}_scale", response[key]["scale"])
+            if hasattr(summary, f"{key}_scale"):
+                raw_scale = response[key].get("scale", 0)
+                try:
+                    scale_val = int(raw_scale) if str(raw_scale).strip() else 0
+                except Exception:
+                    scale_val = 0
+                if state_val >= 2 and scale_val > 0:
+                    setattr(summary, f"{key}_scale", max(1, min(10, scale_val)))
+                else:
+                    setattr(summary, f"{key}_scale", 0)
         db.session.add(summary)
         db.session.commit()
         logging.info("process_patient_summary done for patient_id=%s date=%s", patient_id, target_date)

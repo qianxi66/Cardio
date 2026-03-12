@@ -1,6 +1,7 @@
 import json
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import bcrypt
 import click
 from sqlalchemy import text
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Query
 
 # Assuming 'app' and 'db' are defined in .app and .db respectively
 from .app import app
-from .apis import process_patient_summary
+from .apis import process_patient_summary, _generate_ai_note_for_patient
 from .db import (
     AdmissionHistory,
     AlexaIDNote,
@@ -24,6 +25,8 @@ from .db import (
     User,
     db,
 )
+
+EASTERN_TZ = ZoneInfo("America/New_York")
 
 def create_random_datetime(start_date=None, end_date=None):
     """Generates a random datetime object within a specified range."""
@@ -452,9 +455,11 @@ def create_summaries_cmd():
         from .symptoms import symptom_descriptions
         print("Creating 10-day summary records for all patients...")
         patients = Patient.query.all()
+        now_naive = datetime.now(EASTERN_TZ).replace(tzinfo=None)
+        now_midnight = now_naive.replace(hour=0, minute=0, second=0, microsecond=0)
         for patient in patients:
             for days_ago in range(9, -1, -1):  # 9 days ago → today
-                day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_ago)
+                day = now_midnight - timedelta(days=days_ago)
                 summary = Summary(patient_id=patient.id, date=day, read=0)
                 for symptom_name in symptom_descriptions:
                     # heart_rate / respiration are wearable-driven (MongoDB), do not synthesize green state here
@@ -463,8 +468,12 @@ def create_summaries_cmd():
                         setattr(summary, f"{symptom_name}_logs", "[]")
                         continue
                     # conversation symptoms use synthetic states
-                    setattr(summary, f"{symptom_name}_state", random.randint(0, 3))
+                    state_val = random.randint(0, 3)
+                    setattr(summary, f"{symptom_name}_state", state_val)
                     setattr(summary, f"{symptom_name}_logs", "[]")
+                    if symptom_descriptions[symptom_name].get("likert", False):
+                        scale_val = random.randint(1, 10) if state_val >= 2 else 0
+                        setattr(summary, f"{symptom_name}_scale", scale_val)
                 db.session.add(summary)
         db.session.commit()
         print("10-day summaries created successfully.")
@@ -500,6 +509,7 @@ def generate_conversation_logs_cmd():
     CONV_TO_SYMPTOM = {
         "breath":      "short_of_breath",
         "chest":       "chest_discomfort",
+        "fatigue":     "fatigue",
         "palpitation": "palpitation",
         "swelling":    "swelling",
         "syncope":     "syncope",
@@ -519,9 +529,11 @@ def generate_conversation_logs_cmd():
         random.shuffle(checklist)
 
         messages = []
-        # symptom_msg_indices: backend_key → list of indices in messages[] that are
-        # the meaningful back-and-forth about that symptom (for log highlighting)
+        # symptom_msg_indices: backend_key → list of indices in messages[]
+        # that are the meaningful back-and-forth about that symptom (for log highlighting)
         symptom_msg_indices = {}
+        # symptom_scales: backend_key → numeric 1–10 severity taken from the scripted dialogue
+        symptom_scales = {}
 
         messages.append(("assistant", "Hello, this is the Cardio research study chatbot assistant developed by Northeastern University Human-centered AI lab. Are you ready to start today's questions?"))
         messages.append(("user", "Yes, I am ready."))
@@ -532,6 +544,7 @@ def generate_conversation_logs_cmd():
         question_map = {
             "breath":      "Are you having difficulty breathing or feeling short of breath?",
             "chest":       "Are you experiencing any chest pain, pressure, or discomfort?",
+            "fatigue":     "Have you been feeling unusually tired, weak, or fatigued?",
             "palpitation": "Have you felt like your heart is racing, pounding, fluttering, or skipping beats?",
             "swelling":    "Have you noticed any new or worsening swelling, particularly in your legs, ankles, or feet?",
             "syncope":     "Have you fainted, passed out, or felt very dizzy like you might pass out?",
@@ -550,6 +563,7 @@ def generate_conversation_logs_cmd():
                     messages.append(("assistant", "On a scale of 1 to 10, with 10 being the most difficult, how would you rate it?"))
                     messages.append(("user", "About a 4."))
                     extracted_symptoms_other.append("shortness of breath (4/10)")
+                    symptom_scales[CONV_TO_SYMPTOM[item]] = 4
                 elif item == "chest":
                     messages.append(("user", "Yes, I feel some pressure."))
                     messages.append(("assistant", "I'm sorry to hear that. Can you describe where you feel the pain and what it feels like?"))
@@ -557,6 +571,12 @@ def generate_conversation_logs_cmd():
                     messages.append(("assistant", "On a scale of 1 to 10, how would you rate your chest discomfort?"))
                     messages.append(("user", "It's a 3, not too bad."))
                     extracted_symptoms_chest = "left side dull ache (3/10)"
+                    symptom_scales[CONV_TO_SYMPTOM[item]] = 3
+                elif item == "fatigue":
+                    messages.append(("user", "Yes, I have felt more tired today."))
+                    messages.append(("assistant", "Can you tell me more? Is it affecting your normal daily activities?"))
+                    messages.append(("user", "I feel tired after basic tasks."))
+                    extracted_symptoms_other.append("fatigue)")
                 elif item == "palpitation":
                     messages.append(("user", "Yes, sometimes."))
                     messages.append(("assistant", "How often are you noticing this, and when did it start?"))
@@ -568,8 +588,6 @@ def generate_conversation_logs_cmd():
                     messages.append(("user", "Yes, my ankles look puffy."))
                     messages.append(("assistant", "Tell me more about the swelling. Is it in one leg or both?"))
                     messages.append(("user", "Both ankles."))
-                    messages.append(("assistant", "On a scale of 1 to 10, how would you rate it?"))
-                    messages.append(("user", "Maybe a 2."))
                     extracted_symptoms_other.append("swelling in ankles")
                 elif item == "syncope":
                     messages.append(("user", "Yes, I felt dizzy earlier."))
@@ -582,6 +600,8 @@ def generate_conversation_logs_cmd():
                 symptom_msg_indices[CONV_TO_SYMPTOM[item]] = list(range(q_idx, len(messages)))
             else:
                 messages.append(("user", "No."))
+                # Even when the patient denies the symptom, record the Q+A as logs
+                symptom_msg_indices[CONV_TO_SYMPTOM[item]] = list(range(q_idx, len(messages)))
 
         messages.append(("assistant", "Is there anything else you'd like to comment on that I haven't asked about?"))
         messages.append(("user", "No, that's all."))
@@ -593,6 +613,7 @@ def generate_conversation_logs_cmd():
         return {
             "messages": messages,
             "symptom_msg_indices": symptom_msg_indices,
+            "symptom_scales": symptom_scales,
             "active_symptoms": [CONV_TO_SYMPTOM[k] for k in active_symptoms],
             "skipped_symptoms": [CONV_TO_SYMPTOM[k] for k in skipped],
             "chain_of_thoughts": cot_simulation,
@@ -604,16 +625,21 @@ def generate_conversation_logs_cmd():
         from .symptoms import symptom_descriptions
         print("Generating conversation logs for all patients...")
         patients = Patient.query.all()
+        # Rebuild logs from scratch to avoid duplicated/misaligned history.
+        ConversationLog.query.delete()
+        db.session.flush()
 
+        now_naive = datetime.now(EASTERN_TZ).replace(tzinfo=None)
         for patient in patients:
-            for i in range(5):
-                log_date = datetime.now() - timedelta(days=4 - i)
+            for i in range(10):
+                log_date = now_naive - timedelta(days=9 - i)
                 day_start = log_date.replace(hour=0, minute=0, second=0, microsecond=0)
                 day_end = day_start + timedelta(days=1)
 
                 log_data = simulate_conversation()
                 messages = log_data["messages"]
                 symptom_msg_indices = log_data["symptom_msg_indices"]
+                symptom_scales = log_data["symptom_scales"]
                 active_symptoms = log_data["active_symptoms"]
                 skipped_symptoms = log_data["skipped_symptoms"]
                 cot = log_data["chain_of_thoughts"]
@@ -622,8 +648,17 @@ def generate_conversation_logs_cmd():
 
                 # Insert messages and keep object references to get IDs after flush
                 log_objects = []
+                minute_cursor = random.randint(8 * 60, 10 * 60)
                 for idx, (role, content) in enumerate(messages):
                     is_last = idx == len(messages) - 1
+                    # Keep strict chronological order so UI never shows role-order inversions.
+                    if idx > 0:
+                        minute_cursor += random.randint(2, 4)
+                    minute_of_day = min(minute_cursor, 23 * 60 + 59)
+                    msg_time = day_start + timedelta(
+                        minutes=minute_of_day,
+                        seconds=min(idx * 2, 59),
+                    )
                     log = ConversationLog(
                         patient_id=patient.id,
                         role=role,
@@ -631,7 +666,7 @@ def generate_conversation_logs_cmd():
                         chain_of_thoughts=cot if is_last else None,
                         symptoms_chest=symptoms_chest if is_last else None,
                         symptoms_other=symptoms_other if is_last else None,
-                        date=log_date,
+                        date=msg_time,
                     )
                     db.session.add(log)
                     log_objects.append(log)
@@ -643,21 +678,44 @@ def generate_conversation_logs_cmd():
                 summary = Summary.query.filter_by(patient_id=patient.id).filter(
                     Summary.date >= day_start, Summary.date < day_end
                 ).first()
+                if summary is None:
+                    summary = Summary(patient_id=patient.id, date=day_start, read=0)
+                    for symptom_name in symptom_descriptions:
+                        setattr(summary, f"{symptom_name}_state", 0)
+                        setattr(summary, f"{symptom_name}_logs", "[]")
+                        if symptom_descriptions[symptom_name].get("likert", False):
+                            setattr(summary, f"{symptom_name}_scale", 0)
+                    db.session.add(summary)
+                    db.session.flush()
                 if summary:
+                    all_log_ids = [obj.id for obj in log_objects]
                     for symptom_name in symptom_descriptions:
                         if symptom_name in ("heart_rate", "respiration"):
-                            continue  # wearable — driven by MongoDB, leave as-is
+                            # Allow colored wearable dots to navigate to same-day conversation logs.
+                            setattr(summary, f"{symptom_name}_logs", json.dumps(all_log_ids))
+                            continue
                         if symptom_name in skipped_symptoms:
                             setattr(summary, f"{symptom_name}_state", 0)
                             setattr(summary, f"{symptom_name}_logs", "[]")
+                            if symptom_descriptions[symptom_name].get("likert", False):
+                                setattr(summary, f"{symptom_name}_scale", 0)
                         elif symptom_name in active_symptoms:
                             indices = symptom_msg_indices.get(symptom_name, [])
                             log_ids = [log_objects[idx].id for idx in indices if idx < len(log_objects)]
                             setattr(summary, f"{symptom_name}_state", 2)
                             setattr(summary, f"{symptom_name}_logs", json.dumps(log_ids))
+                            if symptom_descriptions[symptom_name].get("likert", False):
+                                scale_val = int(symptom_scales.get(symptom_name, 0) or 0)
+                                scale_val = max(1, min(10, scale_val)) if scale_val > 0 else 0
+                                setattr(summary, f"{symptom_name}_scale", scale_val)
                         else:
+                            # Discussed but symptom not present (patient answered "No.")
+                            indices = symptom_msg_indices.get(symptom_name, [])
+                            log_ids = [log_objects[idx].id for idx in indices if idx < len(log_objects)]
                             setattr(summary, f"{symptom_name}_state", 1)
-                            setattr(summary, f"{symptom_name}_logs", "[]")
+                            setattr(summary, f"{symptom_name}_logs", json.dumps(log_ids))
+                            if symptom_descriptions[symptom_name].get("likert", False):
+                                setattr(summary, f"{symptom_name}_scale", 0)
                     db.session.add(summary)
 
         db.session.commit()
@@ -987,54 +1045,48 @@ def create_med_admin_executions_cmd(patients_limit, seed, clear_existing):
 
 @app.cli.command("generate-notes")
 def generate_notes_cmd():
-    """Generates AI notes and structured doctor notes with clinical narrative details."""
+    """Generates structured doctor-authored notes only."""
     with app.app_context():
-        print("Generating notes for patients...")
+        print("Generating user notes for patients...")
         patients = Patient.query.all()
         users = User.query.all()
         if not users:
             print("No users found. Please create a user first with 'flask create-user'.")
             return
+        # Only regenerate user-authored notes; keep AI notes managed by generate-ai-summaries.
+        Note.query.filter_by(creator_type="user").delete()
+        db.session.flush()
 
-        ai_summaries = [
-            "AI Summary: Wearable data shows elevated heart rate and occasional palpitations. Patient reported shortness of breath during activity.",
-            "AI Summary: Stable respiration and heart rate overnight. Conversational log indicates mild swelling in ankles; no syncope reported.",
-            "AI Summary: Patient reported chest discomfort (3/10). Heart rate variability slightly reduced. Recommend clinical review.",
-            "AI Summary: All wearable metrics within normal range. No symptoms reported in today's check-in.",
-            "AI Summary: Fatigue and palpitations noted in conversation log. Wearable shows intermittent elevated HR. Monitor closely.",
-            "AI Summary: Overnight resting heart rate slightly elevated versus baseline; patient reports no severe symptoms.",
-            "AI Summary: Respiration trend stable with mild daytime variability; continue routine monitoring.",
-            "AI Summary: Wearable stress index increased in afternoon; patient advised hydration and paced activity.",
-            "AI Summary: Brief tachycardia episodes during movement, resolved at rest; no syncope signals detected.",
-            "AI Summary: Multi-day trend shows overall stable cardiopulmonary pattern with intermittent mild symptom reports.",
-        ]
-        now = datetime.utcnow().replace(hour=8, minute=0, second=0, microsecond=0)
+        now_naive = datetime.now(EASTERN_TZ).replace(tzinfo=None)
+        now = now_naive.replace(hour=8, minute=0, second=0, microsecond=0)
         created_rows = []
         for patient in patients:
-            # 1 AI note per day for past 10 days
-            for days_ago in range(9, -1, -1):
-                day = now - timedelta(days=days_ago)
-                ai_note = Note(
-                    patient_id=patient.id,
-                    user_id=None,
-                    creator_type="ai",
-                    content=ai_summaries[9 - days_ago],
-                    created_at=day,
-                )
-                db.session.add(ai_note)
-
             admissions = AdmissionHistory.query.filter_by(patient_id=patient.id).order_by(AdmissionHistory.admission_date).all()
-            meds = Medication.query.filter_by(patient_id=patient.id).order_by(Medication.start_date.desc()).all()
+            summary_days = (
+                Summary.query.filter_by(patient_id=patient.id)
+                .order_by(Summary.date.asc())
+                .all()
+            )
+            valid_days = [
+                s.date.replace(hour=0, minute=0, second=0, microsecond=0)
+                for s in summary_days
+                if s.date and (now_naive - s.date.replace(hour=0, minute=0, second=0, microsecond=0)).days <= 9
+            ]
+            if not valid_days:
+                valid_days = [
+                    now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=d)
+                    for d in range(9, -1, -1)
+                ]
 
             # 3~8 random user notes spread across admission periods
             for _ in range(random.randint(3, 8)):
-                if admissions:
-                    target_adm = random.choice(admissions)
-                    base_date = target_adm.admission_date + timedelta(days=random.randint(0, max(0, (target_adm.discharge_date or now) .date().toordinal() - target_adm.admission_date.date().toordinal())))
-                    note_time = base_date.replace(hour=random.randint(9, 20), minute=random.randint(0, 59), second=0, microsecond=0)
-                else:
-                    days_ago = random.randint(0, 4)
-                    note_time = now - timedelta(days=days_ago, hours=random.randint(1, 10))
+                base_day = random.choice(valid_days)
+                note_time = base_day.replace(
+                    hour=random.randint(9, 20),
+                    minute=random.randint(0, 59),
+                    second=0,
+                    microsecond=0,
+                )
 
                 same_day_admission = None
                 for adm in admissions:
@@ -1056,7 +1108,215 @@ def generate_notes_cmd():
                 created_rows.append(user_note)
         db.session.commit()
         _print_created_stats("doctor_notes", created_rows)
-        print("Notes generated successfully.")
+        print("User notes generated successfully.")
+
+
+@app.cli.command("generate-ai-summaries")
+def generate_ai_summaries_cmd():
+    """Regenerates AI notes for the latest 10 report days per patient."""
+    with app.app_context():
+        from .symptoms import symptom_descriptions
+
+        def build_fallback_ai_summary(summary):
+            if summary is None:
+                return "AI Summary: No conversation or wearable records available for today."
+
+            active_parts = []
+            for symptom_name, symptom_meta in symptom_descriptions.items():
+                if symptom_name in ("heart_rate", "respiration"):
+                    continue
+                state_val = int(getattr(summary, f"{symptom_name}_state", 0) or 0)
+                if state_val < 2:
+                    continue
+                label = symptom_meta.get("display_name", symptom_name.replace("_", " ").title())
+                if symptom_meta.get("likert", False):
+                    scale_val = int(getattr(summary, f"{symptom_name}_scale", 0) or 0)
+                    if scale_val > 0:
+                        active_parts.append(f"{label} ({scale_val}/10)")
+                        continue
+                active_parts.append(label)
+
+            wearable_parts = []
+            hr = getattr(summary, "heart_rate_average", None)
+            resp = getattr(summary, "respiration_average", None)
+            hrv = getattr(summary, "hrv_average", None)
+            if hr is not None:
+                wearable_parts.append(f"HR avg {round(float(hr), 1)} bpm")
+            if resp is not None:
+                wearable_parts.append(f"Resp avg {round(float(resp), 1)} bpm")
+            if hrv is not None:
+                wearable_parts.append(f"HRV avg {round(float(hrv), 1)} ms")
+
+            if active_parts and wearable_parts:
+                return f"AI Summary: Reported symptoms: {', '.join(active_parts)}. Wearable overview: {', '.join(wearable_parts)}."
+            if active_parts:
+                return f"AI Summary: Reported symptoms: {', '.join(active_parts)}."
+            if wearable_parts:
+                return f"AI Summary: Wearable overview: {', '.join(wearable_parts)}."
+            return "AI Summary: No significant symptoms reported today; continue routine monitoring."
+
+        def et_day_window_to_utc(day_start_naive):
+            day_end_naive = day_start_naive + timedelta(days=1)
+            start_utc = (
+                day_start_naive.replace(tzinfo=EASTERN_TZ)
+                .astimezone(timezone.utc)
+                .replace(tzinfo=None)
+            )
+            end_utc = (
+                day_end_naive.replace(tzinfo=EASTERN_TZ)
+                .astimezone(timezone.utc)
+                .replace(tzinfo=None)
+            )
+            return start_utc, end_utc
+
+        print("Regenerating AI summaries for latest 10 days...")
+        patients = Patient.query.all()
+        Note.query.filter_by(creator_type="ai").delete()
+        db.session.flush()
+
+        now_naive = datetime.now(EASTERN_TZ).replace(tzinfo=None)
+        generated_count = 0
+        fallback_count = 0
+
+        for patient in patients:
+            summary_days = (
+                Summary.query.filter_by(patient_id=patient.id)
+                .order_by(Summary.date.asc())
+                .all()
+            )
+            valid_days = [
+                s.date.replace(hour=0, minute=0, second=0, microsecond=0)
+                for s in summary_days
+                if s.date and (now_naive - s.date.replace(hour=0, minute=0, second=0, microsecond=0)).days <= 9
+            ]
+            valid_days = sorted(set(valid_days))
+            if len(valid_days) > 10:
+                valid_days = valid_days[-10:]
+            if not valid_days:
+                valid_days = [
+                    now_naive.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=d)
+                    for d in range(9, -1, -1)
+                ]
+
+            for day_start in valid_days:
+                note_window_start, note_window_end = et_day_window_to_utc(day_start)
+                day_end = day_start + timedelta(days=1)
+                try:
+                    _generate_ai_note_for_patient(patient.id, day_start)
+                except Exception as e:
+                    print(f"  AI generation skipped for patient {patient.id} {day_start.date()}: {e}")
+
+                existing = (
+                    Note.query.filter_by(patient_id=patient.id, creator_type="ai")
+                    .filter(Note.created_at >= note_window_start, Note.created_at < note_window_end)
+                    .first()
+                )
+                if existing is None:
+                    summary = (
+                        Summary.query.filter_by(patient_id=patient.id)
+                        .filter(Summary.date >= day_start, Summary.date < day_end)
+                        .first()
+                    )
+                    db.session.add(
+                        Note(
+                            patient_id=patient.id,
+                            user_id=None,
+                            creator_type="ai",
+                            content=build_fallback_ai_summary(summary),
+                            created_at=(
+                                day_start.replace(hour=20, minute=0, second=0, microsecond=0)
+                                .replace(tzinfo=EASTERN_TZ)
+                                .astimezone(timezone.utc)
+                                .replace(tzinfo=None)
+                            ),
+                        )
+                    )
+                    fallback_count += 1
+                generated_count += 1
+
+        db.session.commit()
+        print(f"AI summaries generated for {generated_count} patient-day rows.")
+        if fallback_count:
+            print(f"Fallback AI summaries used: {fallback_count}")
+
+
+@app.cli.command("sync-today-ai-summaries")
+def sync_today_ai_summaries_cmd():
+    """Create today's AI note at ET midnight and refresh it when data is available."""
+    with app.app_context():
+        day_start = datetime.now(EASTERN_TZ).replace(
+            hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+        )
+        day_end = day_start + timedelta(days=1)
+        note_window_start = (
+            day_start.replace(tzinfo=EASTERN_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+        )
+        note_window_end = (
+            day_end.replace(tzinfo=EASTERN_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+        )
+        note_time = (
+            day_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            .replace(tzinfo=EASTERN_TZ)
+            .astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
+        placeholder = "AI Summary: No valid conversation or wearable data available for today."
+
+        print(f"Syncing AI summaries for {day_start.date()}...")
+        patients = Patient.query.all()
+        created = 0
+        updated = 0
+        refreshed = 0
+
+        for patient in patients:
+            existing = (
+                Note.query.filter_by(patient_id=patient.id, creator_type="ai")
+                .filter(Note.created_at >= note_window_start, Note.created_at < note_window_end)
+                .first()
+            )
+            if existing is None:
+                db.session.add(
+                    Note(
+                        patient_id=patient.id,
+                        user_id=None,
+                        creator_type="ai",
+                        content=placeholder,
+                        created_at=note_time,
+                    )
+                )
+                created += 1
+            else:
+                if not (existing.content or "").strip():
+                    existing.content = placeholder
+                    existing.created_at = note_time
+                    updated += 1
+
+            has_logs = (
+                ConversationLog.query.filter_by(patient_id=patient.id)
+                .filter(ConversationLog.date >= day_start, ConversationLog.date < day_end)
+                .count()
+                > 0
+            )
+            summary = (
+                Summary.query.filter_by(patient_id=patient.id)
+                .filter(Summary.date >= day_start, Summary.date < day_end)
+                .first()
+            )
+            has_wearable = False
+            if summary is not None:
+                has_wearable = any(
+                    getattr(summary, field, None) is not None
+                    for field in ("heart_rate_average", "respiration_average", "hrv_average")
+                )
+
+            if has_logs or has_wearable:
+                _generate_ai_note_for_patient(patient.id, day_start)
+                refreshed += 1
+
+        db.session.commit()
+        print(f"Created placeholders: {created}")
+        print(f"Updated empty placeholders: {updated}")
+        print(f"Refreshed from data: {refreshed}")
 
 
 @app.cli.command("seed-clinical-details")

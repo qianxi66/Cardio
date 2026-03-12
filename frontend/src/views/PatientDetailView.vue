@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import type { DrawerPlacement } from "naive-ui";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
+import CircleProgress from "@/components/CircleProgress.vue";
 import { markSymptomRead, updateSummarySymptomState, updateNote, createNote, deleteNote } from "@/api/patient";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
@@ -30,9 +31,49 @@ const loading = ref(true);
 const wearableLoading = ref(false);
 const cancelToken = ref<CancelTokenSource | null>(null);
 const dailySummaryDate = ref<number | null>(Date.now());
+const DEFAULT_TIMEZONE = "America/New_York";
+
+const toDateKey = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${pick("year")}-${pick("month")}-${pick("day")}`;
+};
+
+const toDateTimeLabel = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
+};
+
+const pickerDateKey = (value: number | null): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return format(date, "yyyy-MM-dd");
+};
+
+const timestampFromDateKey = (key: string): number | null => {
+  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(dt.getTime()) ? null : dt.getTime();
+};
+
 const wearableDate = computed(() => {
-  if (!dailySummaryDate.value) return format(new Date(), "yyyy-MM-dd");
-  return format(new Date(dailySummaryDate.value), "yyyy-MM-dd");
+  return pickerDateKey(dailySummaryDate.value) || format(new Date(), "yyyy-MM-dd");
 });
 const dayOverviewScrollEl = ref<HTMLElement | null>(null);
 const didAutoScrollDayOverview = ref(false);
@@ -114,18 +155,25 @@ const nextAppointmentDate = computed(() => {
   return formatPatientDate(value ?? null);
 });
 
+const truncateToTwoLineApprox = (text: string, charsPerLine = 45) => {
+  const normalized = (text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const maxChars = charsPerLine * 2;
+  if (normalized.length <= maxChars) return normalized;
+  const sliced = normalized.slice(0, maxChars);
+  return `${sliced.replace(/[\s,.;:]+$/u, "")}...`;
+};
+
 const aiSummaryBody = computed(() => {
   const notes = patient.value?.notes ?? [];
-  const selectedDate = dailySummaryDate.value ? new Date(dailySummaryDate.value) : null;
-  if (!selectedDate || Number.isNaN(selectedDate.getTime())) {
-    return { body: "no data for this date", time: "" };
+  const selectedKey = pickerDateKey(dailySummaryDate.value);
+  if (!selectedKey) {
+    return { body: "no data for this date", time: "", createdBy: "" };
   }
-  const selectedKey = dateKey(selectedDate);
 
   const match = notes
     .filter((note: any) => {
-      const created = parseDateValue(note.created_at);
-      return created ? dateKey(created) === selectedKey : false;
+      return noteDateKeyET(note.created_at) === selectedKey;
     })
     .sort((a: any, b: any) => {
       const at = parseDateValue(a.created_at)?.getTime() ?? 0;
@@ -134,14 +182,20 @@ const aiSummaryBody = computed(() => {
     })[0];
 
   if (!match?.content?.trim()) {
-    return { body: "no data for this date", time: "" };
+    return { body: "no data for this date", time: "", createdBy: "" };
   }
   const createdAt = parseDateValue(match.created_at);
   const isAi = String(match.creator_type || "").toLowerCase() === "ai";
   const rawBody = match.content.trim();
-  const body = isAi ? stripAiSummaryPrefix(rawBody) : rawBody;
-  const time = createdAt ? format(createdAt, "yyyy-MM-dd HH:mm") : "";
-  return { body, time };
+  const bodyFull = isAi ? stripAiSummaryPrefix(rawBody) : rawBody;
+  const body = truncateToTwoLineApprox(bodyFull);
+  const time = createdAt ? toDateTimeLabel(createdAt) : "";
+  const createdBy = isAi
+    ? "AI"
+    : (match.created_by as string | undefined) ||
+      (match.user?.username as string | undefined) ||
+      "User";
+  return { body, time, createdBy };
 });
 
 type DailySummaryEditableRow = {
@@ -163,7 +217,7 @@ const dailySummaryRows = computed<DailySummaryEditableRow[]>(() => {
       const created = parseDateValue(note.created_at);
       const createdAtMs = created?.getTime() ?? 0;
       const isAi = String(note.creator_type || "").toLowerCase() === "ai";
-      const dateLabel = created ? format(created, "yyyy-MM-dd HH:mm") : "--";
+      const dateLabel = created ? toDateTimeLabel(created) : "--";
       const creatorLabel =
         (isAi && "AI") ||
         (note.created_by as string | undefined) ||
@@ -357,7 +411,7 @@ watch(
     loading.value = false;
     // Fetch MongoDB wearable coverage asynchronously — does not block patient info display
     const coverageDates = summaries.value
-      .map((s) => { const p = parseDateValue(s.date); return p ? dateKey(p) : null; })
+      .map((s) => summaryDateKey(s.date))
       .filter((d): d is string => d !== null);
     if (coverageDates.length) {
       wearableLoading.value = true;
@@ -415,16 +469,30 @@ const parseDateValue = (value?: string | Date) => {
 
 const dateKey = (value: Date) => format(value, "yyyy-MM-dd");
 
+const summaryDateKey = (value?: string | Date): string | null => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
+  const parsed = parseDateValue(value);
+  return parsed ? format(parsed, "yyyy-MM-dd") : null;
+};
+
+const noteDateKeyET = (value?: string | Date): string | null => {
+  const parsed = parseDateValue(value);
+  return parsed ? toDateKey(parsed) : null;
+};
+
 const summaryForDate = computed(() => {
   if (!summaries.value.length) {
     return null;
   }
-  const target = dailySummaryDate.value ? new Date(dailySummaryDate.value) : null;
-  if (target) {
-    const targetKey = dateKey(target);
+  const targetKey = pickerDateKey(dailySummaryDate.value);
+  if (targetKey) {
     const match = summaries.value.find((summary) => {
-      const parsed = parseDateValue(summary.date);
-      return parsed ? dateKey(parsed) === targetKey : false;
+      const key = summaryDateKey(summary.date);
+      return key ? key === targetKey : false;
     });
     if (match) {
       return match;
@@ -463,9 +531,8 @@ const dotStateForSymptom = (
   if (!summary) return 0;
   const currentState = symptomState(summary, symptomKey);
   if (currentState > 0) return currentState;
-  const parsed = parseDateValue(summary.date);
-  if (!parsed) return 0;
-  const key = dateKey(parsed);
+  const key = summaryDateKey(summary.date);
+  if (!key) return 0;
   const cov = wearableCoverage.value[key];
   return cov ? 1 : 0;
 };
@@ -498,28 +565,26 @@ const handleDayOverviewDotStateChange = async (
 };
 
 const dayOverviewSymptoms = [
-  { key: "syncope",         display_name: "Syncope",     description: "Fainting or Syncope",            wearable: false },
-  { key: "palpitation",     display_name: "Palps",       description: "Heart Palpitations",             wearable: false },
-  { key: "short_of_breath", display_name: "Breath",      description: "Shortness of Breath (Dyspnea)",  wearable: false },
-  { key: "chest_discomfort",display_name: "Chest",       description: "Chest Discomfort or Pain",       wearable: false },
-  { key: "swelling",        display_name: "Swelling",    description: "Swelling (Edema)",               wearable: false },
-  { key: "heart_rate",      display_name: "Heart Rate",  description: "Heart Rate",                     wearable: true  },
-  { key: "respiration",     display_name: "Resp",        description: "Respiration Rate",               wearable: true  },
+  { key: "syncope",         display_name: "Syncope",     description: "Fainting or Syncope",            wearable: false, likert: false, color: "#eb4c44" },
+  { key: "palpitation",     display_name: "Palps",       description: "Heart Palpitations",             wearable: false, likert: false, color: "#f9d965" },
+  { key: "short_of_breath", display_name: "Breath",      description: "Shortness of Breath (Dyspnea)",  wearable: false, likert: true,  color: "#eb4c44" },
+  { key: "chest_discomfort",display_name: "Chest",       description: "Chest Discomfort or Pain",       wearable: false, likert: true,  color: "#eb4c44" },
+  { key: "fatigue",         display_name: "Fatigue",     description: "Fatigue or Tiredness",           wearable: false, likert: false, color: "#f9d965" },
+  { key: "swelling",        display_name: "Swelling",    description: "Swelling (Edema)",               wearable: false, likert: false, color: "#f9d965" },
+  { key: "heart_rate",      display_name: "HR",  description: "Heart Rate",                     wearable: true,  likert: false, color: "#4bbfd1" },
+  { key: "respiration",     display_name: "Resp",        description: "Respiration Rate",               wearable: true,  likert: false, color: "#ffb700" },
 ];
 
 const dayOverviewRows = computed(() => {
-  const selectedKey = dailySummaryDate.value
-    ? dateKey(new Date(dailySummaryDate.value))
-    : null;
+  const selectedKey = pickerDateKey(dailySummaryDate.value);
   return summaries.value
     .map((summary) => {
-      const parsed = parseDateValue(summary.date);
-      const summaryKey = parsed ? dateKey(parsed) : null;
+      const summaryKey = summaryDateKey(summary.date);
       return {
         id: summary.id,
         summary,
-        timestamp: parsed ? parsed.getTime() : null,
-        dateLabel: parsed ? format(parsed, "yyyy-MM-dd") : "--",
+        timestamp: summaryKey ? timestampFromDateKey(summaryKey) : null,
+        dateLabel: summaryKey || "--",
         isSelected: !!selectedKey && !!summaryKey && selectedKey === summaryKey,
       };
     })
@@ -534,7 +599,15 @@ const isDayOverviewDotArmed = (rowId: number, symptomKey: string) =>
   armedDayOverviewDotKey.value === getDayOverviewDotKey(rowId, symptomKey);
 
 const dayOverviewRowHasData = (summary: Summary | null): boolean => {
-  return dayOverviewSymptoms.some((symptom) => symptomState(summary, symptom.key) !== 0);
+  return dayOverviewSymptoms.some((symptom) => dotStateForSymptom(summary, symptom.key, symptom.wearable) !== 0);
+};
+
+const getSymptomScale = (summary: Summary | null, symptomKey: string): number => {
+  if (!summary) return 0;
+  const value = (summary as Record<string, unknown>)[`${symptomKey}_scale`];
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (Number.isNaN(parsed) || parsed <= 0) return 0;
+  return Math.min(10, Math.max(1, parsed));
 };
 
 const isSummaryRead = (summary: Summary | null): boolean => {
@@ -915,7 +988,12 @@ watch(loading, () => nextTick(updateConnectors));
             </div>
             <div class="ai-summary-body">
               <span class="ai-summary-body-text">{{ aiSummaryBody.body }}</span>
-              <span class="ai-summary-body-time">{{ aiSummaryBody.time }}</span>
+              <span class="ai-summary-body-meta">
+                <span class="ai-summary-body-time">{{ aiSummaryBody.time }}</span>
+                <span class="ai-summary-body-created-by" v-if="aiSummaryBody.createdBy">
+                  Created by {{ aiSummaryBody.createdBy }}
+                </span>
+              </span>
             </div>
           </div>
           <div class="day-overview-table">
@@ -950,7 +1028,24 @@ watch(loading, () => nextTick(updateConnectors));
                   :class="{ clickable: true, 'dot-armed': isDayOverviewDotArmed(row.id, symptom.key) }"
                   @click.stop="handleDayOverviewDotClick(row, symptom)"
                 >
+                  <CircleProgress
+                    v-if="symptom.likert"
+                    class="day-overview-dot-gauge"
+                    :percent="getSymptomScale(row.summary, symptom.key) * 10"
+                    :color="symptom.color"
+                    :id="`${row.id}-${symptom.key}`"
+                  >
+                    <Dot
+                      :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
+                      :isRead="(row.summary as any)?.read ?? 0"
+                      :variant="'circle'"
+                      :editable="isDayOverviewDotArmed(row.id, symptom.key)"
+                      @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
+                      :loading="symptom.wearable && wearableLoading"
+                    />
+                  </CircleProgress>
                   <Dot
+                    v-else
                     :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
                     :isRead="(row.summary as any)?.read ?? 0"
                     :variant="'circle'"
@@ -1881,19 +1976,30 @@ watch(loading, () => nextTick(updateConnectors));
   overflow: hidden;
 }
 .ai-summary-body-text {
-  flex: 0 1 74%;
+  flex: 1 1 74%;
+  min-width: 0;
   padding-left: 6px;
-  padding-bottom: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  padding-bottom: 0;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .ai-summary-body-time {
-  flex: 0 0 auto;
   white-space: nowrap;
   color: #666;
+}
+.ai-summary-body-meta {
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.ai-summary-body-created-by {
+  color: #666;
+  white-space: nowrap;
+  font-size: 12px;
 }
 .day-overview-table {
   flex: 1 1 0;
@@ -1944,7 +2050,7 @@ watch(loading, () => nextTick(updateConnectors));
   overflow: auto;
 }
 .day-overview-row {
-  height: 36px;
+  height: 45px;
   cursor: pointer;
   background: #ffffff;
 }
@@ -1960,6 +2066,17 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .day-overview-row .date.date-unread {
   font-weight: 700;
+}
+.day-overview-dot-gauge {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -2px;
+}
+.day-overview-dot-gauge :deep(.content) {
+  transform: translateX(-50%) translateY(60%);
 }
 .day-overview-empty {
   height: 100%;

@@ -146,15 +146,17 @@ const logsForDate = computed(() => {
     return [];
   }
   const target = conversationDate.value ? new Date(conversationDate.value) : null;
-  if (target) {
-    const targetKey = dateKey(target);
-    const matches = conversationLogs.value.filter((log) => {
-      const parsed = parseDateValue(log.date);
-      return parsed ? dateKey(parsed) === targetKey : false;
-    });
-    return matches;
-  }
-  return conversationLogs.value;
+  const logs = target
+    ? conversationLogs.value.filter((log) => {
+        const parsed = parseDateValue(log.date);
+        return parsed ? dateKey(parsed) === dateKey(target) : false;
+      })
+    : [...conversationLogs.value];
+  return logs.sort((a, b) => {
+    const ta = parseDateValue(a.date)?.getTime() ?? 0;
+    const tb = parseDateValue(b.date)?.getTime() ?? 0;
+    return ta - tb;
+  });
 });
 
 const emptyLogsMessage = computed(() => {

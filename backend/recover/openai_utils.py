@@ -36,12 +36,37 @@ def gpt_inference(client, messages, stop=None, model=None, **argv):
     model = model or _model
     kwargs = dict(messages=messages, model=model, stop=stop, **argv)
     if use_azure_openai:
+        # Prefer chat.completions first; fallback to responses API if deployment requires it.
+        kwargs.pop("response_format", None)
+        kwargs.pop("extra_body", None)
         kwargs.pop("max_tokens", None)
-        kwargs["extra_body"] = {"max_completion_tokens": 512}
+        kwargs.setdefault("max_completion_tokens", 2048)
     else:
         kwargs.setdefault("max_tokens", 512)
-    response = client.chat.completions.create(**kwargs)
-    return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(**kwargs)
+        return response.choices[0].message.content
+    except Exception as exc:
+        if not use_azure_openai or "Unsupported parameter: 'messages'" not in str(exc):
+            raise
+        # Responses API fallback for Azure deployments that do not accept `messages`.
+        req = {"model": model, "input": messages}
+        stop_tokens = kwargs.get("stop")
+        if stop_tokens:
+            req["stop"] = stop_tokens
+        response_format = argv.get("response_format")
+        if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+            req["text"] = {"format": {"type": "json_object"}}
+        response = client.responses.create(**req)
+        if getattr(response, "output_text", None):
+            return response.output_text
+        output = getattr(response, "output", None) or []
+        for item in output:
+            for content in getattr(item, "content", []) or []:
+                text = getattr(content, "text", None)
+                if text:
+                    return text
+        return ""
 
 
 def conversation(messages, wearable_data=None, recent_reports_summaries=None):

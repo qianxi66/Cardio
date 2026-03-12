@@ -50,15 +50,6 @@ const toDateKey = (value: unknown, timeZone = DEFAULT_TIMEZONE): string | null =
 const getSummaryDateKey = (summary: Summary): string | null =>
   toDateKey(summary.date, DEFAULT_TIMEZONE);
 
-const getLatestSummaryDateKey = (summaries: Summary[]): string | null => {
-  const keys = summaries
-    .map((summary) => getSummaryDateKey(summary))
-    .filter((key): key is string => !!key)
-    .sort();
-  if (!keys.length) return null;
-  return keys[keys.length - 1];
-};
-
 const getMaxNonWearableSeverityForDate = (
   summaries: Summary[],
   dateKey: string,
@@ -81,12 +72,13 @@ const getPatientSeverity = async (patient: Patient): Promise<number> => {
   const summaries = (patient.summaries ?? []) as Summary[];
   if (!summaries.length) return 0;
 
-  const todayKey = toDateKey(new Date(), DEFAULT_TIMEZONE);
-  const latestKey = getLatestSummaryDateKey(summaries);
-  const targetDateKey = todayKey && summaries.some((s) => getSummaryDateKey(s) === todayKey)
-    ? todayKey
-    : latestKey;
-  if (!targetDateKey) return 0;
+  // Use the latest summary date for this patient (dataset "today"),
+  // and only consider that day's most severe state.
+  const dateKeys = summaries
+    .map((s) => getSummaryDateKey(s))
+    .filter((k): k is string => !!k);
+  if (!dateKeys.length) return 0;
+  const targetDateKey = dateKeys.reduce((max, cur) => (cur > max ? cur : max), dateKeys[0]);
 
   let maxSeverity = getMaxNonWearableSeverityForDate(summaries, targetDateKey);
   try {
@@ -117,10 +109,10 @@ const filteredPatients = computed(() => {
   if (searchTerm.value) {
     const term = searchTerm.value.toLowerCase();
     result = result.filter(
-      (p) =>
-        (p.participant_id && p.participant_id.toLowerCase().includes(term)) ||
-        (p.age && p.age.toString().includes(term)) ||
-        (p.gender && p.gender.toLowerCase().includes(term)),
+      (p) => {
+        const name = (p.name || p.users?.[0]?.name || "").toLowerCase();
+        return name.includes(term);
+      },
     );
   }
 
@@ -220,7 +212,7 @@ watch(patients, (list) => {
         <div class="filterpart">
           <n-input
             v-model:value="searchTerm"
-            placeholder="Search by Participant ID"
+            placeholder="Search by Patient Name"
             @keydown.esc="searchTerm = ''"
             clearable
           >

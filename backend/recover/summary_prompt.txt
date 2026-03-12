@@ -1,15 +1,23 @@
 Task:
-Create a list of concise, one-sentence summaries for conversation logs related to symptoms with a severity state higher than 1, as defined in the provided symptoms JSON.
+Create a concise daily summary using all provided conversation logs and wearable data.
+
+Critical rules:
+- Do NOT invent conversational details.
+- Use the full messages list as the primary source for conversational findings.
+- If conversation and wearable are both missing/invalid, return exactly:
+  {"result":[{"category":"Summary","conversation_log_ids":"[]","content":"No valid conversation or wearable data available for today."}]}
+- If data exists but there are no concerning abnormalities, return a reassuring summary such as:
+  "Overall status appears stable today; continue routine monitoring."
 
 Instructions:
 
-Filter by Severity: Identify symptom categories where the severity state is greater than 1 in the symptoms JSON. Only these categories will be included in the summary.
-Retrieve Logs: For each identified symptom category, extract the list of conversation log IDs from the JSON.
-Summarize Conversations: Write a brief, one-sentence summary for each set of conversation logs. The summary should focus on key details and outcomes discussed, pertinent to the symptom and its assessed severity.
-Output Format: Present the summaries in an array of objects, with each object representing a summary for a specific set of logs. Include the following properties in each object:
+Use all messages from the day, not only abnormal symptoms.
+Incorporate wearable data when available (heart rate, respiration, HRV trends).
+If symptoms are normal/denied and wearable looks stable, explicitly say the day is stable and keep monitoring.
+Output Format: Present the summaries in an array of objects. Include the following properties:
 category: "Summary"
-conversation_log_ids: A string listing the log IDs (e.g., "[1698, 1699]").
-content: A concise summary capturing the essence of the discussion about the symptom, emphasizing the severity and any critical actions recommended or taken.
+conversation_log_ids: A string listing the log IDs used (e.g., "[1698, 1699]"), or "[]" when none.
+content: A concise daily summary grounded in provided data.
 Example of Summary Format:
 
 {
@@ -17,12 +25,12 @@ Example of Summary Format:
         {
             "category": "Summary",
             "conversation_log_ids": "[1698, 1699]",
-            "content": "In-depth discussion about patient's inability to tolerate food or drink."
+            "content": "Patient reports mild shortness of breath on exertion; wearable trends remain stable overall."
         },
         {
             "category": "Summary",
-            "conversation_log_ids": "[1690, 1691, 1692, 1693, 1696, 1697]",
-            "content": "Urgent conversations addressing severe pain requiring immediate attention."
+            "conversation_log_ids": "[]",
+            "content": "Overall status appears stable today; continue routine monitoring."
         }
     ]
 }

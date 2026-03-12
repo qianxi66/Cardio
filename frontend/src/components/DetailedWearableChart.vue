@@ -94,6 +94,7 @@ let nowMarkerInterval: ReturnType<typeof setInterval> | null = null;
 
 const DEFAULT_TIMEZONE = "America/New_York";
 const ALERT_COLOR = "#eb4c44";
+const ALERT_BG_COLOR = "#fddcdc";
 const TOOLTIP_NORMAL_COLOR = "#808080";
 
 const getTimeZone = (win?: { timezone?: string } | null) => win?.timezone || DEFAULT_TIMEZONE;
@@ -318,21 +319,58 @@ const isAlertValue = (seriesName: string, value: number | null): boolean => {
 const splitSeriesByAlert = (seriesName: string, data: Array<number | null>) => {
   const normal: Array<number | null> = [];
   const alert: Array<number | null> = [];
-  data.forEach((value) => {
+  data.forEach((value, index) => {
     if (value === null || value === undefined || !Number.isFinite(value)) {
       normal.push(null);
       alert.push(null);
       return;
     }
-    if (isAlertValue(seriesName, value)) {
+    const isAlert = isAlertValue(seriesName, value);
+    if (isAlert) {
       normal.push(null);
       alert.push(value);
+      // keep line visually continuous when switching from normal -> alert
+      if (index > 0 && normal[index - 1] !== null && alert[index - 1] === null) {
+        alert[index - 1] = data[index - 1];
+      }
       return;
     }
     normal.push(value);
     alert.push(null);
+    // keep line visually continuous when switching from alert -> normal
+    if (index > 0 && alert[index - 1] !== null && normal[index - 1] === null) {
+      normal[index - 1] = data[index - 1];
+    }
   });
   return { normal, alert };
+};
+
+const getAlertIntervals = () => {
+  const total = times.value.length;
+  if (total === 0) return [] as Array<{ startIndex: number; endIndex: number }>;
+  const combined = Array.from({ length: total }, () => false);
+  seriesDefs.value.forEach((series) => {
+    // Use rendered alert series (with pivot points) so markArea aligns with visible red line.
+    const split = splitSeriesByAlert(series.name, series.data);
+    for (let i = 0; i < total; i += 1) {
+      if (split.alert[i] !== null && split.alert[i] !== undefined) {
+        combined[i] = true;
+      }
+    }
+  });
+  const intervals: Array<{ startIndex: number; endIndex: number }> = [];
+  let start = -1;
+  for (let i = 0; i < total; i += 1) {
+    if (combined[i] && start < 0) {
+      start = i;
+    }
+    if ((!combined[i] || i === total - 1) && start >= 0) {
+      const endIndex = combined[i] && i === total - 1 ? i : i - 1;
+      intervals.push({ startIndex: start, endIndex });
+      start = -1;
+    }
+  }
+  return intervals;
 };
 
 const getTooltipValue = (raw: unknown): number | null => {
@@ -580,6 +618,10 @@ const getTooltipPosition = (
 
 const buildOption = (): echarts.EChartsOption => {
   const isDense24h = times.value.length > 50;
+  const alertMarkAreaData = getAlertIntervals().map((segment) => {
+    // Keep boundaries on actual alert points to avoid trailing +15min offset.
+    return [{ xAxis: segment.startIndex }, { xAxis: segment.endIndex }];
+  });
   return {
   grid: {
     left: 0,
@@ -729,7 +771,29 @@ const buildOption = (): echarts.EChartsOption => {
       axisTick: { show: false },
     },
   ],
-  series: seriesDefs.value.flatMap((series) => {
+  series: [
+    {
+      name: "Alert Background",
+      type: "line",
+      yAxisIndex: 0,
+      data: [],
+      showSymbol: false,
+      symbol: "none",
+      lineStyle: { opacity: 0 },
+      itemStyle: { opacity: 0 },
+      silent: true,
+      tooltip: { show: false },
+      markArea: {
+        silent: true,
+        itemStyle: {
+          color: ALERT_BG_COLOR,
+          opacity: 0.75,
+        },
+        data: alertMarkAreaData,
+      },
+      z: 0,
+    },
+    ...seriesDefs.value.flatMap((series) => {
     const isActive = getSeriesSelected(series.name);
     const data = isActive ? series.data : [];
     const split = splitSeriesByAlert(series.name, data);
@@ -772,7 +836,8 @@ const buildOption = (): echarts.EChartsOption => {
         z: 3,
       },
     ];
-  }),
+    }),
+  ],
   };
 };
 
