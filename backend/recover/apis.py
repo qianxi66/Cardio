@@ -57,6 +57,28 @@ EASTERN_TZ = ZoneInfo("America/New_York")
 _shared_mongo_client = None
 
 
+def _lookup_patient_by_alexa_identity(identity: str) -> Patient | None:
+    raw = (identity or "").strip()
+    if not raw:
+        return None
+    # Primary binding: patient.email (case-insensitive).
+    patient = Patient.query.filter(Patient.email.ilike(raw)).first()
+    if patient is not None:
+        return patient
+    # Legacy binding: patient.alexa_user_id
+    patient = Patient.query.filter_by(alexa_user_id=raw).first()
+    if patient is not None:
+        return patient
+    # Optional fallback: local-part can match participant_id
+    if "@" in raw:
+        local = raw.split("@", 1)[0].strip()
+        if local:
+            patient = Patient.query.filter_by(participant_id=local).first()
+            if patient is not None:
+                return patient
+    return None
+
+
 def _cache_get(key):
     entry = api_response_cache.get(key)
     if not entry:
@@ -604,6 +626,7 @@ def create_patient():
             age=data.get("age"),
             gender=data.get("gender"),
             EHR_id=data.get("EHR_id") or data.get("ehr_id"),
+            email=data.get("email"),
             alexa_user_id=data.get("alexa_user_id"),
             participant_id=data.get("participant_id"),
             garmin_id=data.get("garmin_id"),
@@ -1111,6 +1134,7 @@ def get_patient_wearable_timeseries(id):
         series = {
             "heart_rate": [],
             "respiration": [],
+            "spo2": [],
             "heart_rate_variability": [],
         }
 
@@ -1119,6 +1143,7 @@ def get_patient_wearable_timeseries(id):
         if not participant_id:
             series["heart_rate"] = [None] * len(labels)
             series["respiration"] = [None] * len(labels)
+            series["spo2"] = [None] * len(labels)
             series["heart_rate_variability"] = [None] * len(labels)
             payload = {
                 "times": labels,
@@ -1137,6 +1162,7 @@ def get_patient_wearable_timeseries(id):
         if client is None:
             series["heart_rate"] = [None] * len(labels)
             series["respiration"] = [None] * len(labels)
+            series["spo2"] = [None] * len(labels)
             series["heart_rate_variability"] = [None] * len(labels)
             payload = {
                 "times": labels,
@@ -1153,47 +1179,6 @@ def get_patient_wearable_timeseries(id):
 
         try:
             db2 = client["study_db"]
-            has_hr = _mongo_has_any(
-                participant_id,
-                "garmin_hr",
-                start_ts,
-                end_ts,
-                db_name="study_db",
-                id_field="uid",
-            )
-            has_resp = _mongo_has_any(
-                participant_id,
-                "garmin_respiration",
-                start_ts,
-                end_ts,
-                db_name="study_db",
-                id_field="uid",
-            )
-            has_ibi = _mongo_has_any(
-                participant_id,
-                "garmin_ibi",
-                start_ts,
-                end_ts,
-                db_name="study_db",
-                id_field="uid",
-            )
-            if not (has_hr or has_resp or has_ibi):
-                series["heart_rate"] = [None] * len(labels)
-                series["respiration"] = [None] * len(labels)
-                series["heart_rate_variability"] = [None] * len(labels)
-                payload = {
-                    "times": labels,
-                    "series": series,
-                    "window": {
-                        "start_ts": start_ts,
-                        "end_ts": end_ts,
-                        "timezone": "America/New_York",
-                    },
-                    "date": day_key,
-                }
-                _cache_set(cache_key, payload)
-                return finalize(dict(payload))
-
             hr_map = _aggregate_avg_by_bin(
                 db2,
                 participant_id,
@@ -1223,15 +1208,72 @@ def get_patient_wearable_timeseries(id):
                 time_field="timestamp",
                 value_field="bbi",
             )
+            spo2_candidates = [
+                ("garmin_spo2", "spo2"),
+                ("garmin_spo2", "oxygen_saturation"),
+                ("garmin_pulse_ox", "spo2"),
+                ("garmin_pulse_ox", "oxygen_saturation"),
+                ("garmin_hr", "spo2"),
+                ("garmin_hr", "oxygen_saturation"),
+                ("garmin_respiration", "spo2"),
+                ("garmin_respiration", "oxygen_saturation"),
+                ("garmin_stress", "spo2"),
+                ("garmin_stress", "oxygen_saturation"),
+            ]
+            spo2_map = {}
+            for collection_name, value_field in spo2_candidates:
+                try:
+                    cur_map = _aggregate_avg_by_bin(
+                        db2,
+                        participant_id,
+                        collection_name,
+                        start_ts,
+                        end_ts,
+                        bin_seconds,
+                        value_field,
+                        min_value=0,
+                    )
+                except Exception:
+                    continue
+                for bucket, value in cur_map.items():
+                    if not isinstance(value, (int, float)) or not math.isfinite(value):
+                        continue
+                    # Keep physiologically plausible SpO2 range only.
+                    if value < 50 or value > 100:
+                        continue
+                    if bucket not in spo2_map:
+                        spo2_map[bucket] = value
+
+            has_any_series = bool(hr_map or resp_map or hrv_map or spo2_map)
+            if not has_any_series:
+                series["heart_rate"] = [None] * len(labels)
+                series["respiration"] = [None] * len(labels)
+                series["spo2"] = [None] * len(labels)
+                series["heart_rate_variability"] = [None] * len(labels)
+                payload = {
+                    "times": labels,
+                    "series": series,
+                    "window": {
+                        "start_ts": start_ts,
+                        "end_ts": end_ts,
+                        "timezone": "America/New_York",
+                    },
+                    "date": day_key,
+                }
+                _cache_set(cache_key, payload)
+                return finalize(dict(payload))
+
             for i in range(len(labels)):
                 bin_start = start_ts + i * bin_seconds
                 if end_ts <= bin_start:
                     series["heart_rate"].append(None)
                     series["respiration"].append(None)
+                    series["spo2"].append(None)
                     series["heart_rate_variability"].append(None)
                     continue
                 series["heart_rate"].append(hr_map.get(i * bin_seconds))
                 series["respiration"].append(resp_map.get(i * bin_seconds))
+                series["spo2"].append(spo2_map.get(i * bin_seconds))
                 series["heart_rate_variability"].append(hrv_map.get(i * bin_seconds))
         finally:
             client.close()
@@ -1477,6 +1519,28 @@ def get_wearable_coverage(id):
                     **base_query,
                     "bbi": {"$type": "number", "$gt": 0},
                 }
+                spo2_queries = [
+                    {**base_query, "spo2": {"$type": "number", "$gt": 50, "$lte": 100}},
+                    {
+                        **base_query,
+                        "oxygen_saturation": {"$type": "number", "$gt": 50, "$lte": 100},
+                    },
+                ]
+                spo2_sources = [
+                    "garmin_spo2",
+                    "garmin_pulse_ox",
+                    "garmin_hr",
+                    "garmin_respiration",
+                    "garmin_stress",
+                ]
+                has_spo2 = False
+                for source in spo2_sources:
+                    if has_spo2:
+                        break
+                    for q in spo2_queries:
+                        if mongo_db[source].find_one(q, {"_id": 1}) is not None:
+                            has_spo2 = True
+                            break
                 has_data = (
                     mongo_db["garmin_hr"].find_one(hr_query, {"_id": 1}) is not None
                     or mongo_db["garmin_respiration"].find_one(
@@ -1484,6 +1548,7 @@ def get_wearable_coverage(id):
                     )
                     is not None
                     or mongo_db["garmin_ibi"].find_one(ibi_query, {"_id": 1}) is not None
+                    or has_spo2
                 )
                 coverage[date_str] = has_data
             except Exception:
@@ -1771,7 +1836,7 @@ def get_week_boundaries(date):
 @current_app.route("/alexa_user/<alexa_user_id>/conversation", methods=["POST"])
 @api_key_required
 def create_conversation_log(alexa_user_id):
-    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    patient = _lookup_patient_by_alexa_identity(alexa_user_id)
     if patient is None:
         return jsonify({"message": "Patient not found."}), 404
 
@@ -1794,7 +1859,8 @@ def create_conversation_log(alexa_user_id):
     
     if patient.participant_id:
         # Try to get data from cache first
-        cached_data = get_cached_wearable_data(patient.alexa_user_id)
+        cache_identity = patient.alexa_user_id or alexa_user_id
+        cached_data = get_cached_wearable_data(cache_identity)
         if cached_data is not None:
             wearable_data = cached_data
             print("Using cached wearable data")
@@ -1843,9 +1909,9 @@ def create_conversation_log(alexa_user_id):
                     wearable_data["last_week"]["week_end"] = last_week_end.strftime("%Y-%m-%d")
                 
                 # Store the fetched data in cache
-                set_cached_wearable_data(patient.alexa_user_id, wearable_data)
+                set_cached_wearable_data(cache_identity, wearable_data)
                 print("Wearable data fetched and cached")
-                current_app.logger.info(f"Wearable data fetched and cached for {patient.alexa_user_id} from {today} to {yesterday}")
+                current_app.logger.info(f"Wearable data fetched and cached for {cache_identity} from {today} to {yesterday}")
                 current_app.logger.info(f"Wearable data in conversation: {wearable_data}")
                 
             except Exception as e:
@@ -1937,7 +2003,14 @@ def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
     # to UTC-naive before persisting/querying Note.created_at.
     day_start_et = day_start.replace(tzinfo=EASTERN_TZ)
     day_end_et = day_end.replace(tzinfo=EASTERN_TZ)
-    note_time_et = day_start_et.replace(hour=20, minute=0, second=0, microsecond=0)
+    now_et = datetime.now(EASTERN_TZ).replace(microsecond=0)
+    # Use real generation time; only clamp into the ET day window for backfill safety.
+    if now_et < day_start_et:
+        note_time_et = day_start_et
+    elif now_et >= day_end_et:
+        note_time_et = day_end_et - timedelta(seconds=1)
+    else:
+        note_time_et = now_et
     note_time = note_time_et.astimezone(timezone.utc).replace(tzinfo=None)
     note_window_start = day_start_et.astimezone(timezone.utc).replace(tzinfo=None)
     note_window_end = day_end_et.astimezone(timezone.utc).replace(tzinfo=None)
@@ -2012,7 +2085,6 @@ def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
         )
         if existing:
             existing.content = content
-            existing.created_at = note_time
         else:
             db.session.add(Note(
                 patient_id=patient_id,
@@ -2055,7 +2127,6 @@ def _generate_ai_note_for_patient(patient_id: int, day_start: datetime):
     )
     if existing:
         existing.content = content
-        existing.created_at = note_time
     else:
         db.session.add(Note(
             patient_id=patient_id,
@@ -2125,7 +2196,7 @@ def process_patient_summary(patient_id, target_date):
 
 def session_end_hook(alexa_user_id):
     with app.app_context():
-        patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+        patient = _lookup_patient_by_alexa_identity(alexa_user_id)
         if patient is None:
             return
         process_patient_summary(patient.id, datetime.utcnow())
@@ -2134,7 +2205,7 @@ def session_end_hook(alexa_user_id):
 @current_app.route("/alexa_user/<alexa_user_id>/session_end", methods=["POST"])
 @api_key_required
 def session_end(alexa_user_id):
-    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    patient = _lookup_patient_by_alexa_identity(alexa_user_id)
     if patient is None:
         return jsonify({"message": "Patient not found."}), 404
     Thread(target=session_end_hook, args=(alexa_user_id,)).start()
@@ -2145,7 +2216,7 @@ def session_end(alexa_user_id):
 @current_app.route("/alexa_user/<alexa_user_id>/last_message", methods=["GET"])
 @api_key_required
 def get_last_message(alexa_user_id):
-    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    patient = _lookup_patient_by_alexa_identity(alexa_user_id)
     if patient is None:
         return jsonify({"message": "Patient not found."}), 404
     messages = (

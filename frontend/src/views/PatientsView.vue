@@ -7,30 +7,29 @@ import { ref, watch, computed, provide, onMounted } from "vue";
 import { useRouteParams } from "@vueuse/router";
 import { type Patient, type Summary } from "@/api/types";
 import router from "@/router";
-import { NCard, NInput } from "naive-ui";
+import { NCard, NInput, NScrollbar } from "naive-ui";
 
 const patients = ref<Patient[] | null>(null);
 const loading = ref(true);
 const searchTerm = ref("");
 const patient_id = useRouteParams<number>("patient_id");
 const DEFAULT_TIMEZONE = "America/New_York";
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const patientListScrollbarThemeOverrides = {
+  width: "8px",
+};
 
 const dailySymptomKeys = [
   "syncope",
   "palpitation",
   "short_of_breath",
   "chest_discomfort",
+  "fatigue",
   "swelling",
-  "heart_rate",
-  "respiration",
 ];
 
-const toDateKey = (value: unknown, timeZone = DEFAULT_TIMEZONE): string | null => {
+const toEtDateKey = (value: unknown, timeZone = DEFAULT_TIMEZONE): string | null => {
   if (!value) return null;
-  if (typeof value === "string") {
-    const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`;
-  }
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) return null;
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -47,8 +46,20 @@ const toDateKey = (value: unknown, timeZone = DEFAULT_TIMEZONE): string | null =
   return `${y}-${m}-${d}`;
 };
 
-const getSummaryDateKey = (summary: Summary): string | null =>
-  toDateKey(summary.date, DEFAULT_TIMEZONE);
+const summaryDateKey = (value: unknown): string | null => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    // Treat summary date as calendar date (not moment-in-time).
+    const datePrefix = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (datePrefix) return `${datePrefix[1]}-${datePrefix[2]}-${datePrefix[3]}`;
+  }
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return null;
+  // Use UTC calendar components to avoid local/system timezone drift.
+  return `${parsed.getUTCFullYear()}-${pad2(parsed.getUTCMonth() + 1)}-${pad2(parsed.getUTCDate())}`;
+};
+
+const getSummaryDateKey = (summary: Summary): string | null => summaryDateKey(summary.date);
 
 const getMaxNonWearableSeverityForDate = (
   summaries: Summary[],
@@ -70,20 +81,17 @@ const getMaxNonWearableSeverityForDate = (
 
 const getPatientSeverity = async (patient: Patient): Promise<number> => {
   const summaries = (patient.summaries ?? []) as Summary[];
-  if (!summaries.length) return 0;
+  const targetDateKey = toEtDateKey(new Date(), DEFAULT_TIMEZONE);
+  if (!targetDateKey) return 0;
 
-  // Use the latest summary date for this patient (dataset "today"),
-  // and only consider that day's most severe state.
-  const dateKeys = summaries
-    .map((s) => getSummaryDateKey(s))
-    .filter((k): k is string => !!k);
-  if (!dateKeys.length) return 0;
-  const targetDateKey = dateKeys.reduce((max, cur) => (cur > max ? cur : max), dateKeys[0]);
-
-  let maxSeverity = getMaxNonWearableSeverityForDate(summaries, targetDateKey);
+  const todaySummaries = summaries.filter((summary) => getSummaryDateKey(summary) === targetDateKey);
+  let maxSeverity = todaySummaries.length
+    ? getMaxNonWearableSeverityForDate(todaySummaries, targetDateKey)
+    : 0;
   try {
     const wearableCoverage = await getWearableCoverage(patient.id, [targetDateKey]);
-    if (wearableCoverage?.[targetDateKey]) {
+    const hasWearableData = !!wearableCoverage?.[targetDateKey];
+    if (hasWearableData) {
       maxSeverity = Math.max(maxSeverity, 1);
     }
   } catch {
@@ -224,54 +232,66 @@ watch(patients, (list) => {
         :has-data="filteredPatients.length !== 0"
         class="patient-list"
       >
-        <div
-          :class="{
-            'patient-card': true,
-            selected: p.id == patient_id,
-            read: p.read,
-          }"
-          v-for="p in filteredPatients"
-          :key="p.id"
+        <n-scrollbar
+          class="patient-list-scrollbar"
+          trigger="hover"
+          :theme-overrides="patientListScrollbarThemeOverrides"
         >
-          <div class="dot-holder">
-            <Dot :state="p.state" :is-read="1" variant="circle"></Dot>
-          </div>
-          <component
-            :is="p.id == patient_id ? 'div' : 'router-link'"
-            :to="{
-              name: 'patient.detail',
-              params: { patient_id: p.id },
+          <div
+            :class="{
+              'patient-card': true,
+              selected: p.id == patient_id,
+              read: p.read,
             }"
-            class="patient-info"
+            v-for="p in filteredPatients"
+            :key="p.id"
           >
-            <div class="name">
-              {{ p.name || p.users?.[0]?.name || "n/a" }}
-            </div>
-            <div class="age-sex">
-              <span v-if="p.age">{{ p.age }} y.o.</span>
-              <span v-if="p.age && p.gender"> , </span>
-              <span v-if="p.gender">{{ p.gender }}</span>
-            </div>
-          </component>
-        </div>
-        <template #loading>
-          <div class="patient-card" v-for="i in 10" :key="i">
             <div class="dot-holder">
-              <Dot loading variant="circle"></Dot>
+              <Dot :state="p.state" :is-read="1" variant="circle"></Dot>
             </div>
-            <div class="patient-info">
-              <n-skeleton
-                class="name"
-                text
-                style="width: 100px; height: 22px"
-              />
-              <n-skeleton
-                class="age-sex"
-                text
-                style="width: 70px; margin-top: 3px"
-              />
-            </div>
+            <component
+              :is="p.id == patient_id ? 'div' : 'router-link'"
+              :to="{
+                name: 'patient.detail',
+                params: { patient_id: p.id },
+              }"
+              class="patient-info"
+            >
+              <div class="name">
+                {{ p.name || p.users?.[0]?.name || "n/a" }}
+              </div>
+              <div class="age-sex">
+                <span v-if="p.age">{{ p.age }} y.o.</span>
+                <span v-if="p.age && p.gender"> , </span>
+                <span v-if="p.gender">{{ p.gender }}</span>
+              </div>
+            </component>
           </div>
+        </n-scrollbar>
+        <template #loading>
+          <n-scrollbar
+            class="patient-list-scrollbar"
+            trigger="hover"
+            :theme-overrides="patientListScrollbarThemeOverrides"
+          >
+            <div class="patient-card" v-for="i in 10" :key="i">
+              <div class="dot-holder">
+                <Dot loading variant="circle"></Dot>
+              </div>
+              <div class="patient-info">
+                <n-skeleton
+                  class="name"
+                  text
+                  style="width: 100px; height: 22px"
+                />
+                <n-skeleton
+                  class="age-sex"
+                  text
+                  style="width: 70px; margin-top: 3px"
+                />
+              </div>
+            </div>
+          </n-scrollbar>
         </template>
       </Loading>
     </n-card>
@@ -288,8 +308,8 @@ watch(patients, (list) => {
   flex-wrap: nowrap;
   justify-content: space-between;
   min-height: 30px;
-  margin-bottom: 8px;
-  margin-top: 14px;
+  margin-bottom: 12px;
+  margin-top: 10px;
 }
 .title {
   flex-grow: 1;
@@ -320,10 +340,22 @@ watch(patients, (list) => {
 }
 .n-card:deep(.n-card__content) {
   padding: 0 0 0 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-gutter: stable;
+  overflow: hidden;
   background-color: #ffffff;
+}
+.patient-list:deep(.n-spin-container),
+.patient-list:deep(.n-spin-content) {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.patient-list-scrollbar {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.patient-list-scrollbar:deep(.n-scrollbar-rail--vertical) {
+  right: 0 !important;
 }
 .filterpart {
   margin-left: 0;
@@ -394,9 +426,11 @@ a {
   text-decoration: none;
 }
 .patient-card.selected {
-  border: 2px solid #808080;
+  /* outline does not affect layout box; negative offset draws inward like an inset ring */
+  outline: 2px solid #808080;
+  outline-offset: -2px;
   background-color: transparent;
   cursor: default;
-  margin-right: 2px;
+  margin-right: 0;
 }
 </style>

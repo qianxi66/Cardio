@@ -83,6 +83,7 @@ export type WearableTimeSeries = {
   series: {
     heart_rate: Array<number | null>;
     respiration: Array<number | null>;
+    spo2?: Array<number | null>;
     heart_rate_variability: Array<number | null>;
   };
   window: {

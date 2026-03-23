@@ -1,5 +1,5 @@
 <script setup lang="tsx">
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import ColoredCard from "@/components/ColoredCard.vue";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import { useRouteParams, useRouteQuery } from "@vueuse/router";
@@ -64,6 +64,8 @@ watch(selectedDate, (value) => {
 });
 
 const conversationRefs = ref<Record<number, HTMLElement | null>>({});
+const isRefreshingLogs = ref(false);
+const logsRefreshTimer = ref<number | null>(null);
 const setLogRef = (el: unknown, id: number) => {
   if (el instanceof HTMLElement) {
     conversationRefs.value[id] = el;
@@ -83,6 +85,8 @@ const scrollToLogs = () => {
 const patient_id = useRouteParams("patient_id");
 const conversationLogs = ref<ConversationLog[]>([]);
 const loading = ref(true);
+const DEFAULT_TIMEZONE = "America/New_York";
+const pad2 = (n: number) => String(n).padStart(2, "0");
 
 const parseDateValue = (value?: string | Date) => {
   if (!value) {
@@ -95,28 +99,82 @@ const parseDateValue = (value?: string | Date) => {
   return parsed;
 };
 
+const toDateKey = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${pick("year")}-${pick("month")}-${pick("day")}`;
+};
+
+const calendarDateKey = (value: Date): string => {
+  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+};
+
 const formatLogTime = (value?: string | Date) => {
   const parsed = parseDateValue(value);
   if (!parsed) return "--";
-  return format(parsed, "yyyy-MM-dd hh:mm a").toLowerCase();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: DEFAULT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(parsed);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  const hour = pick("hour");
+  const minute = pick("minute");
+  const dayPeriod = pick("dayPeriod").toLowerCase();
+  return `${pick("year")}-${pick("month")}-${pick("day")} ${hour}:${minute} ${dayPeriod}`;
 };
 
-const dateKey = (value: Date) => format(value, "yyyy-MM-dd");
+const loadConversationLogs = async (showLoading = true) => {
+  if (!patient_id.value) {
+    conversationLogs.value = [];
+    loading.value = false;
+    return;
+  }
+  if (isRefreshingLogs.value) return;
+  isRefreshingLogs.value = true;
+  try {
+    if (showLoading) {
+      loading.value = true;
+    }
+    const id = parseInt(patient_id.value as string, 10);
+    conversationLogs.value = (await getConversationLogs(id)) ?? [];
+  } finally {
+    if (showLoading) {
+      loading.value = false;
+    }
+    isRefreshingLogs.value = false;
+  }
+};
 
 watch(
   patient_id,
   async () => {
-    if (!patient_id.value) {
-      conversationLogs.value = [];
-      return;
-    }
-    loading.value = true;
-    const id = parseInt(patient_id.value as string);
-    conversationLogs.value = (await getConversationLogs(id)) ?? [];
-    loading.value = false;
+    await loadConversationLogs(true);
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  logsRefreshTimer.value = window.setInterval(() => {
+    void loadConversationLogs(false);
+  }, 15000);
+});
+
+onBeforeUnmount(() => {
+  if (logsRefreshTimer.value !== null) {
+    window.clearInterval(logsRefreshTimer.value);
+    logsRefreshTimer.value = null;
+  }
+});
 
 const patientIdParam = computed(() => {
   const raw = patient_id.value;
@@ -131,8 +189,10 @@ const selectedSeries = ref<Record<string, boolean>>({
   "Heart Rate Variability": true,
 });
 const wearableDate = computed(() => {
-  if (!conversationDate.value) return format(new Date(), "yyyy-MM-dd");
-  return format(new Date(conversationDate.value), "yyyy-MM-dd");
+  if (!conversationDate.value) return calendarDateKey(new Date());
+  const selected = new Date(conversationDate.value);
+  if (Number.isNaN(selected.getTime())) return calendarDateKey(new Date());
+  return calendarDateKey(selected);
 });
 const toggleSeries = (name: string) => {
   selectedSeries.value = {
@@ -146,10 +206,13 @@ const logsForDate = computed(() => {
     return [];
   }
   const target = conversationDate.value ? new Date(conversationDate.value) : null;
+  const targetKey = target && !Number.isNaN(target.getTime())
+    ? toDateKey(target, DEFAULT_TIMEZONE)
+    : null;
   const logs = target
     ? conversationLogs.value.filter((log) => {
         const parsed = parseDateValue(log.date);
-        return parsed ? dateKey(parsed) === dateKey(target) : false;
+        return parsed && targetKey ? toDateKey(parsed, DEFAULT_TIMEZONE) === targetKey : false;
       })
     : [...conversationLogs.value];
   return logs.sort((a, b) => {
@@ -164,7 +227,7 @@ const emptyLogsMessage = computed(() => {
   if (!target || Number.isNaN(target.getTime())) {
     return "No conversation logs";
   }
-  return `No conversation logs for ${format(target, "yyyy-MM-dd")}`;
+  return `No conversation logs for ${calendarDateKey(target)}`;
 });
 
 // Keyword patterns for symptom-based conversation log highlighting

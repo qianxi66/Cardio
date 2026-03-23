@@ -266,7 +266,7 @@ def create_patients_cmd():
                 "next_appointment_date": now + timedelta(days=30),
             },
             {
-                "name": "Menglin Zhao", "age": 55, "gender": "Female",
+                "name": "James Carter", "age": 55, "gender": "Female",
                 "ehr_id": "EHR-005", "alexa_user_id": "alexa-005",
                 "participant_id": "test005", "garmin_id": "garmin-005",
                 "cancer_type": "Ovarian Cancer",
@@ -277,7 +277,7 @@ def create_patients_cmd():
                 "next_appointment_date": now + timedelta(days=10),
             },
             {
-                "name": "James Carter", "age": 63, "gender": "Male",
+                "name": "Menglin Zhao", "age": 63, "gender": "Male",
                 "ehr_id": "EHR-006", "alexa_user_id": "alexa-006",
                 "participant_id": "test006", "garmin_id": "garmin-006",
                 "cancer_type": "Liver Cancer",
@@ -288,7 +288,7 @@ def create_patients_cmd():
                 "next_appointment_date": now + timedelta(days=9),
             },
             {
-                "name": "Grace Taylor", "age": 41, "gender": "Female",
+                "name": "Weidan Cao", "age": 41, "gender": "Female",
                 "ehr_id": "EHR-007", "alexa_user_id": "alexa-007",
                 "participant_id": "test007", "garmin_id": "garmin-007",
                 "cancer_type": "Thyroid Cancer",
@@ -299,7 +299,7 @@ def create_patients_cmd():
                 "next_appointment_date": now + timedelta(days=16),
             },
             {
-                "name": "Henry Walker", "age": 68, "gender": "Male",
+                "name": "Changchang Yin", "age": 68, "gender": "Male",
                 "ehr_id": "EHR-008", "alexa_user_id": "alexa-008",
                 "participant_id": "test008", "garmin_id": "garmin-008",
                 "cancer_type": "Kidney Cancer",
@@ -310,7 +310,7 @@ def create_patients_cmd():
                 "next_appointment_date": now + timedelta(days=11),
             },
             {
-                "name": "Ava Martinez", "age": 34, "gender": "Female",
+                "name": "Pengqi Wang", "age": 34, "gender": "Female",
                 "ehr_id": "EHR-009", "alexa_user_id": "alexa-009",
                 "participant_id": "test009", "garmin_id": "garmin-009",
                 "cancer_type": "Leukemia",
@@ -333,13 +333,28 @@ def create_patients_cmd():
             },
         ]
 
+        email_by_participant = {
+            "test001": "test001@cardio.local",
+            "test002": "test002@cardio.local",
+            "test003": "test003@cardio.local",
+            "test004": "test004@cardio.local",
+            "test005": "test005@cardio.local",
+            "test006": "zhao.mengl@northeastern.edu",
+            "test007": "test007@cardio.local",
+            "test008": "test008@cardio.local",
+            "test009": "wang.19883@osu.edu",
+            "test010": "test010@cardio.local",
+        }
+
         for data in patient_data:
+            patient_email = email_by_participant.get(data["participant_id"])
             patient = Patient(
                 name=data["name"],
                 age=data["age"],
                 gender=data["gender"],
                 EHR_id=data["ehr_id"],
-                alexa_user_id=data["alexa_user_id"],
+                email=patient_email,
+                alexa_user_id=patient_email or data["alexa_user_id"],
                 participant_id=data["participant_id"],
                 garmin_id=data["garmin_id"],
                 cancer_type=data["cancer_type"],
@@ -691,8 +706,8 @@ def generate_conversation_logs_cmd():
                     all_log_ids = [obj.id for obj in log_objects]
                     for symptom_name in symptom_descriptions:
                         if symptom_name in ("heart_rate", "respiration"):
-                            # Allow colored wearable dots to navigate to same-day conversation logs.
-                            setattr(summary, f"{symptom_name}_logs", json.dumps(all_log_ids))
+                            # Wearable-only symptoms should not bind to conversation logs.
+                            setattr(summary, f"{symptom_name}_logs", "[]")
                             continue
                         if symptom_name in skipped_symptoms:
                             setattr(summary, f"{symptom_name}_state", 0)
@@ -701,7 +716,7 @@ def generate_conversation_logs_cmd():
                                 setattr(summary, f"{symptom_name}_scale", 0)
                         elif symptom_name in active_symptoms:
                             indices = symptom_msg_indices.get(symptom_name, [])
-                            log_ids = [log_objects[idx].id for idx in indices if idx < len(log_objects)]
+                            log_ids = [log_objects[idx].id for idx in indices if idx < len(log_objects)] or all_log_ids
                             setattr(summary, f"{symptom_name}_state", 2)
                             setattr(summary, f"{symptom_name}_logs", json.dumps(log_ids))
                             if symptom_descriptions[symptom_name].get("likert", False):
@@ -711,7 +726,7 @@ def generate_conversation_logs_cmd():
                         else:
                             # Discussed but symptom not present (patient answered "No.")
                             indices = symptom_msg_indices.get(symptom_name, [])
-                            log_ids = [log_objects[idx].id for idx in indices if idx < len(log_objects)]
+                            log_ids = [log_objects[idx].id for idx in indices if idx < len(log_objects)] or all_log_ids
                             setattr(summary, f"{symptom_name}_state", 1)
                             setattr(summary, f"{symptom_name}_logs", json.dumps(log_ids))
                             if symptom_descriptions[symptom_name].get("likert", False):
@@ -1169,6 +1184,18 @@ def generate_ai_summaries_cmd():
             )
             return start_utc, end_utc
 
+        def et_note_time_to_utc(day_start_naive):
+            day_start_et = day_start_naive.replace(tzinfo=EASTERN_TZ)
+            day_end_et = (day_start_naive + timedelta(days=1)).replace(tzinfo=EASTERN_TZ)
+            now_et = datetime.now(EASTERN_TZ).replace(microsecond=0)
+            if now_et < day_start_et:
+                note_time_et = day_start_et
+            elif now_et >= day_end_et:
+                note_time_et = day_end_et - timedelta(seconds=1)
+            else:
+                note_time_et = now_et
+            return note_time_et.astimezone(timezone.utc).replace(tzinfo=None)
+
         print("Regenerating AI summaries for latest 10 days...")
         patients = Patient.query.all()
         Note.query.filter_by(creator_type="ai").delete()
@@ -1223,12 +1250,7 @@ def generate_ai_summaries_cmd():
                             user_id=None,
                             creator_type="ai",
                             content=build_fallback_ai_summary(summary),
-                            created_at=(
-                                day_start.replace(hour=20, minute=0, second=0, microsecond=0)
-                                .replace(tzinfo=EASTERN_TZ)
-                                .astimezone(timezone.utc)
-                                .replace(tzinfo=None)
-                            ),
+                            created_at=et_note_time_to_utc(day_start),
                         )
                     )
                     fallback_count += 1
@@ -1255,8 +1277,8 @@ def sync_today_ai_summaries_cmd():
             day_end.replace(tzinfo=EASTERN_TZ).astimezone(timezone.utc).replace(tzinfo=None)
         )
         note_time = (
-            day_start.replace(hour=0, minute=0, second=0, microsecond=0)
-            .replace(tzinfo=EASTERN_TZ)
+            datetime.now(EASTERN_TZ)
+            .replace(microsecond=0)
             .astimezone(timezone.utc)
             .replace(tzinfo=None)
         )
@@ -1288,7 +1310,6 @@ def sync_today_ai_summaries_cmd():
             else:
                 if not (existing.content or "").strip():
                     existing.content = placeholder
-                    existing.created_at = note_time
                     updated += 1
 
             has_logs = (

@@ -345,6 +345,9 @@ const splitSeriesByAlert = (seriesName: string, data: Array<number | null>) => {
   return { normal, alert };
 };
 
+const countNonNullPoints = (data: Array<number | null>) =>
+  data.reduce((acc, value) => (value === null || value === undefined ? acc : acc + 1), 0);
+
 const getAlertIntervals = () => {
   const total = times.value.length;
   if (total === 0) return [] as Array<{ startIndex: number; endIndex: number }>;
@@ -404,6 +407,7 @@ const applySeriesData = (payload?: WearableTimeSeries) => {
   const seriesMap: Record<string, Array<number | null>> = {
     "Heart Rate": payload.series?.heart_rate ?? [],
     Respiration: payload.series?.respiration ?? [],
+    SpO2: payload.series?.spo2 ?? [],
     "Heart Rate Variability": payload.series?.heart_rate_variability ?? [],
   };
 
@@ -797,6 +801,10 @@ const buildOption = (): echarts.EChartsOption => {
     const isActive = getSeriesSelected(series.name);
     const data = isActive ? series.data : [];
     const split = splitSeriesByAlert(series.name, data);
+    const normalPoints = countNonNullPoints(split.normal);
+    const alertPoints = countNonNullPoints(split.alert);
+    const showNormalPoints = normalPoints > 0 && normalPoints <= 2;
+    const showAlertPoints = alertPoints > 0 && alertPoints <= 2;
     return [
       {
         name: series.name,
@@ -805,9 +813,9 @@ const buildOption = (): echarts.EChartsOption => {
         data: split.normal,
         smooth: true,
         connectNulls: false,
-        showSymbol: false,
-        symbol: "none",
-        symbolSize: 0,
+        showSymbol: showNormalPoints,
+        symbol: showNormalPoints ? "circle" : "none",
+        symbolSize: showNormalPoints ? 6 : 0,
         lineStyle: {
           color: series.color,
           type: series.lineType as any,
@@ -823,9 +831,9 @@ const buildOption = (): echarts.EChartsOption => {
         data: split.alert,
         smooth: true,
         connectNulls: false,
-        showSymbol: false,
-        symbol: "none",
-        symbolSize: 0,
+        showSymbol: showAlertPoints,
+        symbol: showAlertPoints ? "circle" : "none",
+        symbolSize: showAlertPoints ? 6 : 0,
         lineStyle: {
           color: ALERT_COLOR,
           type: series.lineType as any,

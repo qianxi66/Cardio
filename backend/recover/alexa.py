@@ -21,7 +21,8 @@ from ask_sdk_model.ui.ask_for_permissions_consent_card import (
 )
 from ask_sdk_core.exceptions import SerializationException
 from ask_sdk_core.handler_input import HandlerInput
-from ask_sdk_core.skill_builder import SkillBuilder
+from ask_sdk_core.skill_builder import CustomSkillBuilder
+from ask_sdk_core.api_client import DefaultApiClient
 from .app import app, db
 from .db import Patient, User, ConversationLog
 from .openai_utils import conversation as openai_conversation
@@ -29,6 +30,25 @@ from .config import auto_create_patient, mongodb_url, mongodb_client_kwargs
 from pymongo import MongoClient
 
 logger = app.logger
+
+
+def _lookup_patient_by_alexa_identity(identity: str):
+    raw = (identity or "").strip()
+    if not raw:
+        return None
+    patient = Patient.query.filter(Patient.email.ilike(raw)).first()
+    if patient is not None:
+        return patient
+    patient = Patient.query.filter_by(alexa_user_id=raw).first()
+    if patient is not None:
+        return patient
+    if "@" in raw:
+        local = raw.split("@", 1)[0].strip()
+        if local:
+            patient = Patient.query.filter_by(participant_id=local).first()
+            if patient is not None:
+                return patient
+    return None
 
 
 def to_speech(handler_input, response):
@@ -45,12 +65,13 @@ def to_speech(handler_input, response):
     return handler_input.response_builder.speak(speak_output).ask(ask_output).response
 
 def getLastMessage(alexa_user_id: str):
-    patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+    patient = _lookup_patient_by_alexa_identity(alexa_user_id)
     if patient is None:
         if auto_create_patient:
             participant_id = alexa_user_id.split("@")[0]
             patient = Patient(
                 name="Alexa User",
+                email=alexa_user_id if "@" in alexa_user_id else None,
                 alexa_user_id=alexa_user_id,
                 last_read_at=datetime.utcnow(),
                 participant_id="AUTO_" + participant_id,
@@ -100,7 +121,7 @@ def _latest_field_value(db, collection_name, uid, field_name):
 def session_end_hook(alexa_user_id):
     with app.app_context():
         logger.info("session_end_hook")
-        patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+        patient = _lookup_patient_by_alexa_identity(alexa_user_id)
         logger.info(f"patient: {patient}")
         if patient is None:
             return jsonify({"message": "patient not found"}), 404
@@ -121,7 +142,7 @@ def conversationEnded(alexa_user_id: str):
 def conversation(alexa_user_id: str, content: str):
     try:
         # get patient with alexa_user_id
-        patient = Patient.query.filter_by(alexa_user_id=alexa_user_id).first()
+        patient = _lookup_patient_by_alexa_identity(alexa_user_id)
         if patient is None:
             raise PatientNotFound(f"Patient not found for alexa_user_id: {alexa_user_id}")
         
@@ -234,32 +255,23 @@ class ConversationError(Exception):
     pass
 
 def get_customer_email(handler_input: HandlerInput) -> str:
-    # ups_client = ask_sdk_model.services.ups.ups_service_client.UpsServiceClient()
-    # return ups_client.get_customer_email(handler_input)
+    try:
+        permissions = handler_input.request_envelope.context.system.user.permissions
+        if not permissions or not permissions.consent_token:
+            raise EmailPermissionDenied
+    except Exception:
+        raise EmailPermissionDenied
+
     try:
         ups_client = handler_input.service_client_factory.get_ups_service()
         result = ups_client.get_profile_email()
         logger.info(result)
         if isinstance(result, str) and result:
             return result
+        raise EmailPermissionDenied
     except Exception as e:
         logger.warning("UPS email lookup failed: %s", e)
-
-    try:
-        user_id = handler_input.request_envelope.session.user.user_id
-        if user_id:
-            return user_id
-    except Exception:
-        pass
-
-    try:
-        user_id = handler_input.request_envelope.context.system.user.user_id
-        if user_id:
-            return user_id
-    except Exception:
-        pass
-
-    raise EmailPermissionDenied
+        raise EmailPermissionDenied
 
 
 class LaunchRequestHandler(AbstractRequestHandler):
@@ -449,7 +461,7 @@ class CatchAllExceptionHandler(AbstractExceptionHandler):
 # defined are included below. The order matters - they're processed top to bottom.
 
 
-skill_builder = SkillBuilder()
+skill_builder = CustomSkillBuilder(api_client=DefaultApiClient())
 
 skill_builder.add_request_handler(LaunchRequestHandler())
 skill_builder.add_request_handler(CancelOrStopIntentHandler())

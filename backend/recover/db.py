@@ -123,6 +123,7 @@ class Patient(db.Model):
     age: Mapped[Optional[int]] = mapped_column(db.Integer)
     gender: Mapped[Optional[str]] = mapped_column(db.String(10)) # e.g., 'Male', 'Female', 'Other'
     EHR_id: Mapped[Optional[str]] = mapped_column(db.String(50))
+    email: Mapped[Optional[str]] = mapped_column(db.String(255), unique=True)
     alexa_user_id: Mapped[Optional[str]] = mapped_column(db.String(50), unique=True)
     participant_id: Mapped[Optional[str]] = mapped_column(db.String(20), unique=True)
     garmin_id: Mapped[Optional[str]] = mapped_column(db.String(50), unique=True)

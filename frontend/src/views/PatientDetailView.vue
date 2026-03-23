@@ -58,6 +58,56 @@ const toDateTimeLabel = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
   return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
 };
 
+const getEtDateTimeParts = (value: Date, timeZone = DEFAULT_TIMEZONE) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return {
+    year: pick("year"),
+    month: pick("month"),
+    day: pick("day"),
+    hour: pick("hour"),
+    minute: pick("minute"),
+    second: pick("second"),
+  };
+};
+
+const parseEtLikeDateTimeKey = (raw?: string | Date): string | null => {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (m) {
+      const sec = m[6] || "00";
+      return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${sec}`;
+    }
+    const d = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (d) return `${d[1]}-${d[2]}-${d[3]} 00:00:00`;
+  }
+  const parsed = parseDateValue(raw);
+  if (!parsed) return null;
+  const p = getEtDateTimeParts(parsed);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+};
+
+const toEtDateTimeLabel = (raw?: string | Date): string => {
+  const key = parseEtLikeDateTimeKey(raw);
+  if (!key) return "--";
+  return key.slice(0, 16);
+};
+
+const toEtNowDateTimeString = () => {
+  const p = getEtDateTimeParts(new Date());
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+};
+
 const pickerDateKey = (value: number | null): string | null => {
   if (!value) return null;
   const date = new Date(value);
@@ -155,7 +205,7 @@ const nextAppointmentDate = computed(() => {
   return formatPatientDate(value ?? null);
 });
 
-const truncateToTwoLineApprox = (text: string, charsPerLine = 45) => {
+const truncateToTwoLineApprox = (text: string, charsPerLine = 70) => {
   const normalized = (text || "").replace(/\s+/g, " ").trim();
   if (!normalized) return "";
   const maxChars = charsPerLine * 2;
@@ -176,20 +226,19 @@ const aiSummaryBody = computed(() => {
       return noteDateKeyET(note.created_at) === selectedKey;
     })
     .sort((a: any, b: any) => {
-      const at = parseDateValue(a.created_at)?.getTime() ?? 0;
-      const bt = parseDateValue(b.created_at)?.getTime() ?? 0;
-      return bt - at;
+      const at = parseEtLikeDateTimeKey(a.created_at) || "";
+      const bt = parseEtLikeDateTimeKey(b.created_at) || "";
+      return bt.localeCompare(at);
     })[0];
 
   if (!match?.content?.trim()) {
     return { body: "no data for this date", time: "", createdBy: "" };
   }
-  const createdAt = parseDateValue(match.created_at);
   const isAi = String(match.creator_type || "").toLowerCase() === "ai";
   const rawBody = match.content.trim();
   const bodyFull = isAi ? stripAiSummaryPrefix(rawBody) : rawBody;
   const body = truncateToTwoLineApprox(bodyFull);
-  const time = createdAt ? toDateTimeLabel(createdAt) : "";
+  const time = toEtDateTimeLabel(match.created_at);
   const createdBy = isAi
     ? "AI"
     : (match.created_by as string | undefined) ||
@@ -203,7 +252,15 @@ type DailySummaryEditableRow = {
   dateLabel: string;
   content: string;
   creatorLabel: string;
-  createdAtMs: number;
+  createdAtKey: string;
+};
+
+type StagedNewNote = {
+  tempId: number;
+  content: string;
+  created_at: string;
+  created_by?: string;
+  creator_type: "user";
 };
 
 const stripAiSummaryPrefix = (content?: string) => {
@@ -212,12 +269,11 @@ const stripAiSummaryPrefix = (content?: string) => {
 
 const dailySummaryRows = computed<DailySummaryEditableRow[]>(() => {
   const notes = patient.value?.notes ?? [];
-  const rows: DailySummaryEditableRow[] = notes
+  const persistedRows: DailySummaryEditableRow[] = notes
     .map((note: any) => {
-      const created = parseDateValue(note.created_at);
-      const createdAtMs = created?.getTime() ?? 0;
+      const createdAtKey = parseEtLikeDateTimeKey(note.created_at) || "";
       const isAi = String(note.creator_type || "").toLowerCase() === "ai";
-      const dateLabel = created ? toDateTimeLabel(created) : "--";
+      const dateLabel = toEtDateTimeLabel(note.created_at);
       const creatorLabel =
         (isAi && "AI") ||
         (note.created_by as string | undefined) ||
@@ -230,12 +286,25 @@ const dailySummaryRows = computed<DailySummaryEditableRow[]>(() => {
         dateLabel,
         content: baseContent,
         creatorLabel,
-        createdAtMs,
+        createdAtKey,
       };
     })
     .filter((row) => typeof row.noteId === "number");
 
-  return rows.sort((a, b) => b.createdAtMs - a.createdAtMs);
+  const stagedRows: DailySummaryEditableRow[] = stagedNewNotes.value.map((note) => {
+    const createdAtKey = parseEtLikeDateTimeKey(note.created_at) || "";
+    return {
+      noteId: note.tempId,
+      dateLabel: toEtDateTimeLabel(note.created_at),
+      content: note.content,
+      creatorLabel: note.created_by || "User",
+      createdAtKey,
+    };
+  });
+
+  return [...stagedRows, ...persistedRows].sort((a, b) =>
+    b.createdAtKey.localeCompare(a.createdAtKey),
+  );
 });
 
 const dailySummaryEditorVisible = ref(false);
@@ -243,15 +312,35 @@ const dailySummaryDrafts = ref<Record<number, string>>({});
 const dailySummarySaving = ref(false);
 const newNoteInput = ref("");
 const newNoteSaving = ref(false);
+const dailySummaryListEl = ref<HTMLElement | null>(null);
+const stagedNewNotes = ref<StagedNewNote[]>([]);
+const stagedNoteIdSeed = ref(-1);
+
+const scrollDailySummaryListToTop = async () => {
+  await nextTick();
+  if (dailySummaryListEl.value) {
+    dailySummaryListEl.value.scrollTop = 0;
+  }
+};
+
+const reloadPatientNotes = async (patientId: number) => {
+  const notes = (await getNotes(patientId)) ?? [];
+  if (patient.value) {
+    patient.value.notes = notes as any;
+  }
+};
 
 const openDailySummaryEditor = () => {
   const nextDrafts: Record<number, string> = {};
+  stagedNewNotes.value = [];
+  stagedNoteIdSeed.value = -1;
   dailySummaryRows.value.forEach((row) => {
     nextDrafts[row.noteId] = row.content;
   });
   dailySummaryDrafts.value = nextDrafts;
   newNoteInput.value = "";
   dailySummaryEditorVisible.value = true;
+  void scrollDailySummaryListToTop();
 };
 
 const saveAllDailySummaries = async () => {
@@ -261,16 +350,25 @@ const saveAllDailySummaries = async () => {
   let hasError = false;
   try {
     for (const row of dailySummaryRows.value) {
+      if (row.noteId <= 0) continue;
       const nextContent = (dailySummaryDrafts.value[row.noteId] ?? "").trim();
       if (!nextContent || nextContent === row.content) continue;
       await updateNote(patientId, row.noteId, nextContent);
-      if (patient.value?.notes) {
-        const target = patient.value.notes.find((n) => n.id === row.noteId);
-        if (target) {
-          target.content = nextContent;
-        }
-      }
     }
+    const stagedContents = stagedNewNotes.value
+      .map((n) => (dailySummaryDrafts.value[n.tempId] ?? n.content).trim())
+      .filter((v) => !!v);
+    if (stagedContents.length) {
+      await Promise.all(stagedContents.map((content) => createNote(patientId, content)));
+    }
+    await reloadPatientNotes(patientId);
+    stagedNewNotes.value = [];
+    stagedNoteIdSeed.value = -1;
+    const nextDrafts: Record<number, string> = {};
+    dailySummaryRows.value.forEach((row) => {
+      nextDrafts[row.noteId] = row.content;
+    });
+    dailySummaryDrafts.value = nextDrafts;
   } catch (error) {
     hasError = true;
     console.error("Failed to save daily summaries", error);
@@ -282,47 +380,36 @@ const saveAllDailySummaries = async () => {
   }
 };
 
-const sendNewNote = async () => {
+const sendNewNote = () => {
   const content = newNoteInput.value?.trim();
   if (!content) return;
-  const patientId = patientIdParam.value;
-  if (!patientId) return;
-  newNoteSaving.value = true;
-  try {
-    const created = (await createNote(patientId, content)) as {
-      id: number;
-      content: string;
-      creator_type: string;
-      created_at: string;
-      created_by?: string;
-    };
-    if (patient.value?.notes) {
-      const noteForList = {
-        id: created.id,
-        content: created.content,
-        creator_type: created.creator_type || "user",
-        created_at: created.created_at,
-        created_by: created.created_by,
-      };
-      patient.value.notes.unshift(noteForList);
-    }
-    dailySummaryDrafts.value[created.id] = created.content;
-    newNoteInput.value = "";
-  } catch (error) {
-    console.error("Failed to create note", error);
-  } finally {
-    newNoteSaving.value = false;
-  }
+  const tempId = stagedNoteIdSeed.value;
+  stagedNoteIdSeed.value -= 1;
+  stagedNewNotes.value.unshift({
+    tempId,
+    content,
+    created_at: toEtNowDateTimeString(),
+    created_by: "User",
+    creator_type: "user",
+  });
+  dailySummaryDrafts.value[tempId] = content;
+  newNoteInput.value = "";
+  void scrollDailySummaryListToTop();
 };
 
 const deleteDailySummary = async (noteId: number) => {
+  if (noteId <= 0) {
+    stagedNewNotes.value = stagedNewNotes.value.filter((n) => n.tempId !== noteId);
+    const nextDrafts = { ...dailySummaryDrafts.value };
+    delete nextDrafts[noteId];
+    dailySummaryDrafts.value = nextDrafts;
+    return;
+  }
   const patientId = patientIdParam.value;
   if (!patientId) return;
   try {
     await deleteNote(patientId, noteId);
-    if (patient.value?.notes) {
-      patient.value.notes = patient.value.notes.filter((n: any) => n.id !== noteId);
-    }
+    await reloadPatientNotes(patientId);
     const nextDrafts = { ...dailySummaryDrafts.value };
     delete nextDrafts[noteId];
     dailySummaryDrafts.value = nextDrafts;
@@ -480,6 +567,10 @@ const summaryDateKey = (value?: string | Date): string | null => {
 };
 
 const noteDateKeyET = (value?: string | Date): string | null => {
+  if (typeof value === "string") {
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
   const parsed = parseDateValue(value);
   return parsed ? toDateKey(parsed) : null;
 };
@@ -671,9 +762,6 @@ const jumpToDayOverviewSummary = (
   if (!summary) return;
   const state = dotStateForSymptom(summary, symptom, wearable);
   if (state === 0) return;
-  if (timestamp !== null) {
-    selectDayOverview(timestamp);
-  }
   // Mark as read (fire-and-forget)
   const readVal = (summary as Record<string, unknown>)["read"];
   const isAlreadyRead = readVal === 1 || readVal === true;
@@ -1025,8 +1113,7 @@ watch(loading, () => nextTick(updateConnectors));
                   class="symptom"
                   v-for="symptom in dayOverviewSymptoms"
                   :key="`${row.id}-${symptom.key}`"
-                  :class="{ clickable: true, 'dot-armed': isDayOverviewDotArmed(row.id, symptom.key) }"
-                  @click.stop="handleDayOverviewDotClick(row, symptom)"
+                  :class="{ 'dot-armed': isDayOverviewDotArmed(row.id, symptom.key) }"
                 >
                   <CircleProgress
                     v-if="symptom.likert"
@@ -1034,6 +1121,7 @@ watch(loading, () => nextTick(updateConnectors));
                     :percent="getSymptomScale(row.summary, symptom.key) * 10"
                     :color="symptom.color"
                     :id="`${row.id}-${symptom.key}`"
+                    @click.stop="handleDayOverviewDotClick(row, symptom)"
                   >
                     <Dot
                       :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
@@ -1052,6 +1140,7 @@ watch(loading, () => nextTick(updateConnectors));
                     :editable="isDayOverviewDotArmed(row.id, symptom.key)"
                     @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
                     :loading="symptom.wearable && wearableLoading"
+                    @click.stop="handleDayOverviewDotClick(row, symptom)"
                   />
                 </div>
               </div>
@@ -1337,7 +1426,7 @@ watch(loading, () => nextTick(updateConnectors));
       style="width: min(920px, 92vw)"
     >
       <div class="summary-editor-panel">
-        <div class="summary-editor-list" v-if="dailySummaryRows.length">
+        <div ref="dailySummaryListEl" class="summary-editor-list" v-if="dailySummaryRows.length">
           <div
             v-for="row in dailySummaryRows"
             :key="row.noteId"
@@ -1474,6 +1563,9 @@ watch(loading, () => nextTick(updateConnectors));
 
 .row > .main-col {
   flex: 53 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .row > .side-col {
@@ -1487,7 +1579,8 @@ watch(loading, () => nextTick(updateConnectors));
   overflow-y: hidden;
 }
 .information {
-  flex: 3 1 0;
+  flex: 0 0 var(--patient-info-card-height, 225px);
+  height: var(--patient-info-card-height, 225px);
   min-height: 0;
 }
 .patient-avatar {
@@ -1795,7 +1888,7 @@ watch(loading, () => nextTick(updateConnectors));
   min-width: 0;
 }
 .day-navigator {
-  flex: 7 1 0;
+  flex: 1 1 auto;
   min-height: 0;
 }
 .day-navigator :deep(.n-card__content) {
@@ -1968,7 +2061,7 @@ watch(loading, () => nextTick(updateConnectors));
 .ai-summary-body {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
   min-height: 42px;
   font-size: 14px;
   color: #333;
@@ -1995,6 +2088,7 @@ watch(loading, () => nextTick(updateConnectors));
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
+  padding-right:6px;
 }
 .ai-summary-body-created-by {
   color: #666;
@@ -2395,7 +2489,8 @@ watch(loading, () => nextTick(updateConnectors));
   cursor: pointer;
 }
 .information {
-  flex: 4 1 0;
+  flex: 0 0 var(--patient-info-card-height, 225px);
+  height: var(--patient-info-card-height, 225px);
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;
