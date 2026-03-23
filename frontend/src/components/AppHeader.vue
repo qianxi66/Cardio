@@ -21,6 +21,17 @@ const showLogoutButton = computed(() => {
   return hasToken && route.path !== "/login";
 });
 
+const showPatientMenuButton = computed(() => {
+  const tokenValue = typeof token.value === "string" ? token.value.trim() : "";
+  const storageToken = (localStorage.getItem("token") || "").trim();
+  const hasToken = tokenValue !== "" || storageToken !== "";
+  return hasToken && route.path !== "/login";
+});
+
+const togglePatientSidebar = () => {
+  window.dispatchEvent(new Event("toggle-patient-sidebar"));
+};
+
 const handleLogout = () => {
   dialog.warning({
     title: "Confirm Logout",
@@ -42,6 +53,15 @@ const handleLogout = () => {
 <template>
   <header>
     <div class="container header">
+      <button
+        v-if="showPatientMenuButton"
+        type="button"
+        class="menu-trigger"
+        aria-label="Toggle patient list"
+        @click="togglePatientSidebar"
+      >
+        ≡
+      </button>
       <a
         class="title"
         href="#"
@@ -72,6 +92,17 @@ const handleLogout = () => {
     font-size: 25px;
   }
 
+  .menu-trigger {
+    border: none;
+    background: transparent;
+    color: #ffffff;
+    font-size: 30px;
+    line-height: 1;
+    padding: 0 8px 2px 12px;
+    margin-right: 12px;
+    cursor: pointer;
+  }
+
   .space {
     flex: 1;
   }
@@ -89,8 +120,13 @@ const handleLogout = () => {
 @media (max-width: 1100px) {
   .header {
     height: 40px;
+    .menu-trigger {
+      font-size: 24px;
+      margin-right: 8px;
+      padding: 0 8px 2px 10px;
+    }
     .title {
-      margin-left: 12px;
+      margin-left: 0;
       font-size: 13px;
       line-height: 1.2;
     }

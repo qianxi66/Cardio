@@ -2513,7 +2513,7 @@ watch(loading, () => nextTick(updateConnectors));
 
 @media (max-width: 1100px) {
   .patient-layout > .row:first-of-type {
-    margin-top: 8px;
+    margin-top: 2px;
   }
   .row {
     flex-direction: column;

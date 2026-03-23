@@ -40,6 +40,15 @@ const closeSidebar = () => {
   sidebarOpen.value = false;
 };
 
+const toggleSidebar = () => {
+  sidebarOpen.value = !sidebarOpen.value;
+};
+
+const handleHeaderToggleSidebar = () => {
+  if (!isCompactLayout.value) return;
+  toggleSidebar();
+};
+
 const dailySymptomKeys = [
   "syncope",
   "palpitation",
@@ -178,10 +187,12 @@ const loadPatient = async () => {
 onMounted(() => {
   updateCompactLayout();
   window.addEventListener("resize", updateCompactLayout);
+  window.addEventListener("toggle-patient-sidebar", handleHeaderToggleSidebar as EventListener);
   loadPatient();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", updateCompactLayout);
+  window.removeEventListener("toggle-patient-sidebar", handleHeaderToggleSidebar as EventListener);
 });
 provide("refreshPatients", loadPatient);
 
@@ -215,14 +226,6 @@ watch(patients, (list) => {
 
 <template>
   <div class="row holder" :class="{ compact: isCompactLayout }">
-    <button
-      v-if="isCompactLayout"
-      type="button"
-      class="sidebar-toggle"
-      @click="openSidebar"
-    >
-      Patients
-    </button>
     <div
       v-if="isCompactLayout && sidebarOpen"
       class="sidebar-backdrop"
@@ -387,9 +390,6 @@ watch(patients, (list) => {
   min-height: 100%;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.2);
 }
-.sidebar-toggle {
-  display: none;
-}
 .sidebar-backdrop {
   display: none;
 }
@@ -492,21 +492,6 @@ a {
 @media (max-width: 1100px) {
   .holder.compact {
     position: relative;
-  }
-  .sidebar-toggle {
-    display: inline-flex;
-    position: absolute;
-    top: 14px;
-    left: 12px;
-    z-index: 20;
-    border: 1px solid #d0d0d0;
-    background: #ffffff;
-    color: #333333;
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
   }
   .sidebar-backdrop {
     display: block;
