@@ -86,6 +86,17 @@ const handleLogout = () => {
   }
 }
 
+@media (max-width: 1100px) {
+  .header {
+    height: 40px;
+    .title {
+      margin-left: 12px;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+  }
+}
+
 header {
   display: flex;
   justify-content: center;

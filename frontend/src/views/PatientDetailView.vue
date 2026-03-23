@@ -1023,7 +1023,7 @@ watch(loading, () => nextTick(updateConnectors));
       </ColoredCard>
       <ColoredCard
         class="day-navigator indigo-title full-title-bar"
-        title="Patient's Daily Symptoms"
+        title="Symptoms"
         color="#053251"
         rounded
       >
@@ -1508,6 +1508,8 @@ watch(loading, () => nextTick(updateConnectors));
   position: relative;
   flex-grow: 1;
   min-width: 0;
+  display: flex;
+  gap: 16px;
   .col {
     min-width: 0;
     flex-grow: 1;
@@ -2506,6 +2508,99 @@ watch(loading, () => nextTick(updateConnectors));
     flex-direction: column;
     min-height: 0;
     height: 100%;
+  }
+}
+
+@media (max-width: 1100px) {
+  .patient-layout > .row:first-of-type {
+    margin-top: 8px;
+  }
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    overflow-y: auto;
+    padding: 0 12px 12px;
+    box-sizing: border-box;
+  }
+  .row .col {
+    height: auto;
+    min-height: 0;
+  }
+  .overview-connectors {
+    display: none;
+  }
+  .row > .main-col,
+  .row > .side-col {
+    flex: 0 0 auto;
+    width: 100%;
+    padding-bottom: 0;
+  }
+  .information {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+  }
+  .day-navigator {
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+  .day-navigator :deep(.n-card__content),
+  .day-navigator-content {
+    height: auto;
+    min-height: 0;
+  }
+  .day-navigator-content {
+    display: block;
+  }
+  .day-overview-table {
+    flex: 0 0 auto;
+    display: block;
+    min-height: 0;
+    overflow: auto;
+    max-height: 360px;
+    padding-bottom: 4px;
+  }
+  .day-overview-table .table-row {
+    width: max-content;
+    min-width: 760px;
+  }
+  .day-overview-table .date {
+    flex: 0 0 138px;
+    padding-left: 12px;
+  }
+  .day-overview-table .symptom {
+    flex: 0 0 74px;
+    min-width: 74px;
+  }
+  .day-overview-scroll {
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+  .wearable-chart-wrapper {
+    overflow: auto;
+    min-height: 260px;
+  }
+  .wearable-chart-wrapper :deep(.chart-wrapper) {
+    min-width: 460px;
+  }
+  .side-content {
+    display: block;
+  }
+  .side-content :deep(.report-detail) {
+    row-gap: 12px;
+    padding-right: 0;
+    height: auto;
+    min-height: 0;
+  }
+  .side-content :deep(.report-detail .n-card) {
+    flex: 0 0 auto;
+    min-height: 320px;
+  }
+  .side-content :deep(.report-detail .conversation-card) {
+    min-height: 360px;
   }
 }
 </style>

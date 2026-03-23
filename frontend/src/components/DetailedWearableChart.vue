@@ -329,7 +329,7 @@ const splitSeriesByAlert = (seriesName: string, data: Array<number | null>) => {
     if (isAlert) {
       normal.push(null);
       alert.push(value);
-      // keep line visually continuous when switching from normal -> alert
+      // keep line continuous when entering alert segment
       if (index > 0 && normal[index - 1] !== null && alert[index - 1] === null) {
         alert[index - 1] = data[index - 1];
       }
@@ -337,16 +337,13 @@ const splitSeriesByAlert = (seriesName: string, data: Array<number | null>) => {
     }
     normal.push(value);
     alert.push(null);
-    // keep line visually continuous when switching from alert -> normal
+    // keep line continuous when leaving alert segment
     if (index > 0 && alert[index - 1] !== null && normal[index - 1] === null) {
       normal[index - 1] = data[index - 1];
     }
   });
   return { normal, alert };
 };
-
-const countNonNullPoints = (data: Array<number | null>) =>
-  data.reduce((acc, value) => (value === null || value === undefined ? acc : acc + 1), 0);
 
 const getAlertIntervals = () => {
   const total = times.value.length;
@@ -801,10 +798,6 @@ const buildOption = (): echarts.EChartsOption => {
     const isActive = getSeriesSelected(series.name);
     const data = isActive ? series.data : [];
     const split = splitSeriesByAlert(series.name, data);
-    const normalPoints = countNonNullPoints(split.normal);
-    const alertPoints = countNonNullPoints(split.alert);
-    const showNormalPoints = normalPoints > 0 && normalPoints <= 2;
-    const showAlertPoints = alertPoints > 0 && alertPoints <= 2;
     return [
       {
         name: series.name,
@@ -813,9 +806,9 @@ const buildOption = (): echarts.EChartsOption => {
         data: split.normal,
         smooth: true,
         connectNulls: false,
-        showSymbol: showNormalPoints,
-        symbol: showNormalPoints ? "circle" : "none",
-        symbolSize: showNormalPoints ? 6 : 0,
+        showSymbol: false,
+        symbol: "none",
+        symbolSize: 0,
         lineStyle: {
           color: series.color,
           type: series.lineType as any,
@@ -831,9 +824,9 @@ const buildOption = (): echarts.EChartsOption => {
         data: split.alert,
         smooth: true,
         connectNulls: false,
-        showSymbol: showAlertPoints,
-        symbol: showAlertPoints ? "circle" : "none",
-        symbolSize: showAlertPoints ? 6 : 0,
+        showSymbol: false,
+        symbol: "none",
+        symbolSize: 0,
         lineStyle: {
           color: ALERT_COLOR,
           type: series.lineType as any,

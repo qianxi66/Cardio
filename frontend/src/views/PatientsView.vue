@@ -3,7 +3,7 @@ import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import { getPatients, getSummaries, getWearableCoverage } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
-import { ref, watch, computed, provide, onMounted } from "vue";
+import { ref, watch, computed, provide, onMounted, onBeforeUnmount } from "vue";
 import { useRouteParams } from "@vueuse/router";
 import { type Patient, type Summary } from "@/api/types";
 import router from "@/router";
@@ -17,6 +17,27 @@ const DEFAULT_TIMEZONE = "America/New_York";
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const patientListScrollbarThemeOverrides = {
   width: "8px",
+};
+const sidebarOpen = ref(false);
+const isCompactLayout = ref(false);
+
+const updateCompactLayout = () => {
+  if (typeof window === "undefined") return;
+  const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+  const ratio = window.innerHeight > 0 ? window.innerHeight / window.innerWidth : 1;
+  const touchDevice = window.matchMedia("(pointer: coarse)").matches;
+  isCompactLayout.value = window.innerWidth <= 1100 || (touchDevice && (shortEdge <= 1024 || ratio <= 1.45));
+  if (!isCompactLayout.value) {
+    sidebarOpen.value = false;
+  }
+};
+
+const openSidebar = () => {
+  sidebarOpen.value = true;
+};
+
+const closeSidebar = () => {
+  sidebarOpen.value = false;
 };
 
 const dailySymptomKeys = [
@@ -155,11 +176,19 @@ const loadPatient = async () => {
 };
 
 onMounted(() => {
+  updateCompactLayout();
+  window.addEventListener("resize", updateCompactLayout);
   loadPatient();
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", updateCompactLayout);
 });
 provide("refreshPatients", loadPatient);
 
 watch(patient_id, (newVal) => {
+  if (isCompactLayout.value) {
+    sidebarOpen.value = false;
+  }
   if (newVal === undefined || newVal === null) {
     if (!localStorage.token) return;
     if (patients.value?.length) {
@@ -185,8 +214,27 @@ watch(patients, (list) => {
 </script>
 
 <template>
-  <div class="row holder">
-    <n-card class="patient-list">
+  <div class="row holder" :class="{ compact: isCompactLayout }">
+    <button
+      v-if="isCompactLayout"
+      type="button"
+      class="sidebar-toggle"
+      @click="openSidebar"
+    >
+      Patients
+    </button>
+    <div
+      v-if="isCompactLayout && sidebarOpen"
+      class="sidebar-backdrop"
+      @click="closeSidebar"
+    ></div>
+    <n-card
+      class="patient-list"
+      :class="{
+        'patient-list-compact': isCompactLayout,
+        open: isCompactLayout && sidebarOpen,
+      }"
+    >
       <template #header>
         <div class="header">
           <div class="title">Patient List</div>
@@ -325,6 +373,7 @@ watch(patients, (list) => {
   min-height: 0;
   margin: 0;
   background-color: #f3f3f3;
+  position: relative;
 }
 .patient-detail {
   flex: 1 1 0;
@@ -337,6 +386,12 @@ watch(patients, (list) => {
   flex-shrink: 0;
   min-height: 100%;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.2);
+}
+.sidebar-toggle {
+  display: none;
+}
+.sidebar-backdrop {
+  display: none;
 }
 .n-card:deep(.n-card__content) {
   padding: 0 0 0 0;
@@ -432,5 +487,51 @@ a {
   background-color: transparent;
   cursor: default;
   margin-right: 0;
+}
+
+@media (max-width: 1100px) {
+  .holder.compact {
+    position: relative;
+  }
+  .sidebar-toggle {
+    display: inline-flex;
+    position: absolute;
+    top: 14px;
+    left: 12px;
+    z-index: 20;
+    border: 1px solid #d0d0d0;
+    background: #ffffff;
+    color: #333333;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.25);
+    z-index: 17;
+  }
+  .patient-list.patient-list-compact {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(320px, 85vw);
+    z-index: 18;
+    transform: translateX(-104%);
+    transition: transform 0.22s ease;
+    border-radius: 0;
+  }
+  .patient-list.patient-list-compact.open {
+    transform: translateX(0);
+  }
+  .patient-detail {
+    width: 100%;
+    padding-top: 44px;
+  }
 }
 </style>
