@@ -53,19 +53,21 @@ def _day_window_eastern_now():
     return day_start_sql, start_ts, end_ts
 
 
-def _get_or_create_daily_summary(patient_id: int, day_start_sql: datetime):
+def _get_daily_summary(patient_id: int, day_start_sql: datetime):
     day_end_sql = day_start_sql + timedelta(days=1)
-    summary = (
+    return (
         Summary.query.filter_by(patient_id=patient_id)
         .filter(Summary.date >= day_start_sql, Summary.date < day_end_sql)
         .first()
     )
-    if summary is None:
-        summary = Summary(patient_id=patient_id, date=day_start_sql)
-        for symptom in symptom_descriptions:
-            setattr(summary, f"{symptom}_state", 0)
-            setattr(summary, f"{symptom}_logs", "[]")
-        db.session.add(summary)
+
+
+def _create_daily_summary(patient_id: int, day_start_sql: datetime):
+    summary = Summary(patient_id=patient_id, date=day_start_sql)
+    for symptom in symptom_descriptions:
+        setattr(summary, f"{symptom}_state", 0)
+        setattr(summary, f"{symptom}_logs", "[]")
+    db.session.add(summary)
     return summary
 
 
@@ -176,14 +178,14 @@ def _sync_once():
     db2 = client["study_db"]
     try:
         patients = Patient.query.filter(Patient.participant_id.isnot(None)).all()
-        updated = 0
-        skipped = 0
+        created = 0
+        skipped_no_data = 0
+        skipped_existing = 0
+        skipped_db_error = 0
         for patient in patients:
             participant_id = (patient.participant_id or "").strip()
             if not participant_id:
                 continue
-
-            summary = _get_or_create_daily_summary(patient.id, day_start_sql)
 
             hr_values = _fetch_numeric_values(
                 db2, participant_id, "garmin_hr", "heart_rate", start_ts, end_ts
@@ -196,6 +198,23 @@ def _sync_once():
             hr = _safe_stats(hr_values)
             resp = _safe_stats(resp_values)
             hrv = _safe_stats(hrv_values)
+
+            has_wearable_data = any(
+                [
+                    hr["min"] is not None,
+                    resp["min"] is not None,
+                    hrv["min"] is not None,
+                ]
+            )
+            if not has_wearable_data:
+                skipped_no_data += 1
+                continue
+
+            summary = _get_daily_summary(patient.id, day_start_sql)
+            if summary is not None:
+                skipped_existing += 1
+                continue
+            summary = _create_daily_summary(patient.id, day_start_sql)
 
             summary.heart_rate_min = _round_metric("heart_rate_min", hr["min"])
             summary.heart_rate_max = _round_metric("heart_rate_max", hr["max"])
@@ -211,10 +230,10 @@ def _sync_once():
 
             try:
                 db.session.commit()
-                updated += 1
+                created += 1
             except OperationalError:
                 db.session.rollback()
-                skipped += 1
+                skipped_db_error += 1
                 continue
 
             # Generate AI summary note for today if one doesn't exist yet.
@@ -237,7 +256,8 @@ def _sync_once():
                     print(f"[cardio_summary_sync] AI note failed for patient {patient.id}: {exc}")
 
         print(
-            f"[cardio_summary_sync] synced {updated} patients (skipped={skipped}) "
+            f"[cardio_summary_sync] created={created} "
+            f"(skipped_no_data={skipped_no_data}, skipped_existing={skipped_existing}, skipped_db_error={skipped_db_error}) "
             f"for ET day {day_start_sql.date()} "
             f"(start_ts={start_ts}, end_ts={end_ts})"
         )

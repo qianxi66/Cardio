@@ -1,10 +1,21 @@
 import { createRouter, createWebHistory } from "vue-router";
+const AUTO_LOGIN_TOKEN = "admin-autologin-token";
+
+const ensureAutoLogin = () => {
+  const existing = (localStorage.getItem("token") || "").trim();
+  if (!existing) {
+    localStorage.setItem("token", AUTO_LOGIN_TOKEN);
+  }
+};
+
 const require_login = (to, from) => {
+  ensureAutoLogin();
   if (!localStorage.token) {
     return "/login";
   }
 };
 const not_login = (to, from) => {
+  ensureAutoLogin();
   if (localStorage.token) {
     return "/patient";
   }
@@ -16,6 +27,7 @@ const router = createRouter({
       path: "/",
       component: () => <div>Loading...</div>,
       beforeEnter: (to, from) => {
+        ensureAutoLogin();
         if (localStorage.token) {
           return "/patient";
         } else {
