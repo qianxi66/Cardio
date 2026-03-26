@@ -794,13 +794,8 @@ const jumpToSummary = (summary: Summary, symptom: string, dotStateOverride?: num
       : Array.isArray(logsRaw)
         ? (logsRaw as number[])
         : [];
-  const dateVal = summary.date;
-  const dateTs =
-    typeof dateVal === "string"
-      ? new Date(dateVal).getTime()
-      : dateVal instanceof Date
-        ? dateVal.getTime()
-        : null;
+  const summaryKey = summaryDateKey(summary.date);
+  const dateTs = summaryKey ? timestampFromDateKey(summaryKey) : null;
   const symptomStateValue = (summary as Record<string, unknown>)[`${symptom}_state`];
   const inferredDotState =
     typeof symptomStateValue === "number"

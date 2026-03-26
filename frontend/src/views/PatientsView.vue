@@ -516,7 +516,7 @@ a {
   }
   .patient-detail {
     width: 100%;
-    padding-top: 44px;
+    padding-top: 16px;
   }
 }
 </style>

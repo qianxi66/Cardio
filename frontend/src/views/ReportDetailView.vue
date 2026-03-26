@@ -28,7 +28,11 @@ const select_log_ids_ = useRouteQuery<string | string[]>("logs");
 const select_log_ids = computed(() => {
   const val = select_log_ids_.value;
   if (!val) return [];
-  const arr = Array.isArray(val) ? val : [val];
+  const arr = Array.isArray(val)
+    ? val
+    : typeof val === "string"
+      ? val.split(",").map((s) => s.trim())
+      : [val];
   return arr
     .map((id) => parseInt(String(id), 10))
     .filter((n) => !Number.isNaN(n));
@@ -69,18 +73,27 @@ const logsRefreshTimer = ref<number | null>(null);
 const setLogRef = (el: unknown, id: number) => {
   if (el instanceof HTMLElement) {
     conversationRefs.value[id] = el;
+  } else {
+    conversationRefs.value[id] = null;
   }
 };
 
 const scrollToLogs = () => {
   const ids = effectiveHighlightIds.value;
-  if (ids.size > 0) {
-    const minId = Math.min(...ids);
-    const el = conversationRefs.value[minId];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (ids.size === 0) return;
+  const preferredId = logsForDate.value.find((log) => ids.has(log.id))?.id;
+  const targetId = preferredId ?? Math.min(...ids);
+  const scrollToElement = () => {
+    const el = conversationRefs.value[targetId];
+    if (el && el.isConnected) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }
+  };
+  nextTick(() => {
+    nextTick(() => {
+      scrollToElement();
+    });
+  });
 };
 const patient_id = useRouteParams("patient_id");
 const conversationLogs = ref<ConversationLog[]>([]);
@@ -204,6 +217,15 @@ const toggleSeries = (name: string) => {
 const logsForDate = computed(() => {
   if (!conversationLogs.value.length) {
     return [];
+  }
+  // When explicit target log ids exist (from dot click), avoid date filtering
+  // so highlight + auto-scroll can always find the target rows.
+  if (select_log_ids.value.length > 0) {
+    return [...conversationLogs.value].sort((a, b) => {
+      const ta = parseDateValue(a.date)?.getTime() ?? 0;
+      const tb = parseDateValue(b.date)?.getTime() ?? 0;
+      return ta - tb;
+    });
   }
   const target = conversationDate.value ? new Date(conversationDate.value) : null;
   const targetKey = target && !Number.isNaN(target.getTime())

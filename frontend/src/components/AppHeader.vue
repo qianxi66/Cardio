@@ -93,14 +93,7 @@ const handleLogout = () => {
   }
 
   .menu-trigger {
-    border: none;
-    background: transparent;
-    color: #ffffff;
-    font-size: 30px;
-    line-height: 1;
-    padding: 0 8px 2px 12px;
-    margin-right: 12px;
-    cursor: pointer;
+    display: none;
   }
 
   .space {
@@ -121,9 +114,15 @@ const handleLogout = () => {
   .header {
     height: 40px;
     .menu-trigger {
+      display: inline-flex;
+      border: none;
+      background: transparent;
+      color: #ffffff;
       font-size: 24px;
-      margin-right: 8px;
+      line-height: 1;
       padding: 0 8px 2px 10px;
+      margin-right: 8px;
+      cursor: pointer;
     }
     .title {
       margin-left: 0;
