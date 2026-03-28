@@ -229,14 +229,19 @@ const logsForDate = computed(() => {
   if (!conversationLogs.value.length) {
     return [];
   }
+  // Use calendarDateKey (browser local timezone) for BOTH target and logs
+  // so the comparison is consistent regardless of browser timezone.
+  // (timestampFromDateKey on the sending side creates local-tz midnight,
+  //  while Flask serialises naive datetimes as GMT — mixing toDateKey(ET)
+  //  for both would give different date keys when the browser is not in ET.)
   const target = conversationDate.value ? new Date(conversationDate.value) : null;
   const targetKey = target && !Number.isNaN(target.getTime())
-    ? toDateKey(target, DEFAULT_TIMEZONE)
+    ? calendarDateKey(target)
     : null;
   const logs = target
     ? conversationLogs.value.filter((log) => {
         const parsed = parseDateValue(log.date);
-        return parsed && targetKey ? toDateKey(parsed, DEFAULT_TIMEZONE) === targetKey : false;
+        return parsed && targetKey ? calendarDateKey(parsed) === targetKey : false;
       })
     : [...conversationLogs.value];
   return logs.sort((a, b) => {
