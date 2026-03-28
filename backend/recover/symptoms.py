@@ -65,4 +65,20 @@ symptom_descriptions = {
         "likert": False,
         "source": "wearable",
     },
+    "spo2": {
+        "description": "Blood Oxygen Saturation (SpO2)",
+        "display_name": "SpO2",
+        "max_scale": 4,
+        "color": "#63c0ff",
+        "likert": False,
+        "source": "wearable",
+    },
+    "hrv": {
+        "description": "Heart Rate Variability",
+        "display_name": "HRV",
+        "max_scale": 4,
+        "color": "#41acc4",
+        "likert": False,
+        "source": "wearable",
+    },
 }

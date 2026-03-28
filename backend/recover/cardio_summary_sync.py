@@ -172,6 +172,66 @@ def _fetch_hrv_rmssd_bins(db2, participant_id: str, start_ts: int, end_ts: int):
     return rmssd_values
 
 
+def _fetch_spo2_values(db2, participant_id: str, start_ts: int, end_ts: int):
+    """Fetch SpO2 values from multiple possible Garmin collections/fields."""
+    spo2_candidates = [
+        ("garmin_spo2", "spo2"),
+        ("garmin_spo2", "oxygen_saturation"),
+        ("garmin_pulse_ox", "spo2"),
+        ("garmin_pulse_ox", "oxygen_saturation"),
+        ("garmin_hr", "spo2"),
+        ("garmin_hr", "oxygen_saturation"),
+        ("garmin_respiration", "spo2"),
+        ("garmin_respiration", "oxygen_saturation"),
+        ("garmin_stress", "spo2"),
+        ("garmin_stress", "oxygen_saturation"),
+    ]
+    out: list[float] = []
+    for collection_name, value_field in spo2_candidates:
+        try:
+            cursor = db2[collection_name].find(
+                {
+                    **_participant_filter(participant_id),
+                    "timestamp": {"$gte": start_ts, "$lte": end_ts},
+                    value_field: {"$type": "number", "$gt": 50, "$lte": 100},
+                },
+                {value_field: 1},
+            )
+            for doc in cursor:
+                value = doc.get(value_field)
+                if isinstance(value, (int, float)) and math.isfinite(value) and 50 < value <= 100:
+                    out.append(float(value))
+        except Exception:
+            continue
+    return out
+
+
+def _is_alert(metric: str, value: float | None) -> bool:
+    """Return True if the value exceeds alert thresholds (matches chart logic)."""
+    if value is None or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return False
+    if metric == "heart_rate":
+        return value > 120 or value < 60
+    if metric == "respiration":
+        return value > 24 or value < 8
+    if metric == "spo2":
+        return value < 94
+    if metric == "hrv":
+        return value < 15
+    return False
+
+
+def _wearable_state(metric: str, stats: dict) -> int:
+    """Compute wearable dot state: 0=no data, 1=green(normal), 3=red(alert)."""
+    if stats["min"] is None:
+        return 0
+    # Check if any extreme value triggers an alert
+    for key in ("min", "max", "avg"):
+        if _is_alert(metric, stats[key]):
+            return 3
+    return 1
+
+
 def _sync_once():
     day_start_sql, start_ts, end_ts = _day_window_eastern_now()
     client = MongoClient(mongodb_url, **mongodb_client_kwargs)
@@ -179,8 +239,8 @@ def _sync_once():
     try:
         patients = Patient.query.filter(Patient.participant_id.isnot(None)).all()
         created = 0
+        updated = 0
         skipped_no_data = 0
-        skipped_existing = 0
         skipped_db_error = 0
         for patient in patients:
             participant_id = (patient.participant_id or "").strip()
@@ -194,16 +254,19 @@ def _sync_once():
                 db2, participant_id, "garmin_respiration", "respiration", start_ts, end_ts
             )
             hrv_values = _fetch_hrv_rmssd_bins(db2, participant_id, start_ts, end_ts)
+            spo2_values = _fetch_spo2_values(db2, participant_id, start_ts, end_ts)
 
             hr = _safe_stats(hr_values)
             resp = _safe_stats(resp_values)
             hrv = _safe_stats(hrv_values)
+            spo2 = _safe_stats(spo2_values)
 
             has_wearable_data = any(
                 [
                     hr["min"] is not None,
                     resp["min"] is not None,
                     hrv["min"] is not None,
+                    spo2["min"] is not None,
                 ]
             )
             if not has_wearable_data:
@@ -211,10 +274,9 @@ def _sync_once():
                 continue
 
             summary = _get_daily_summary(patient.id, day_start_sql)
-            if summary is not None:
-                skipped_existing += 1
-                continue
-            summary = _create_daily_summary(patient.id, day_start_sql)
+            is_new = summary is None
+            if is_new:
+                summary = _create_daily_summary(patient.id, day_start_sql)
 
             summary.heart_rate_min = _round_metric("heart_rate_min", hr["min"])
             summary.heart_rate_max = _round_metric("heart_rate_max", hr["max"])
@@ -228,9 +290,22 @@ def _sync_once():
             summary.hrv_max = _round_metric("hrv_max", hrv["max"])
             summary.hrv_average = _round_metric("hrv_average", hrv["avg"])
 
+            summary.spo2_min = _round_metric("spo2_min", spo2["min"])
+            summary.spo2_max = _round_metric("spo2_max", spo2["max"])
+            summary.spo2_average = _round_metric("spo2_average", spo2["avg"])
+
+            # Update wearable dot states based on alert thresholds
+            summary.heart_rate_state = _wearable_state("heart_rate", hr)
+            summary.respiration_state = _wearable_state("respiration", resp)
+            summary.spo2_state = _wearable_state("spo2", spo2)
+            summary.hrv_state = _wearable_state("hrv", hrv)
+
             try:
                 db.session.commit()
-                created += 1
+                if is_new:
+                    created += 1
+                else:
+                    updated += 1
             except OperationalError:
                 db.session.rollback()
                 skipped_db_error += 1
@@ -256,8 +331,8 @@ def _sync_once():
                     print(f"[cardio_summary_sync] AI note failed for patient {patient.id}: {exc}")
 
         print(
-            f"[cardio_summary_sync] created={created} "
-            f"(skipped_no_data={skipped_no_data}, skipped_existing={skipped_existing}, skipped_db_error={skipped_db_error}) "
+            f"[cardio_summary_sync] created={created} updated={updated} "
+            f"(skipped_no_data={skipped_no_data}, skipped_db_error={skipped_db_error}) "
             f"for ET day {day_start_sql.date()} "
             f"(start_ts={start_ts}, end_ts={end_ts})"
         )
@@ -268,6 +343,137 @@ def _sync_once():
 def main():
     with app.app_context():
         _sync_once()
+
+
+def backfill_wearable_states():
+    """Scan ALL existing summaries and update wearable dot states from MongoDB.
+
+    Uses the same aggregation pipeline approach as the timeseries chart API
+    for efficient server-side aggregation (15-min bins).
+    """
+    from .apis import (
+        _aggregate_avg_by_bin,
+        _aggregate_rmssd_by_bin,
+        _participant_filter,
+    )
+
+    BIN_BACKFILL = 15 * 60  # 15-min bins, same as chart
+
+    client = MongoClient(mongodb_url, **mongodb_client_kwargs)
+    db2 = client["study_db"]
+    try:
+        patients = Patient.query.filter(Patient.participant_id.isnot(None)).all()
+        total_updated = 0
+        total_red = 0
+        for patient in patients:
+            participant_id = (patient.participant_id or "").strip()
+            if not participant_id:
+                continue
+            summaries = Summary.query.filter_by(patient_id=patient.id).all()
+            for summary in summaries:
+                summary_date = summary.date
+                if summary_date is None:
+                    continue
+                # Build day window in Eastern time (same as timeseries API)
+                if summary_date.tzinfo is None:
+                    day_start_et = summary_date.replace(
+                        hour=0, minute=0, second=0, microsecond=0,
+                        tzinfo=EASTERN_TZ,
+                    )
+                else:
+                    day_start_et = summary_date.astimezone(EASTERN_TZ).replace(
+                        hour=0, minute=0, second=0, microsecond=0,
+                    )
+                day_end_et = day_start_et + timedelta(days=1)
+                start_ts = int(day_start_et.timestamp())
+                end_ts = int(day_end_et.timestamp())
+
+                # --- Heart Rate ---
+                hr_map = _aggregate_avg_by_bin(
+                    db2, participant_id, "garmin_hr",
+                    start_ts, end_ts, BIN_BACKFILL, "heart_rate", min_value=0,
+                )
+                # --- Respiration ---
+                resp_map = _aggregate_avg_by_bin(
+                    db2, participant_id, "garmin_respiration",
+                    start_ts, end_ts, BIN_BACKFILL, "respiration", min_value=0,
+                )
+                # --- HRV ---
+                hrv_map = _aggregate_rmssd_by_bin(
+                    db2, participant_id,
+                    start_ts, end_ts, BIN_BACKFILL,
+                    time_field="timestamp", value_field="bbi",
+                )
+                # --- SpO2 (multi-source, same as chart) ---
+                spo2_candidates = [
+                    ("garmin_spo2", "spo2"),
+                    ("garmin_spo2", "oxygen_saturation"),
+                    ("garmin_pulse_ox", "spo2"),
+                    ("garmin_pulse_ox", "oxygen_saturation"),
+                    ("garmin_hr", "spo2"),
+                    ("garmin_hr", "oxygen_saturation"),
+                    ("garmin_respiration", "spo2"),
+                    ("garmin_respiration", "oxygen_saturation"),
+                    ("garmin_stress", "spo2"),
+                    ("garmin_stress", "oxygen_saturation"),
+                ]
+                spo2_map: dict = {}
+                for coll, field in spo2_candidates:
+                    try:
+                        cur = _aggregate_avg_by_bin(
+                            db2, participant_id, coll,
+                            start_ts, end_ts, BIN_BACKFILL, field, min_value=0,
+                        )
+                    except Exception:
+                        continue
+                    for bucket, value in cur.items():
+                        if not isinstance(value, (int, float)) or not math.isfinite(value):
+                            continue
+                        if value < 50 or value > 100:
+                            continue
+                        if bucket not in spo2_map:
+                            spo2_map[bucket] = value
+
+                # Scan binned values for alerts
+                def _scan_alert(metric: str, value_map: dict) -> int:
+                    """0=no data, 1=green, 3=red."""
+                    vals = [v for v in value_map.values()
+                            if v is not None and isinstance(v, (int, float)) and math.isfinite(v)]
+                    if not vals:
+                        return 0
+                    for v in vals:
+                        if _is_alert(metric, v):
+                            return 3
+                    return 1
+
+                summary.heart_rate_state = _scan_alert("heart_rate", hr_map)
+                summary.respiration_state = _scan_alert("respiration", resp_map)
+                summary.hrv_state = _scan_alert("hrv", hrv_map)
+                summary.spo2_state = _scan_alert("spo2", spo2_map)
+
+                if summary.heart_rate_state == 3 or summary.respiration_state == 3 \
+                        or summary.hrv_state == 3 or summary.spo2_state == 3:
+                    total_red += 1
+                total_updated += 1
+
+            try:
+                db.session.commit()
+            except OperationalError:
+                db.session.rollback()
+
+            print(
+                f"[backfill] patient {patient.id} ({participant_id}): "
+                f"{len(summaries)} summaries"
+            )
+
+        print(f"[backfill] done. scanned={total_updated}, red_days={total_red}")
+    finally:
+        client.close()
+
+
+def run_backfill():
+    with app.app_context():
+        backfill_wearable_states()
 
 
 if __name__ == "__main__":

@@ -28,13 +28,36 @@ const select_log_ids_ = useRouteQuery<string | string[]>("logs");
 const select_log_ids = computed(() => {
   const val = select_log_ids_.value;
   if (!val) return [];
-  const arr = Array.isArray(val) ? val : [val];
-  return arr
-    .map((id) => parseInt(String(id), 10))
-    .filter((n) => !Number.isNaN(n));
+  const parts = (Array.isArray(val) ? val : [val]).flatMap((item) => {
+    const raw = String(item).trim();
+    if (!raw) return [] as string[];
+
+    // Support logs as JSON array string, e.g. "[12,13]".
+    if (raw.startsWith("[") && raw.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map((x) => String(x));
+      } catch {
+        // Fall through to comma-separated parsing.
+      }
+    }
+
+    // Support comma-separated IDs, e.g. "12,13".
+    if (raw.includes(",")) {
+      return raw.split(",").map((x) => x.trim()).filter(Boolean);
+    }
+
+    return [raw];
+  });
+
+  const deduped = Array.from(new Set(parts));
+  return deduped
+    .map((id) => parseInt(id, 10))
+    .filter((n) => Number.isFinite(n));
 });
 
 const symptom_query = useRouteQuery<string | undefined>("symptom");
+const jump_query = useRouteQuery<string | undefined>("jump");
 
 const query_date_ = useRouteQuery<string | undefined>("date");
 watch(
@@ -66,6 +89,7 @@ watch(selectedDate, (value) => {
 const conversationRefs = ref<Record<number, HTMLElement | null>>({});
 const isRefreshingLogs = ref(false);
 const logsRefreshTimer = ref<number | null>(null);
+const pendingExplicitJump = ref(false);
 const setLogRef = (el: unknown, id: number) => {
   if (el instanceof HTMLElement) {
     conversationRefs.value[id] = el;
@@ -270,6 +294,7 @@ const effectiveHighlightIds = computed<Set<number>>(() => {
 
 watch(effectiveHighlightIds, () => nextTick(scrollToLogs));
 watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
+watch(jump_query, () => nextTick(scrollToLogs));
 </script>
 <template>
   <div class="report-detail" :style="{ '--log-highlight-color': highlightColor }">
@@ -307,7 +332,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
           :ref="(el) => setLogRef(el, log.id)"
           class="log-row"
           :class="{
-            'log-selected': effectiveHighlightIds.has(log.id),
+            'log-selected': effectiveHighlightIds.has(Number(log.id)),
             'log-patient': log.role === 'user',
           }"
           v-for="log in logsForDate"

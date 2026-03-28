@@ -1387,3 +1387,11 @@ def seed_clinical_details_cmd(patients_limit, seed, start_date, end_date, clear_
             if MedicationExecutionMetric.query.filter_by(patient_id=patient.id).count() < 1:
                 min_ok = False
         print(f"Per-patient key-table minimum check (>=1 row): {'PASS' if min_ok else 'FAIL'}")
+
+
+@app.cli.command("backfill-wearable-states")
+def backfill_wearable_states_cmd():
+    """Scan all summaries and update wearable dot states from MongoDB data."""
+    from .cardio_summary_sync import backfill_wearable_states
+    with app.app_context():
+        backfill_wearable_states()

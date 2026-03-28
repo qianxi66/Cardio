@@ -678,6 +678,8 @@ const dayOverviewSymptoms = [
   { key: "swelling",        display_name: "Swelling",    description: "Swelling (Edema)",               wearable: false, likert: false, color: "#f9d965" },
   { key: "heart_rate",      display_name: "HR",  description: "Heart Rate",                     wearable: true,  likert: false, color: "#4bbfd1" },
   { key: "respiration",     display_name: "Resp",        description: "Respiration Rate",               wearable: true,  likert: false, color: "#ffb700" },
+  { key: "spo2",            display_name: "SpO2",        description: "Blood Oxygen Saturation",        wearable: true,  likert: false, color: "#63c0ff" },
+  { key: "hrv",             display_name: "HRV",         description: "Heart Rate Variability",         wearable: true,  likert: false, color: "#41acc4" },
 ];
 
 const dayOverviewRows = computed(() => {
@@ -798,7 +800,7 @@ const jumpToDayOverviewSummary = (
       (summary as Record<string, unknown>)["read"] = 1;
     }).catch(() => {});
   }
-  jumpToSummary(summary, symptom, state);
+  jumpToSummary(summary, symptom, state, timestamp);
 };
 
 const handleDayOverviewDotClick = (
@@ -808,27 +810,69 @@ const handleDayOverviewDotClick = (
   const dotKey = getDayOverviewDotKey(row.id, symptom.key);
   if (armedDayOverviewDotKey.value !== dotKey) {
     armedDayOverviewDotKey.value = dotKey;
-    jumpToDayOverviewSummary(row.summary, row.timestamp, symptom.key, symptom.wearable);
   }
+  jumpToDayOverviewSummary(row.summary, row.timestamp, symptom.key, symptom.wearable);
 };
 
-const jumpToSummary = (summary: Summary, symptom: string, dotStateOverride?: number) => {
-  const logsRaw = (summary as Record<string, unknown>)[
-    `${symptom}_logs`
-  ] as string | undefined;
-  const logsArr: number[] =
-    typeof logsRaw === "string"
-      ? (JSON.parse(logsRaw || "[]") as number[])
-      : Array.isArray(logsRaw)
-        ? (logsRaw as number[])
-        : [];
+const parseSummaryLogIds = (raw: unknown): number[] => {
+  const parseTokenList = (tokens: string[]) =>
+    tokens
+      .map((token) => Number.parseInt(token, 10))
+      .filter((id) => Number.isFinite(id));
+
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => Number.parseInt(String(item), 10))
+      .filter((id) => Number.isFinite(id));
+  }
+
+  if (typeof raw !== "string") {
+    return [];
+  }
+
+  const text = raw.trim();
+  if (!text) return [];
+
+  if (text.startsWith("[") && text.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => Number.parseInt(String(item), 10))
+          .filter((id) => Number.isFinite(id));
+      }
+    } catch {
+      // Fall back to comma-separated parsing.
+    }
+  }
+
+  if (text.includes(",")) {
+    return parseTokenList(text.split(",").map((part) => part.trim()).filter(Boolean));
+  }
+
+  const singleton = Number.parseInt(text, 10);
+  return Number.isFinite(singleton) ? [singleton] : [];
+};
+
+const jumpToSummary = (
+  summary: Summary,
+  symptom: string,
+  dotStateOverride?: number,
+  timestampOverride?: number | null,
+) => {
+  const logsRaw = (summary as Record<string, unknown>)[`${symptom}_logs`];
+  const logsArr = parseSummaryLogIds(logsRaw);
   const dateVal = summary.date;
-  const dateTs =
+  const summaryDateTs =
     typeof dateVal === "string"
       ? new Date(dateVal).getTime()
       : dateVal instanceof Date
         ? dateVal.getTime()
         : null;
+  const dateTs =
+    typeof timestampOverride === "number" && Number.isFinite(timestampOverride)
+      ? timestampOverride
+      : summaryDateTs;
   const symptomStateValue = (summary as Record<string, unknown>)[`${symptom}_state`];
   const inferredDotState =
     typeof symptomStateValue === "number"
@@ -837,13 +881,18 @@ const jumpToSummary = (summary: Summary, symptom: string, dotStateOverride?: num
         ? Number.parseInt(symptomStateValue, 10)
         : 0;
   const dotState = typeof dotStateOverride === "number" ? dotStateOverride : inferredDotState;
+  const queryLogs = logsArr
+    .map((id) => Number.parseInt(String(id), 10))
+    .filter((id) => Number.isFinite(id))
+    .map((id) => String(id));
   router.push({
     name: "patient.detail",
     params: { patient_id: patient_id.value },
     query: {
       symptom,
-      logs: logsArr,
+      logs: queryLogs,
       dot_state: String(Number.isNaN(dotState) ? 0 : dotState),
+      jump: String(Date.now()),
       ...(dateTs != null && { date: String(dateTs) }),
     },
   });
@@ -2130,25 +2179,37 @@ watch(loading, () => nextTick(updateConnectors));
   font-size: 12px;
 }
 .day-overview-table {
+  --day-overview-date-width: 98px;
+  --day-overview-symptom-width: 73px;
+  --day-overview-col-count: 10;
   flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   font-size: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .day-overview-table .table-row {
-  width: 100%;
+  width: max-content;
+  min-width: max(
+    100%,
+    calc(
+      var(--day-overview-date-width) +
+      var(--day-overview-col-count) * var(--day-overview-symptom-width)
+    )
+  );
   display: flex;
   align-items: center;
 }
 .day-overview-table .date {
-  flex: 0 0 98px;
+  flex: 0 0 var(--day-overview-date-width);
   padding-left: 8px;
   box-sizing: border-box;
   white-space: nowrap;
 }
 .day-overview-table .symptom {
-  flex: 1 1 0;
+  flex: 0 0 var(--day-overview-symptom-width);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2175,7 +2236,10 @@ watch(loading, () => nextTick(updateConnectors));
 .day-overview-scroll {
   flex: 1 1 0;
   min-height: 0;
-  overflow: auto;
+  width: max-content;
+  min-width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .day-overview-row {
   height: 45px;
@@ -2586,6 +2650,8 @@ watch(loading, () => nextTick(updateConnectors));
     display: block;
   }
   .day-overview-table {
+    --day-overview-date-width: 138px;
+    --day-overview-symptom-width: 74px;
     flex: 0 0 auto;
     display: block;
     min-height: 0;
@@ -2595,15 +2661,21 @@ watch(loading, () => nextTick(updateConnectors));
   }
   .day-overview-table .table-row {
     width: max-content;
-    min-width: 760px;
+    min-width: max(
+      100%,
+      calc(
+        var(--day-overview-date-width) +
+        var(--day-overview-col-count) * var(--day-overview-symptom-width)
+      )
+    );
   }
   .day-overview-table .date {
-    flex: 0 0 138px;
+    flex: 0 0 var(--day-overview-date-width);
     padding-left: 12px;
   }
   .day-overview-table .symptom {
-    flex: 0 0 74px;
-    min-width: 74px;
+    flex: 0 0 var(--day-overview-symptom-width);
+    min-width: var(--day-overview-symptom-width);
   }
   .day-overview-scroll {
     min-height: 0;
