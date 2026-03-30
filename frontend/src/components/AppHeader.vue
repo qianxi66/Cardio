@@ -1,5 +1,5 @@
 <script setup lang="tsx">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useDialog, useMessage } from "naive-ui";
 import { useRouter, useRoute } from "vue-router";
 import { useStorage } from "@vueuse/core";
@@ -13,24 +13,39 @@ window.$message = message;
 window.$dialog = dialog;
 
 const token = useStorage("token", "", localStorage);
+const isMobileLayout = ref(false);
+const AUTO_LOGIN_TOKEN = "admin-autologin-token";
 
-const showLogoutButton = computed(() => {
-  const tokenValue = typeof token.value === "string" ? token.value.trim() : "";
-  const storageToken = (localStorage.getItem("token") || "").trim();
-  const hasToken = tokenValue !== "" || storageToken !== "";
-  return hasToken && route.path !== "/login";
-});
+const updateMobileLayout = () => {
+  if (typeof window === "undefined") return;
+  const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+  const ratio = window.innerHeight > 0 ? window.innerHeight / window.innerWidth : 1;
+  const touchDevice = window.matchMedia("(pointer: coarse)").matches;
+  isMobileLayout.value =
+    window.innerWidth <= 1100 || (touchDevice && (shortEdge <= 1024 || ratio <= 1.45));
+};
+
+const showLogoutButton = computed(() => false);
 
 const showPatientMenuButton = computed(() => {
   const tokenValue = typeof token.value === "string" ? token.value.trim() : "";
   const storageToken = (localStorage.getItem("token") || "").trim();
   const hasToken = tokenValue !== "" || storageToken !== "";
-  return hasToken && route.path !== "/login";
+  return hasToken && route.path !== "/login" && isMobileLayout.value;
 });
 
 const togglePatientSidebar = () => {
   window.dispatchEvent(new Event("toggle-patient-sidebar"));
 };
+
+onMounted(() => {
+  updateMobileLayout();
+  window.addEventListener("resize", updateMobileLayout);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", updateMobileLayout);
+});
 
 const handleLogout = () => {
   dialog.warning({

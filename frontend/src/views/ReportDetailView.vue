@@ -28,17 +28,36 @@ const select_log_ids_ = useRouteQuery<string | string[]>("logs");
 const select_log_ids = computed(() => {
   const val = select_log_ids_.value;
   if (!val) return [];
-  const arr = Array.isArray(val)
-    ? val
-    : typeof val === "string"
-      ? val.split(",").map((s) => s.trim())
-      : [val];
-  return arr
-    .map((id) => parseInt(String(id), 10))
-    .filter((n) => !Number.isNaN(n));
+  const parts = (Array.isArray(val) ? val : [val]).flatMap((item) => {
+    const raw = String(item).trim();
+    if (!raw) return [] as string[];
+
+    // Support logs as JSON array string, e.g. "[12,13]".
+    if (raw.startsWith("[") && raw.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map((x) => String(x));
+      } catch {
+        // Fall through to comma-separated parsing.
+      }
+    }
+
+    // Support comma-separated IDs, e.g. "12,13".
+    if (raw.includes(",")) {
+      return raw.split(",").map((x) => x.trim()).filter(Boolean);
+    }
+
+    return [raw];
+  });
+
+  const deduped = Array.from(new Set(parts));
+  return deduped
+    .map((id) => parseInt(id, 10))
+    .filter((n) => Number.isFinite(n));
 });
 
 const symptom_query = useRouteQuery<string | undefined>("symptom");
+const jump_query = useRouteQuery<string | undefined>("jump");
 
 const query_date_ = useRouteQuery<string | undefined>("date");
 watch(
@@ -70,30 +89,22 @@ watch(selectedDate, (value) => {
 const conversationRefs = ref<Record<number, HTMLElement | null>>({});
 const isRefreshingLogs = ref(false);
 const logsRefreshTimer = ref<number | null>(null);
+const pendingExplicitJump = ref(false);
 const setLogRef = (el: unknown, id: number) => {
   if (el instanceof HTMLElement) {
     conversationRefs.value[id] = el;
-  } else {
-    conversationRefs.value[id] = null;
   }
 };
 
 const scrollToLogs = () => {
   const ids = effectiveHighlightIds.value;
-  if (ids.size === 0) return;
-  const preferredId = logsForDate.value.find((log) => ids.has(log.id))?.id;
-  const targetId = preferredId ?? Math.min(...ids);
-  const scrollToElement = () => {
-    const el = conversationRefs.value[targetId];
-    if (el && el.isConnected) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (ids.size > 0) {
+    const minId = Math.min(...ids);
+    const el = conversationRefs.value[minId];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  };
-  nextTick(() => {
-    nextTick(() => {
-      scrollToElement();
-    });
-  });
+  }
 };
 const patient_id = useRouteParams("patient_id");
 const conversationLogs = ref<ConversationLog[]>([]);
@@ -218,23 +229,19 @@ const logsForDate = computed(() => {
   if (!conversationLogs.value.length) {
     return [];
   }
-  // When explicit target log ids exist (from dot click), avoid date filtering
-  // so highlight + auto-scroll can always find the target rows.
-  if (select_log_ids.value.length > 0) {
-    return [...conversationLogs.value].sort((a, b) => {
-      const ta = parseDateValue(a.date)?.getTime() ?? 0;
-      const tb = parseDateValue(b.date)?.getTime() ?? 0;
-      return ta - tb;
-    });
-  }
+  // Use calendarDateKey (browser local timezone) for BOTH target and logs
+  // so the comparison is consistent regardless of browser timezone.
+  // (timestampFromDateKey on the sending side creates local-tz midnight,
+  //  while Flask serialises naive datetimes as GMT — mixing toDateKey(ET)
+  //  for both would give different date keys when the browser is not in ET.)
   const target = conversationDate.value ? new Date(conversationDate.value) : null;
   const targetKey = target && !Number.isNaN(target.getTime())
-    ? toDateKey(target, DEFAULT_TIMEZONE)
+    ? calendarDateKey(target)
     : null;
   const logs = target
     ? conversationLogs.value.filter((log) => {
         const parsed = parseDateValue(log.date);
-        return parsed && targetKey ? toDateKey(parsed, DEFAULT_TIMEZONE) === targetKey : false;
+        return parsed && targetKey ? calendarDateKey(parsed) === targetKey : false;
       })
     : [...conversationLogs.value];
   return logs.sort((a, b) => {
@@ -292,6 +299,7 @@ const effectiveHighlightIds = computed<Set<number>>(() => {
 
 watch(effectiveHighlightIds, () => nextTick(scrollToLogs));
 watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
+watch(jump_query, () => nextTick(scrollToLogs));
 </script>
 <template>
   <div class="report-detail" :style="{ '--log-highlight-color': highlightColor }">
@@ -329,7 +337,7 @@ watch(logsForDate, () => nextTick(scrollToLogs), { flush: "post" });
           :ref="(el) => setLogRef(el, log.id)"
           class="log-row"
           :class="{
-            'log-selected': effectiveHighlightIds.has(log.id),
+            'log-selected': effectiveHighlightIds.has(Number(log.id)),
             'log-patient': log.role === 'user',
           }"
           v-for="log in logsForDate"

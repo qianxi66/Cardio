@@ -49,15 +49,6 @@ const handleHeaderToggleSidebar = () => {
   toggleSidebar();
 };
 
-const dailySymptomKeys = [
-  "syncope",
-  "palpitation",
-  "short_of_breath",
-  "chest_discomfort",
-  "fatigue",
-  "swelling",
-];
-
 const toEtDateKey = (value: unknown, timeZone = DEFAULT_TIMEZONE): string | null => {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
@@ -91,36 +82,41 @@ const summaryDateKey = (value: unknown): string | null => {
 
 const getSummaryDateKey = (summary: Summary): string | null => summaryDateKey(summary.date);
 
-const getMaxNonWearableSeverityForDate = (
-  summaries: Summary[],
-  dateKey: string,
-): number => {
+const getMaxSeverityFromSummary = (summary: Summary): number => {
   let maxSeverity = 0;
-  summaries.forEach((summary) => {
-    if (getSummaryDateKey(summary) !== dateKey) return;
-    dailySymptomKeys.forEach((symptomKey) => {
-      const raw = (summary as Record<string, unknown>)[`${symptomKey}_state`];
+  const summaryRecord = summary as Record<string, unknown>;
+  Object.keys(summaryRecord).forEach((key) => {
+    if (!key.endsWith("_state")) return;
+    const raw = summaryRecord[key];
       const value = Number(raw);
       if (!Number.isNaN(value)) {
         maxSeverity = Math.max(maxSeverity, Math.min(3, Math.max(0, Math.round(value))));
       }
-    });
   });
   return maxSeverity;
 };
 
 const getPatientSeverity = async (patient: Patient): Promise<number> => {
   const summaries = (patient.summaries ?? []) as Summary[];
-  const targetDateKey = toEtDateKey(new Date(), DEFAULT_TIMEZONE);
-  if (!targetDateKey) return 0;
+  const latestSummary = summaries
+    .slice()
+    .sort((a, b) => {
+      const ta = new Date(String(a.date ?? "")).getTime();
+      const tb = new Date(String(b.date ?? "")).getTime();
+      return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+    })[0];
 
-  const todaySummaries = summaries.filter((summary) => getSummaryDateKey(summary) === targetDateKey);
-  let maxSeverity = todaySummaries.length
-    ? getMaxNonWearableSeverityForDate(todaySummaries, targetDateKey)
-    : 0;
+  if (!latestSummary) return 0;
+
+  const latestDateKey = getSummaryDateKey(latestSummary);
+  let maxSeverity = getMaxSeverityFromSummary(latestSummary);
+
+  // Compatibility fallback: if wearable states are still 0 but day has coverage,
+  // keep at least green.
+  if (!latestDateKey) return maxSeverity;
   try {
-    const wearableCoverage = await getWearableCoverage(patient.id, [targetDateKey]);
-    const hasWearableData = !!wearableCoverage?.[targetDateKey];
+    const wearableCoverage = await getWearableCoverage(patient.id, [latestDateKey]);
+    const hasWearableData = !!wearableCoverage?.[latestDateKey];
     if (hasWearableData) {
       maxSeverity = Math.max(maxSeverity, 1);
     }

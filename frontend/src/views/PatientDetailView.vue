@@ -446,6 +446,20 @@ const preadmissionMedDrawerVisible = ref(false);
 const ioMetricDrawerVisible = ref(false);
 const medExecDrawerVisible = ref(false);
 const drawerPlacement = ref<DrawerPlacement>("right");
+const isCompactLayout = ref(false);
+
+const updateCompactLayout = () => {
+  if (typeof window === "undefined") return;
+  const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+  const ratio = window.innerHeight > 0 ? window.innerHeight / window.innerWidth : 1;
+  const touchDevice = window.matchMedia("(pointer: coarse)").matches;
+  isCompactLayout.value =
+    window.innerWidth <= 1100 || (touchDevice && (shortEdge <= 1024 || ratio <= 1.45));
+};
+
+const dailySymptomsCardTitle = computed(() =>
+  isCompactLayout.value ? "Symptoms" : "Patient's Daily Symptoms",
+);
 
 const openAdmissionDrawer = () => {
   admissionDrawerVisible.value = true;
@@ -664,6 +678,8 @@ const dayOverviewSymptoms = [
   { key: "swelling",        display_name: "Swelling",    description: "Swelling (Edema)",               wearable: false, likert: false, color: "#f9d965" },
   { key: "heart_rate",      display_name: "HR",  description: "Heart Rate",                     wearable: true,  likert: false, color: "#4bbfd1" },
   { key: "respiration",     display_name: "Resp",        description: "Respiration Rate",               wearable: true,  likert: false, color: "#ffb700" },
+  { key: "spo2",            display_name: "SpO2",        description: "Blood Oxygen Saturation",        wearable: true,  likert: false, color: "#63c0ff" },
+  { key: "hrv",             display_name: "HRV",         description: "Heart Rate Variability",         wearable: true,  likert: false, color: "#41acc4" },
 ];
 
 const dayOverviewRows = computed(() => {
@@ -693,6 +709,12 @@ const dayOverviewRowHasData = (summary: Summary | null): boolean => {
   return dayOverviewSymptoms.some((symptom) => dotStateForSymptom(summary, symptom.key, symptom.wearable) !== 0);
 };
 
+const dayOverviewHasDataSignature = computed(() =>
+  dayOverviewRows.value
+    .map((row) => (dayOverviewRowHasData(row.summary) ? "1" : "0"))
+    .join(""),
+);
+
 const getSymptomScale = (summary: Summary | null, symptomKey: string): number => {
   if (!summary) return 0;
   const value = (summary as Record<string, unknown>)[`${symptomKey}_scale`];
@@ -712,9 +734,17 @@ const dayOverviewRowHasUnread = (summary: Summary | null): boolean => {
 };
 
 watch(
-  [dayOverviewRows, loading],
-  async ([rows, isLoading]) => {
-    if (isLoading || didAutoScrollDayOverview.value || rows.length === 0) return;
+  [dayOverviewRows, dayOverviewHasDataSignature, loading, wearableLoading],
+  async ([rows, _signature, isLoading, isWearableLoading]) => {
+    if (isLoading || isWearableLoading || didAutoScrollDayOverview.value || rows.length === 0) return;
+    const targetRow = rows.find((row) => dayOverviewRowHasData(row.summary));
+    if (!targetRow) {
+      didAutoScrollDayOverview.value = true;
+      return;
+    }
+    if (targetRow.timestamp !== null) {
+      dailySummaryDate.value = targetRow.timestamp;
+    }
     await nextTick();
     const container = dayOverviewScrollEl.value;
     if (!container) return;
@@ -770,7 +800,7 @@ const jumpToDayOverviewSummary = (
       (summary as Record<string, unknown>)["read"] = 1;
     }).catch(() => {});
   }
-  jumpToSummary(summary, symptom, state);
+  jumpToSummary(summary, symptom, state, timestamp);
 };
 
 const handleDayOverviewDotClick = (
@@ -780,22 +810,69 @@ const handleDayOverviewDotClick = (
   const dotKey = getDayOverviewDotKey(row.id, symptom.key);
   if (armedDayOverviewDotKey.value !== dotKey) {
     armedDayOverviewDotKey.value = dotKey;
-    jumpToDayOverviewSummary(row.summary, row.timestamp, symptom.key, symptom.wearable);
   }
+  jumpToDayOverviewSummary(row.summary, row.timestamp, symptom.key, symptom.wearable);
 };
 
-const jumpToSummary = (summary: Summary, symptom: string, dotStateOverride?: number) => {
-  const logsRaw = (summary as Record<string, unknown>)[
-    `${symptom}_logs`
-  ] as string | undefined;
-  const logsArr: number[] =
-    typeof logsRaw === "string"
-      ? (JSON.parse(logsRaw || "[]") as number[])
-      : Array.isArray(logsRaw)
-        ? (logsRaw as number[])
-        : [];
-  const summaryKey = summaryDateKey(summary.date);
-  const dateTs = summaryKey ? timestampFromDateKey(summaryKey) : null;
+const parseSummaryLogIds = (raw: unknown): number[] => {
+  const parseTokenList = (tokens: string[]) =>
+    tokens
+      .map((token) => Number.parseInt(token, 10))
+      .filter((id) => Number.isFinite(id));
+
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => Number.parseInt(String(item), 10))
+      .filter((id) => Number.isFinite(id));
+  }
+
+  if (typeof raw !== "string") {
+    return [];
+  }
+
+  const text = raw.trim();
+  if (!text) return [];
+
+  if (text.startsWith("[") && text.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => Number.parseInt(String(item), 10))
+          .filter((id) => Number.isFinite(id));
+      }
+    } catch {
+      // Fall back to comma-separated parsing.
+    }
+  }
+
+  if (text.includes(",")) {
+    return parseTokenList(text.split(",").map((part) => part.trim()).filter(Boolean));
+  }
+
+  const singleton = Number.parseInt(text, 10);
+  return Number.isFinite(singleton) ? [singleton] : [];
+};
+
+const jumpToSummary = (
+  summary: Summary,
+  symptom: string,
+  dotStateOverride?: number,
+  timestampOverride?: number | null,
+) => {
+  const logsRaw = (summary as Record<string, unknown>)[`${symptom}_logs`];
+  const logsArr = parseSummaryLogIds(logsRaw);
+  const dateVal = summary.date;
+  const summaryDateTs =
+    typeof dateVal === "string"
+      ? new Date(dateVal).getTime()
+      : dateVal instanceof Date
+        ? dateVal.getTime()
+        : null;
+  const dateTs =
+    typeof timestampOverride === "number" && Number.isFinite(timestampOverride)
+      ? timestampOverride
+      : summaryDateTs;
   const symptomStateValue = (summary as Record<string, unknown>)[`${symptom}_state`];
   const inferredDotState =
     typeof symptomStateValue === "number"
@@ -804,13 +881,18 @@ const jumpToSummary = (summary: Summary, symptom: string, dotStateOverride?: num
         ? Number.parseInt(symptomStateValue, 10)
         : 0;
   const dotState = typeof dotStateOverride === "number" ? dotStateOverride : inferredDotState;
+  const queryLogs = logsArr
+    .map((id) => Number.parseInt(String(id), 10))
+    .filter((id) => Number.isFinite(id))
+    .map((id) => String(id));
   router.push({
     name: "patient.detail",
     params: { patient_id: patient_id.value },
     query: {
       symptom,
-      logs: logsArr,
+      logs: queryLogs,
       dot_state: String(Number.isNaN(dotState) ? 0 : dotState),
+      jump: String(Date.now()),
       ...(dateTs != null && { date: String(dateTs) }),
     },
   });
@@ -865,14 +947,17 @@ const updateConnectors = () => {
 
 let _connectorRO: ResizeObserver | null = null;
 onMounted(() => {
+  updateCompactLayout();
   nextTick(() => updateConnectors());
   _connectorRO = new ResizeObserver(() => updateConnectors());
   if (connectorRowEl.value) _connectorRO.observe(connectorRowEl.value);
   window.addEventListener('resize', updateConnectors);
+  window.addEventListener("resize", updateCompactLayout);
 });
 onBeforeUnmount(() => {
   _connectorRO?.disconnect();
   window.removeEventListener('resize', updateConnectors);
+  window.removeEventListener("resize", updateCompactLayout);
 });
 watch(right, () => nextTick(updateConnectors));
 watch(loading, () => nextTick(updateConnectors));
@@ -1018,7 +1103,7 @@ watch(loading, () => nextTick(updateConnectors));
       </ColoredCard>
       <ColoredCard
         class="day-navigator indigo-title full-title-bar"
-        title="Symptoms"
+        :title="dailySymptomsCardTitle"
         color="#053251"
         rounded
       >
@@ -1530,26 +1615,27 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .connector-tail {
   left: calc(53% - 10px);
-  top: 38%;
+  top: 260px;
   width: 10px;
   height: 4px;
 }
 .connector-vertical {
-  left: calc(53% - 1px);
-  top: 3%;
+  left: calc((100% - 16px) * 0.53 + 6px);
+  top: 19px;
   width: 4px;
-  bottom: calc(46% + 3px);
+  bottom: calc((100% - 32px) * 0.5 + 16px - 19px);
 }
 .connector-branch {
-  left: calc(53% + 3px);
-  width: 4px;
+  left: calc((100% - 16px) * 0.53 + 6px);
+  top: 19px;
+  width: 12px;
   height: 4px;
 }
 .connector-branch-top {
-  top: 3%;
+  top: 19px;
 }
 .connector-branch-bottom {
-  top: 53%;
+  top: calc((100% - 32px) * 0.5 + 16px + 19px);
 }
 .main-col,
 .side-col {
@@ -2093,25 +2179,37 @@ watch(loading, () => nextTick(updateConnectors));
   font-size: 12px;
 }
 .day-overview-table {
+  --day-overview-date-width: 98px;
+  --day-overview-symptom-width: 73px;
+  --day-overview-col-count: 10;
   flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   font-size: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .day-overview-table .table-row {
-  width: 100%;
+  width: max-content;
+  min-width: max(
+    100%,
+    calc(
+      var(--day-overview-date-width) +
+      var(--day-overview-col-count) * var(--day-overview-symptom-width)
+    )
+  );
   display: flex;
   align-items: center;
 }
 .day-overview-table .date {
-  flex: 0 0 98px;
+  flex: 0 0 var(--day-overview-date-width);
   padding-left: 8px;
   box-sizing: border-box;
   white-space: nowrap;
 }
 .day-overview-table .symptom {
-  flex: 1 1 0;
+  flex: 0 0 var(--day-overview-symptom-width);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2138,7 +2236,10 @@ watch(loading, () => nextTick(updateConnectors));
 .day-overview-scroll {
   flex: 1 1 0;
   min-height: 0;
-  overflow: auto;
+  width: max-content;
+  min-width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .day-overview-row {
   height: 45px;
@@ -2549,6 +2650,8 @@ watch(loading, () => nextTick(updateConnectors));
     display: block;
   }
   .day-overview-table {
+    --day-overview-date-width: 138px;
+    --day-overview-symptom-width: 74px;
     flex: 0 0 auto;
     display: block;
     min-height: 0;
@@ -2558,15 +2661,21 @@ watch(loading, () => nextTick(updateConnectors));
   }
   .day-overview-table .table-row {
     width: max-content;
-    min-width: 760px;
+    min-width: max(
+      100%,
+      calc(
+        var(--day-overview-date-width) +
+        var(--day-overview-col-count) * var(--day-overview-symptom-width)
+      )
+    );
   }
   .day-overview-table .date {
-    flex: 0 0 138px;
+    flex: 0 0 var(--day-overview-date-width);
     padding-left: 12px;
   }
   .day-overview-table .symptom {
-    flex: 0 0 74px;
-    min-width: 74px;
+    flex: 0 0 var(--day-overview-symptom-width);
+    min-width: var(--day-overview-symptom-width);
   }
   .day-overview-scroll {
     min-height: 0;

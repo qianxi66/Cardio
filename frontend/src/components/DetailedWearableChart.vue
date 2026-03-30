@@ -628,7 +628,7 @@ const buildOption = (): echarts.EChartsOption => {
     left: 0,
     right: 20,
     top: 20,
-    bottom: isDense24h ? 52 : 30,
+    bottom: 52,
     containLabel: true,
   },
   tooltip: {
@@ -685,7 +685,7 @@ const buildOption = (): echarts.EChartsOption => {
     data: times.value,
     name: "Time",
     nameLocation: "middle",
-    nameGap: isDense24h ? 56 : 48,
+    nameGap: 56,
     nameTextStyle: {
       color: "#000000",
       fontSize: 13,
@@ -1109,7 +1109,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  min-height: 264px;
+  min-height: 275px;
   width: 100%;
   min-width: 0;
   overflow: hidden;
