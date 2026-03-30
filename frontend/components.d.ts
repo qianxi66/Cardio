@@ -12,6 +12,7 @@ declare module 'vue' {
     AppHeader: typeof import('./src/components/AppHeader.vue')['default']
     CircleProgress: typeof import('./src/components/CircleProgress.vue')['default']
     ColoredCard: typeof import('./src/components/ColoredCard.vue')['default']
+    copy: typeof import('./src/components/AiRiskGauge copy.vue')['default']
     DetailedWearableChart: typeof import('./src/components/DetailedWearableChart.vue')['default']
     Dot: typeof import('./src/components/Dot.vue')['default']
     DotLikert: typeof import('./src/components/DotLikert.vue')['default']

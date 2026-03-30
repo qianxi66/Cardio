@@ -9,6 +9,8 @@ const props = defineProps<{
 
 const chartEl = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
+const GAUGE_RADIUS = "128%";
+const GAUGE_CENTER: [string, string] = ["50%", "80%"];
 
 const clampValue = (value: number) => Math.max(0, Math.min(100, value));
 
@@ -51,8 +53,8 @@ const buildOption = (value: number): echarts.EChartsOption => {
         endAngle: 0,
         min: 0,
         max: 100,
-        radius: "170%",
-        center: ["50%", "90%"],
+        radius: GAUGE_RADIUS,
+        center: GAUGE_CENTER,
         axisLine: {
           lineStyle: {
             width: 34,
@@ -102,6 +104,8 @@ watch(
 
 useResizeObserver(chartEl, () => {
   chart?.resize();
+  // Re-apply option on container resize/HMR to avoid stale gauge radius.
+  applyOption();
 });
 
 onBeforeUnmount(() => {
@@ -123,7 +127,7 @@ onBeforeUnmount(() => {
 .ai-risk-gauge {
   width: 100%;
   height: 100%;
-  min-height: 140px;
+  min-height: 90px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -135,7 +139,7 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 .ai-risk-gauge-value {
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 800;
 }
 </style>

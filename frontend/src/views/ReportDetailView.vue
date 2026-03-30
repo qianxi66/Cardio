@@ -482,11 +482,30 @@ watch(jump_query, () => nextTick(scrollToLogs));
   flex: 1 1 0;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+  padding: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.conversation-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.conversation-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.conversation-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.conversation-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(5, 50, 81, 0.35) transparent;
+}
+.conversation-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(5, 50, 81, 0.35);
 }
 .log-row {
   display: flex;

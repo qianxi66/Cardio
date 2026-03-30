@@ -6,6 +6,8 @@ import type { DrawerPlacement } from "naive-ui";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import CircleProgress from "@/components/CircleProgress.vue";
+import AiRiskGauge from "@/components/AiRiskGauge.vue";
+import AiRiskTrendChart from "@/components/AiRiskTrendChart.vue";
 import { markSymptomRead, updateSummarySymptomState, updateNote, createNote, deleteNote } from "@/api/patient";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
@@ -127,6 +129,15 @@ const wearableDate = computed(() => {
 });
 const dayOverviewScrollEl = ref<HTMLElement | null>(null);
 const didAutoScrollDayOverview = ref(false);
+const aiRiskScore = ref(70);
+const aiRiskDescription =
+  "(The score predicts the 6-month risk of cardiovascular complications based on EHR data, wearable sensors, and self-reported symptoms.)";
+const aiRiskFeatureImportance = ref([
+  { label: "Chest Discomfort", value: 75 },
+  { label: "Heart Rate", value: 50 },
+  { label: "Respiration", value: 15 },
+  { label: "Perspiration", value: 15 },
+]);
 const selectedSeries = ref<Record<string, boolean>>({
   "Heart Rate": true,
   Respiration: true,
@@ -1102,6 +1113,46 @@ watch(loading, () => nextTick(updateConnectors));
         </div>
       </ColoredCard>
       <ColoredCard
+        color="#053251"
+        rounded
+        class="ai-risk-prediction-card indigo-title"
+      >
+        <div class="ai-risk-card-content">
+          <div class="ai-risk-card-top">
+            <div class="ai-risk-panel">
+              <div class="ai-risk-panel-title">Cardiotoxicity Risk Score</div>
+              <div class="ai-risk-score-layout">
+                <div class="ai-risk-gauge-wrap">
+                  <AiRiskGauge :value="aiRiskScore" />
+                </div>
+                <div class="ai-risk-score-desc">{{ aiRiskDescription }}</div>
+              </div>
+            </div>
+            <div class="ai-risk-panel ai-risk-panel-right">
+              <div class="ai-risk-panel-title">Feature Importance</div>
+              <div class="ai-feature-box">
+                <div class="ai-feature-list">
+                  <div
+                    v-for="item in aiRiskFeatureImportance"
+                    :key="item.label"
+                    class="ai-feature-item"
+                  >
+                    <span class="ai-feature-label">{{ item.label }}</span>
+                    <div class="ai-feature-bar">
+                      <div class="ai-feature-fill" :style="{ width: `${item.value}%` }"></div>
+                    </div>
+                    <span class="ai-feature-value">{{ item.value }}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="ai-risk-card-bottom">
+            <AiRiskTrendChart />
+          </div>
+        </div>
+      </ColoredCard>
+      <ColoredCard
         class="day-navigator indigo-title full-title-bar"
         :title="dailySymptomsCardTitle"
         color="#053251"
@@ -1615,7 +1666,7 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .connector-tail {
   left: calc(53% - 10px);
-  top: 260px;
+  top: 235px;
   width: 10px;
   height: 4px;
 }
@@ -1660,11 +1711,6 @@ watch(loading, () => nextTick(updateConnectors));
   column-gap: 12px;
   width: 100%;
   overflow-y: hidden;
-}
-.information {
-  flex: 0 0 var(--patient-info-card-height, 225px);
-  height: var(--patient-info-card-height, 225px);
-  min-height: 0;
 }
 .patient-avatar {
   width: 32px;
@@ -1815,7 +1861,7 @@ watch(loading, () => nextTick(updateConnectors));
   width: 100%;
 }
 .card-top-header {
-  padding: 0 0 12px 0;
+  padding: 0 0 4px 0;
 }
 .card-top-header :deep(.n-spin),
 .card-top-header :deep(.n-spin-container),
@@ -1891,7 +1937,7 @@ watch(loading, () => nextTick(updateConnectors));
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  row-gap: 8px;
+  row-gap: 4px;
 }
 .patient-plan-box {
   background-color: #fff;
@@ -1899,7 +1945,7 @@ watch(loading, () => nextTick(updateConnectors));
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  row-gap: 8px;
+  row-gap: 4px;
 }
 .patient-info-box .detail-line {
   flex: 0 0 auto;
@@ -1916,7 +1962,7 @@ watch(loading, () => nextTick(updateConnectors));
   column-gap: 10px;
   row-gap: 6px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 .patient-action-cell {
   flex: 0 0 auto;
@@ -1971,8 +2017,131 @@ watch(loading, () => nextTick(updateConnectors));
   min-width: 0;
 }
 .day-navigator {
+  order: 1;
   flex: 1 1 auto;
   min-height: 0;
+}
+.ai-risk-prediction-card {
+  order: 2;
+  flex: 0 0 205px;
+  min-height: 0;
+  border: 2px solid #053251 !important;
+  padding-top: 0 !important;
+}
+.ai-risk-prediction-card :deep(.roundtag) {
+  display: none !important;
+}
+.ai-risk-prediction-card :deep(.n-card.color-card) {
+  padding-top: 0 !important;
+}
+.ai-risk-prediction-card :deep(.n-card__content) {
+  display: block;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.ai-risk-prediction-card :deep(.n-card__content)::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.ai-risk-card-content {
+  display: block;
+  gap: 12px;
+  min-height: max-content;
+}
+.ai-risk-card-top {
+  display: flex;
+  gap: 14px;
+  min-height: 180px;
+  margin-bottom: 12px;
+}
+.ai-risk-panel {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+.ai-risk-panel-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+}
+.ai-risk-panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #3f3f3f;
+  margin-bottom: 10px;
+}
+.ai-risk-score-layout {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  min-height: 136px;
+}
+.ai-risk-gauge-wrap {
+  flex: 0 0 140px;
+  min-height: 110px;
+}
+.ai-risk-score-desc {
+  color: #808080;
+  font-size: 14px;
+  line-height: 1.35;
+  align-self: center;
+}
+.ai-feature-box {
+  background: #f3f3f3;
+  padding: 12px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 136px;
+}
+.ai-feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: overlay;
+}
+.ai-feature-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.ai-feature-item {
+  display: grid;
+  grid-template-columns: 132px minmax(60px, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+}
+.ai-feature-label {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  color: #808080;
+}
+.ai-feature-bar {
+  height: 14px;
+  background: #ffffff;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ai-feature-fill {
+  height: 100%;
+  background: #5574aa;
+}
+.ai-feature-value {
+  font-weight: 700;
+  color: #555555;
+}
+.ai-risk-card-bottom {
+  height: 147px;
+  min-height: 147px;
+}
+.ai-risk-card-bottom :deep(.ai-risk-chart) {
+  height: 147px;
+  min-height: 147px;
 }
 .day-navigator :deep(.n-card__content) {
   height: 100%;
@@ -2187,8 +2356,27 @@ watch(loading, () => nextTick(updateConnectors));
   display: flex;
   flex-direction: column;
   font-size: 14px;
-  overflow-x: auto;
+  overflow-x: overlay;
   overflow-y: hidden;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+.day-overview-table::-webkit-scrollbar {
+  height: 8px;
+}
+.day-overview-table::-webkit-scrollbar-track {
+  background: transparent;
+}
+.day-overview-table::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.day-overview-table:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(5, 50, 81, 0.35) transparent;
+}
+.day-overview-table:hover::-webkit-scrollbar-thumb {
+  background: rgba(5, 50, 81, 0.35);
 }
 .day-overview-table .table-row {
   width: max-content;
@@ -2240,6 +2428,25 @@ watch(loading, () => nextTick(updateConnectors));
   min-width: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+.day-overview-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.day-overview-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.day-overview-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.day-overview-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(5, 50, 81, 0.35) transparent;
+}
+.day-overview-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(5, 50, 81, 0.35);
 }
 .day-overview-row {
   height: 45px;
@@ -2528,6 +2735,17 @@ watch(loading, () => nextTick(updateConnectors));
   box-sizing: border-box;
   color: #053251 !important;
 }
+.full-title-bar.ai-risk-prediction-card :deep(.roundtag__label) {
+  background-color: #d7d7d7 !important;
+  border: 2px solid #053251 !important;
+  border-left-width: 6px !important;
+  border-bottom-width: 2px !important;
+  border-top-width: 0px !important;
+  border-right-width: 0px !important;
+  box-sizing: border-box;
+  color: #053251 !important;
+}
+
 .full-title-bar :deep(.roundtag__extra) {
   margin-left: auto;
   display: inline-flex;
@@ -2587,8 +2805,8 @@ watch(loading, () => nextTick(updateConnectors));
   cursor: pointer;
 }
 .information {
-  flex: 0 0 var(--patient-info-card-height, 225px);
-  height: var(--patient-info-card-height, 225px);
+  flex: 0 0 var(--patient-info-card-height, 190px);
+  height: var(--patient-info-card-height, 190px);
   min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;
@@ -2640,6 +2858,10 @@ watch(loading, () => nextTick(updateConnectors));
   .day-navigator {
     flex: 0 0 auto;
     min-height: 0;
+  }
+  .ai-risk-prediction-card {
+    flex: 0 0 auto;
+    min-height: 210px;
   }
   .day-navigator :deep(.n-card__content),
   .day-navigator-content {
