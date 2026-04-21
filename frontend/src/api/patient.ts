@@ -20,7 +20,7 @@ export const getPatients = async () => {
 
 const patientInFlight = new Map<string, Promise<Patient>>();
 const patientCache = new Map<string, { data: Patient; cachedAt: number }>();
-const PATIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const PATIENT_CACHE_TTL_MS = 30 * 60 * 1000;
 
 export const getPatient = async (id: number, cancelToken?: CancelToken) => {
   const key = `${id}`;
@@ -99,7 +99,7 @@ const wearableTimeseriesCache = new Map<
   string,
   { data: WearableTimeSeries; cachedAt: number }
 >();
-const WEARABLE_CACHE_TTL_MS = 5 * 60 * 1000;
+const WEARABLE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 export const getWearableTimeSeries = async (id: number, date: string) => {
   const key = `${id}:${date}`;

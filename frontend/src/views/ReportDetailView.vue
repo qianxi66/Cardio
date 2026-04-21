@@ -5,7 +5,6 @@ import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import { useRouteParams, useRouteQuery } from "@vueuse/router";
 import { getConversationLogs } from "@/api/patient";
 import type { ConversationLog } from "@/api/types";
-import { format } from "date-fns";
 
 withDefaults(
   defineProps<{
@@ -16,8 +15,8 @@ withDefaults(
   },
 );
 
-const selectedDate = ref<number | null>(Date.now());
-const conversationDate = computed<number | null>({
+const selectedDate = ref<string | null>(null);
+const conversationDate = computed<string | null>({
   get: () => selectedDate.value,
   set: (value) => {
     selectedDate.value = value;
@@ -63,11 +62,9 @@ const query_date_ = useRouteQuery<string | undefined>("date");
 watch(
   query_date_,
   (dateStr) => {
-    if (dateStr) {
-      const ts = parseInt(dateStr, 10);
-      if (!Number.isNaN(ts)) {
-        selectedDate.value = ts;
-      }
+    if (!dateStr) return;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      selectedDate.value = dateStr;
     }
   },
   { immediate: true },
@@ -80,9 +77,8 @@ watch(selectedDate, (value) => {
     }
     return;
   }
-  const nextValue = String(value);
-  if (query_date_.value !== nextValue) {
-    query_date_.value = nextValue;
+  if (query_date_.value !== value) {
+    query_date_.value = value;
   }
 });
 
@@ -110,7 +106,6 @@ const patient_id = useRouteParams("patient_id");
 const conversationLogs = ref<ConversationLog[]>([]);
 const loading = ref(true);
 const DEFAULT_TIMEZONE = "America/New_York";
-const pad2 = (n: number) => String(n).padStart(2, "0");
 
 const parseDateValue = (value?: string | Date) => {
   if (!value) {
@@ -123,7 +118,7 @@ const parseDateValue = (value?: string | Date) => {
   return parsed;
 };
 
-const toDateKey = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
+function toDateKey(value: Date, timeZone = DEFAULT_TIMEZONE): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -132,11 +127,11 @@ const toDateKey = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
   }).formatToParts(value);
   const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
   return `${pick("year")}-${pick("month")}-${pick("day")}`;
-};
+}
 
-const calendarDateKey = (value: Date): string => {
-  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
-};
+if (!selectedDate.value) {
+  selectedDate.value = toDateKey(new Date());
+}
 
 const formatLogTime = (value?: string | Date) => {
   const parsed = parseDateValue(value);
@@ -213,10 +208,7 @@ const selectedSeries = ref<Record<string, boolean>>({
   "Heart Rate Variability": true,
 });
 const wearableDate = computed(() => {
-  if (!conversationDate.value) return calendarDateKey(new Date());
-  const selected = new Date(conversationDate.value);
-  if (Number.isNaN(selected.getTime())) return calendarDateKey(new Date());
-  return calendarDateKey(selected);
+  return conversationDate.value || toDateKey(new Date());
 });
 const toggleSeries = (name: string) => {
   selectedSeries.value = {
@@ -229,19 +221,11 @@ const logsForDate = computed(() => {
   if (!conversationLogs.value.length) {
     return [];
   }
-  // Use calendarDateKey (browser local timezone) for BOTH target and logs
-  // so the comparison is consistent regardless of browser timezone.
-  // (timestampFromDateKey on the sending side creates local-tz midnight,
-  //  while Flask serialises naive datetimes as GMT — mixing toDateKey(ET)
-  //  for both would give different date keys when the browser is not in ET.)
-  const target = conversationDate.value ? new Date(conversationDate.value) : null;
-  const targetKey = target && !Number.isNaN(target.getTime())
-    ? calendarDateKey(target)
-    : null;
-  const logs = target
+  const targetKey = conversationDate.value;
+  const logs = targetKey
     ? conversationLogs.value.filter((log) => {
         const parsed = parseDateValue(log.date);
-        return parsed && targetKey ? calendarDateKey(parsed) === targetKey : false;
+        return parsed ? toDateKey(parsed) === targetKey : false;
       })
     : [...conversationLogs.value];
   return logs.sort((a, b) => {
@@ -252,11 +236,11 @@ const logsForDate = computed(() => {
 });
 
 const emptyLogsMessage = computed(() => {
-  const target = conversationDate.value ? new Date(conversationDate.value) : null;
-  if (!target || Number.isNaN(target.getTime())) {
+  const targetKey = conversationDate.value;
+  if (!targetKey) {
     return "No conversation logs";
   }
-  return `No conversation logs for ${calendarDateKey(target)}`;
+  return `No conversation logs for ${targetKey}`;
 });
 
 // Keyword patterns for symptom-based conversation log highlighting

@@ -30,7 +30,7 @@ const wearableCoverage = ref<WearableCoverage>({});
 const loading = ref(true);
 const wearableLoading = ref(false);
 const cancelToken = ref<CancelTokenSource | null>(null);
-const dailySummaryDate = ref<number | null>(Date.now());
+const dailySummaryDate = ref<string | null>(null);
 const DEFAULT_TIMEZONE = "America/New_York";
 
 const toDateKey = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
@@ -83,13 +83,20 @@ const getEtDateTimeParts = (value: Date, timeZone = DEFAULT_TIMEZONE) => {
 const parseEtLikeDateTimeKey = (raw?: string | Date): string | null => {
   if (!raw) return null;
   if (typeof raw === "string") {
-    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (m) {
-      const sec = m[6] || "00";
-      return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${sec}`;
+    const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]} 00:00:00`;
+
+    // If backend sends a naive datetime string without timezone marker,
+    // treat it as an ET-like literal to avoid accidental local timezone conversion.
+    const hasTime = /\d{2}:\d{2}/.test(raw);
+    const hasZoneMarker = /(Z|[+-]\d{2}:?\d{2}|GMT|UTC)/i.test(raw);
+    if (hasTime && !hasZoneMarker) {
+      const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+      if (m) {
+        const sec = m[6] || "00";
+        return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${sec}`;
+      }
     }
-    const d = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (d) return `${d[1]}-${d[2]}-${d[3]} 00:00:00`;
   }
   const parsed = parseDateValue(raw);
   if (!parsed) return null;
@@ -108,23 +115,13 @@ const toEtNowDateTimeString = () => {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
 };
 
-const pickerDateKey = (value: number | null): string | null => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return format(date, "yyyy-MM-dd");
-};
-
-const timestampFromDateKey = (key: string): number | null => {
-  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return Number.isNaN(dt.getTime()) ? null : dt.getTime();
-};
-
 const wearableDate = computed(() => {
-  return pickerDateKey(dailySummaryDate.value) || format(new Date(), "yyyy-MM-dd");
+  return dailySummaryDate.value || toDateKey(new Date());
 });
+
+if (!dailySummaryDate.value) {
+  dailySummaryDate.value = toDateKey(new Date());
+}
 const dayOverviewScrollEl = ref<HTMLElement | null>(null);
 const didAutoScrollDayOverview = ref(false);
 const selectedSeries = ref<Record<string, boolean>>({
@@ -216,7 +213,7 @@ const truncateToTwoLineApprox = (text: string, charsPerLine = 70) => {
 
 const aiSummaryBody = computed(() => {
   const notes = patient.value?.notes ?? [];
-  const selectedKey = pickerDateKey(dailySummaryDate.value);
+  const selectedKey = dailySummaryDate.value;
   if (!selectedKey) {
     return { body: "no data for this date", time: "", createdBy: "" };
   }
@@ -534,10 +531,10 @@ watch(
 watch(
   query_date_,
   (dateStr) => {
-    if (dateStr) {
-      const ts = parseInt(dateStr, 10);
-      if (!Number.isNaN(ts) && dailySummaryDate.value !== ts) {
-        dailySummaryDate.value = ts;
+    if (!dateStr) return;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      if (dailySummaryDate.value !== dateStr) {
+        dailySummaryDate.value = dateStr;
       }
     }
   },
@@ -551,9 +548,8 @@ watch(dailySummaryDate, (value) => {
     }
     return;
   }
-  const nextValue = String(value);
-  if (query_date_.value !== nextValue) {
-    query_date_.value = nextValue;
+  if (query_date_.value !== value) {
+    query_date_.value = value;
   }
 });
 
@@ -568,22 +564,48 @@ const parseDateValue = (value?: string | Date) => {
   return parsed;
 };
 
-const dateKey = (value: Date) => format(value, "yyyy-MM-dd");
-
 const summaryDateKey = (value?: string | Date): string | null => {
   if (!value) return null;
   if (typeof value === "string") {
-    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (m) return m[1];
+    const dateOnly = value.match(/^(\d{4}-\d{2}-\d{2})$/);
+    if (dateOnly) return dateOnly[1];
+    const datePrefix = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (datePrefix) return datePrefix[1];
+    const rfcLike = value.match(/^[A-Za-z]{3},\s+(\d{2})\s+([A-Za-z]{3})\s+(\d{4})/);
+    if (rfcLike) {
+      const monthMap: Record<string, string> = {
+        Jan: "01",
+        Feb: "02",
+        Mar: "03",
+        Apr: "04",
+        May: "05",
+        Jun: "06",
+        Jul: "07",
+        Aug: "08",
+        Sep: "09",
+        Oct: "10",
+        Nov: "11",
+        Dec: "12",
+      };
+      const month = monthMap[rfcLike[2]];
+      if (month) return `${rfcLike[3]}-${month}-${rfcLike[1]}`;
+    }
   }
   const parsed = parseDateValue(value);
-  return parsed ? format(parsed, "yyyy-MM-dd") : null;
+  if (!parsed) return null;
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, "0")}-${String(parsed.getUTCDate()).padStart(2, "0")}`;
 };
 
 const noteDateKeyET = (value?: string | Date): string | null => {
   if (typeof value === "string") {
-    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (m) return m[1];
+    const dateOnly = value.match(/^(\d{4}-\d{2}-\d{2})$/);
+    if (dateOnly) return dateOnly[1];
+    const datePrefix = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    const hasTime = /\d{2}:\d{2}/.test(value);
+    const hasZoneMarker = /(Z|[+-]\d{2}:?\d{2}|GMT|UTC)/i.test(value);
+    if (datePrefix && (!hasTime || !hasZoneMarker)) {
+      return datePrefix[1];
+    }
   }
   const parsed = parseDateValue(value);
   return parsed ? toDateKey(parsed) : null;
@@ -593,7 +615,7 @@ const summaryForDate = computed(() => {
   if (!summaries.value.length) {
     return null;
   }
-  const targetKey = pickerDateKey(dailySummaryDate.value);
+  const targetKey = dailySummaryDate.value;
   if (targetKey) {
     const match = summaries.value.find((summary) => {
       const key = summaryDateKey(summary.date);
@@ -683,19 +705,24 @@ const dayOverviewSymptoms = [
 ];
 
 const dayOverviewRows = computed(() => {
-  const selectedKey = pickerDateKey(dailySummaryDate.value);
+  const selectedKey = dailySummaryDate.value;
   return summaries.value
     .map((summary) => {
       const summaryKey = summaryDateKey(summary.date);
       return {
         id: summary.id,
         summary,
-        timestamp: summaryKey ? timestampFromDateKey(summaryKey) : null,
+        dateKey: summaryKey,
         dateLabel: summaryKey || "--",
         isSelected: !!selectedKey && !!summaryKey && selectedKey === summaryKey,
       };
     })
-    .sort((a, b) => (b.timestamp ?? Number.MIN_SAFE_INTEGER) - (a.timestamp ?? Number.MIN_SAFE_INTEGER));
+    .sort((a, b) => {
+      if (!a.dateKey && !b.dateKey) return 0;
+      if (!a.dateKey) return 1;
+      if (!b.dateKey) return -1;
+      return b.dateKey.localeCompare(a.dateKey);
+    });
 });
 
 const armedDayOverviewDotKey = ref<string | null>(null);
@@ -742,8 +769,8 @@ watch(
       didAutoScrollDayOverview.value = true;
       return;
     }
-    if (targetRow.timestamp !== null) {
-      dailySummaryDate.value = targetRow.timestamp;
+    if (targetRow.dateKey) {
+      dailySummaryDate.value = targetRow.dateKey;
     }
     await nextTick();
     const container = dayOverviewScrollEl.value;
@@ -760,11 +787,11 @@ watch(
   { flush: "post" },
 );
 
-const selectDayOverview = (timestamp: number | null) => {
-  if (timestamp === null) {
+const selectDayOverview = (dateKey: string | null) => {
+  if (!dateKey) {
     return;
   }
-  dailySummaryDate.value = timestamp;
+  dailySummaryDate.value = dateKey;
 };
 
 const markDayOverviewRowRead = (summary: Summary | null) => {
@@ -778,14 +805,14 @@ const markDayOverviewRowRead = (summary: Summary | null) => {
     .catch(() => {});
 };
 
-const handleDayOverviewRowClick = (row: { summary: Summary | null; timestamp: number | null }) => {
-  selectDayOverview(row.timestamp);
+const handleDayOverviewRowClick = (row: { summary: Summary | null; dateKey: string | null }) => {
+  selectDayOverview(row.dateKey);
   markDayOverviewRowRead(row.summary);
 };
 
 const jumpToDayOverviewSummary = (
   summary: Summary | null,
-  timestamp: number | null,
+  dateKey: string | null,
   symptom: string,
   wearable: boolean,
 ) => {
@@ -800,18 +827,18 @@ const jumpToDayOverviewSummary = (
       (summary as Record<string, unknown>)["read"] = 1;
     }).catch(() => {});
   }
-  jumpToSummary(summary, symptom, state, timestamp);
+  jumpToSummary(summary, symptom, state, dateKey);
 };
 
 const handleDayOverviewDotClick = (
-  row: { id: number; summary: Summary | null; timestamp: number | null },
+  row: { id: number; summary: Summary | null; dateKey: string | null },
   symptom: { key: string; wearable: boolean },
 ) => {
   const dotKey = getDayOverviewDotKey(row.id, symptom.key);
   if (armedDayOverviewDotKey.value !== dotKey) {
     armedDayOverviewDotKey.value = dotKey;
   }
-  jumpToDayOverviewSummary(row.summary, row.timestamp, symptom.key, symptom.wearable);
+  jumpToDayOverviewSummary(row.summary, row.dateKey, symptom.key, symptom.wearable);
 };
 
 const parseSummaryLogIds = (raw: unknown): number[] => {
@@ -858,21 +885,11 @@ const jumpToSummary = (
   summary: Summary,
   symptom: string,
   dotStateOverride?: number,
-  timestampOverride?: number | null,
+  dateKeyOverride?: string | null,
 ) => {
   const logsRaw = (summary as Record<string, unknown>)[`${symptom}_logs`];
   const logsArr = parseSummaryLogIds(logsRaw);
-  const dateVal = summary.date;
-  const summaryDateTs =
-    typeof dateVal === "string"
-      ? new Date(dateVal).getTime()
-      : dateVal instanceof Date
-        ? dateVal.getTime()
-        : null;
-  const dateTs =
-    typeof timestampOverride === "number" && Number.isFinite(timestampOverride)
-      ? timestampOverride
-      : summaryDateTs;
+  const dateKey = dateKeyOverride || summaryDateKey(summary.date);
   const symptomStateValue = (summary as Record<string, unknown>)[`${symptom}_state`];
   const inferredDotState =
     typeof symptomStateValue === "number"
@@ -893,7 +910,7 @@ const jumpToSummary = (
       logs: queryLogs,
       dot_state: String(Number.isNaN(dotState) ? 0 : dotState),
       jump: String(Date.now()),
-      ...(dateTs != null && { date: String(dateTs) }),
+      ...(dateKey ? { date: dateKey } : {}),
     },
   });
 };
@@ -1119,8 +1136,9 @@ watch(loading, () => nextTick(updateConnectors));
         </template>
         <template #title-extra>
           <n-date-picker
-            v-model:value="dailySummaryDate"
+            v-model:formatted-value="dailySummaryDate"
             type="date"
+            value-format="yyyy-MM-dd"
             size="small"
             clearable
           />

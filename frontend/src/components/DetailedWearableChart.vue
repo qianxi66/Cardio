@@ -4,7 +4,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import { getWearableTimeSeries, type WearableTimeSeries } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
-import { format } from "date-fns";
 
 const props = withDefaults(
   defineProps<{
@@ -96,6 +95,41 @@ const DEFAULT_TIMEZONE = "America/New_York";
 const ALERT_COLOR = "#eb4c44";
 const ALERT_BG_COLOR = "#fddcdc";
 const TOOLTIP_NORMAL_COLOR = "#808080";
+
+const formatDateKeyInZone = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${pick("year")}-${pick("month")}-${pick("day")}`;
+};
+
+const formatDateTimeInZone = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
+};
+
+const formatMonthDayInZone = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${pick("month")}/${pick("day")}`;
+};
 
 const getTimeZone = (win?: { timezone?: string } | null) => win?.timezone || DEFAULT_TIMEZONE;
 
@@ -226,13 +260,10 @@ const buildDefaultTimes = (nextRange: "24h" | "7d") => {
     ];
   }
   const labels: string[] = [];
-  const now = new Date();
+  const nowMs = Date.now();
   for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(now.getDate() - i);
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    labels.push(`${month}/${day}`);
+    const d = new Date(nowMs - i * 24 * 60 * 60 * 1000);
+    labels.push(formatMonthDayInZone(d));
   }
   return labels;
 };
@@ -459,8 +490,7 @@ const fetchSeriesData = async (patientId?: number) => {
   }
   // Don't fetch (or show) data for future dates
   if (dateValue.value) {
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const todayStr = formatDateKeyInZone(new Date());
     if (dateValue.value > todayStr) {
       applySeriesData();
       return;
@@ -645,7 +675,7 @@ const buildOption = (): echarts.EChartsOption => {
         const { start_ts, end_ts } = windowRef.value;
         const binSeconds = (end_ts - start_ts) / Math.max(1, times.value.length - 1);
         const epoch = start_ts + dataIndex * binSeconds;
-        timeLabel = format(new Date(epoch * 1000), "yyyy-MM-dd HH:mm");
+        timeLabel = formatDateTimeInZone(new Date(epoch * 1000));
       } else {
         timeLabel = items[0]?.axisValueLabel ?? items[0]?.name ?? "";
       }

@@ -46,7 +46,7 @@ wearable_data_cache = {}  # Format: {alexa_user_id: {'timestamp': datetime, 'dat
 CACHE_EXPIRY_MINUTES = 60  # Cache expires after 60 minutes
 
 # Cache for dashboard API responses
-API_CACHE_TTL_SECONDS = 5 * 60
+API_CACHE_TTL_SECONDS = 30 * 60
 api_response_cache = {}  # key -> {"expires_at": float, "payload": Any}
 
 MONGO_BACKOFF_SECONDS = 30
@@ -523,6 +523,18 @@ def login_required(f):
 
 def _columns_dict(model_obj):
     return {c.name: getattr(model_obj, c.name) for c in model_obj.__table__.columns}
+
+
+def _summary_dict(summary_obj):
+    data = _columns_dict(summary_obj)
+    dt = data.get("date")
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            day_et = dt.date()
+        else:
+            day_et = dt.astimezone(EASTERN_TZ).date()
+        data["date"] = day_et.isoformat()
+    return data
 
 
 def _user_dict(user):
@@ -1066,7 +1078,7 @@ def get_patient(id):
         patient_dict["admission_histories"] = [
             _columns_dict(item) for item in patient.admission_histories
         ]
-        patient_dict["summaries"] = [_columns_dict(item) for item in patient.summaries]
+        patient_dict["summaries"] = [_summary_dict(item) for item in patient.summaries]
         patient_dict["risks"] = [_columns_dict(item) for item in patient.risks]
         patient_dict["conversation_logs"] = [
             _columns_dict(item)
@@ -1352,7 +1364,7 @@ def get_summaries(id):
     items = Summary.query.filter_by(patient_id=patient.id).order_by(
         Summary.date.desc()
     ).all()
-    return jsonify([_columns_dict(item) for item in items])
+    return jsonify([_summary_dict(item) for item in items])
 
 
 @current_app.route("/patients/<int:id>/summaries", methods=["POST"])
@@ -1378,7 +1390,7 @@ def create_summary(id):
     db.session.add(summary)
     db.session.commit()
     _invalidate_patient_related_cache(patient.id)
-    return jsonify(_columns_dict(summary)), 201
+    return jsonify(_summary_dict(summary)), 201
 
 
 @current_app.route("/patients/<int:id>/summaries/<int:summary_id>/read", methods=["PATCH"])
@@ -1436,7 +1448,7 @@ def update_summary(id, summary_id):
     db.session.add(summary)
     db.session.commit()
     _invalidate_patient_related_cache(patient.id)
-    return jsonify(_columns_dict(summary))
+    return jsonify(_summary_dict(summary))
 @login_required
 def get_risks(id):
     patient, error = _get_patient_for_user(id, g.current_user.id)
