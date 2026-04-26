@@ -207,7 +207,13 @@ export const updateSummarySymptomState = async (
   });
 };
 
-export type WearableCoverage = Record<string, boolean>;
+export type WearableSensorCoverage = {
+  heart_rate: boolean;
+  respiration: boolean;
+  spo2: boolean;
+  hrv: boolean;
+};
+export type WearableCoverage = Record<string, WearableSensorCoverage>;
 
 export const getWearableCoverage = async (
   patient_id: number,

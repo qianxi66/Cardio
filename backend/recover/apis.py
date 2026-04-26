@@ -1557,6 +1557,9 @@ def get_wearable_coverage(id):
                     "garmin_respiration",
                     "garmin_stress",
                 ]
+                has_hr = mongo_db["garmin_hr"].find_one(hr_query, {"_id": 1}) is not None
+                has_respiration = mongo_db["garmin_respiration"].find_one(respiration_query, {"_id": 1}) is not None
+                has_hrv = mongo_db["garmin_ibi"].find_one(ibi_query, {"_id": 1}) is not None
                 has_spo2 = False
                 for source in spo2_sources:
                     if has_spo2:
@@ -1565,16 +1568,12 @@ def get_wearable_coverage(id):
                         if mongo_db[source].find_one(q, {"_id": 1}) is not None:
                             has_spo2 = True
                             break
-                has_data = (
-                    mongo_db["garmin_hr"].find_one(hr_query, {"_id": 1}) is not None
-                    or mongo_db["garmin_respiration"].find_one(
-                        respiration_query, {"_id": 1}
-                    )
-                    is not None
-                    or mongo_db["garmin_ibi"].find_one(ibi_query, {"_id": 1}) is not None
-                    or has_spo2
-                )
-                coverage[date_str] = has_data
+                coverage[date_str] = {
+                    "heart_rate": has_hr,
+                    "respiration": has_respiration,
+                    "spo2": has_spo2,
+                    "hrv": has_hrv,
+                }
             except Exception:
                 pass
     except Exception as e:

@@ -343,6 +343,7 @@ const openDailySummaryEditor = () => {
 const saveAllDailySummaries = async () => {
   const patientId = patientIdParam.value;
   if (!patientId) return;
+  sendNewNote();
   dailySummarySaving.value = true;
   let hasError = false;
   try {
@@ -649,6 +650,13 @@ const symptomState = (
 
 // For wearable symptoms (heart_rate, respiration), override state from MongoDB coverage.
 // state 1 = green (has data), state 0 = grey (no data / still loading).
+const symptomKeyToSensorField: Record<string, "heart_rate" | "respiration" | "spo2" | "hrv"> = {
+  heart_rate: "heart_rate",
+  respiration: "respiration",
+  spo2: "spo2",
+  hrv: "hrv",
+};
+
 const dotStateForSymptom = (
   summary: Summary | null,
   symptomKey: string,
@@ -661,7 +669,10 @@ const dotStateForSymptom = (
   const key = summaryDateKey(summary.date);
   if (!key) return 0;
   const cov = wearableCoverage.value[key];
-  return cov ? 1 : 0;
+  if (!cov) return 0;
+  const sensorField = symptomKeyToSensorField[symptomKey];
+  if (!sensorField) return 0;
+  return cov[sensorField] ? 1 : 0;
 };
 
 const handleDayOverviewDotStateChange = async (
@@ -1146,30 +1157,13 @@ watch(loading, () => nextTick(updateConnectors));
         <div class="day-navigator-content">
           <div class="ai-summary-section">
             <div class="ai-summary-title">
-              <svg
-                class="ai-summary-title-icon"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
-              >
-                <path
-                  fill="currentColor"
-                  d="M21 10.975V8a2 2 0 0 0-2-2h-6V4.688c.305-.274.5-.668.5-1.11a1.5 1.5 0 0 0-3 0c0 .442.195.836.5 1.11V6H5a2 2 0 0 0-2 2v2.998l-.072.005A.999.999 0 0 0 2 12v2a1 1 0 0 0 1 1v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a1 1 0 0 0 1-1v-1.938a1.004 1.004 0 0 0-.072-.455c-.202-.488-.635-.605-.928-.632zM7 12c0-1.104.672-2 1.5-2s1.5.896 1.5 2-.672 2-1.5 2S7 13.104 7 12zm8.998 6c-1.001-.003-7.997 0-7.998 0v-2s7.001-.002 8.002 0l-.004 2zm-.498-4c-.828 0-1.5-.896-1.5-2s.672-2 1.5-2 1.5.896 1.5 2-.672 2-1.5 2z"
-                />
-              </svg>
               <span>Daily Summary</span>
               <button
                 type="button"
-                class="ai-summary-edit-trigger"
-                aria-label="Edit patient"
+                class="ai-summary-more-btn"
                 @click="openDailySummaryEditor"
               >
-                <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                  <path
-                    d="M12.007 6.81l-5.949 5.95c-.319.318-.719.545-1.156.654l-2.283.57a.498.498 0 0 1-.604-.603l.57-2.283a2.49 2.49 0 0 1 .656-1.156l5.948-5.95l2.818 2.817zm1.41-4.226c.777.778.777 2.039 0 2.817l-.706.704l-2.817-2.818l.705-.703a1.992 1.992 0 0 1 2.817 0z"
-                    fill="currentColor"
-                  />
-                </svg>
+                More
               </button>
             </div>
             <div class="ai-summary-body">
@@ -1564,36 +1558,20 @@ watch(loading, () => nextTick(updateConnectors));
           <div class="summary-editor-new-note">
             <n-input
               v-model:value="newNoteInput"
-              placeholder="type your notes here"
+              placeholder="type your notes here (Press Enter to send)"
               size="small"
               clearable
               :disabled="newNoteSaving"
               @keydown.enter.prevent="sendNewNote"
             />
-            <button
-              type="button"
-              class="summary-editor-send-btn"
-              :disabled="newNoteSaving || !newNoteInput?.trim()"
-              aria-label="Send note"
-              @click="sendNewNote"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M10.3009 13.6949L20.102 3.89742M10.5795 14.1355L12.8019 18.5804C13.339 19.6545 13.6075 20.1916 13.9458 20.3356C14.2394 20.4606 14.575 20.4379 14.8492 20.2747C15.1651 20.0866 15.3591 19.5183 15.7472 18.3818L19.9463 6.08434C20.2845 5.09409 20.4535 4.59896 20.3378 4.27142C20.2371 3.98648 20.013 3.76234 19.7281 3.66167C19.4005 3.54595 18.9054 3.71502 17.9151 4.05315L5.61763 8.2523C4.48114 8.64037 3.91289 8.83441 3.72478 9.15032C3.56153 9.42447 3.53891 9.76007 3.66389 10.0536C3.80791 10.3919 4.34498 10.6605 5.41912 11.1975L9.86397 13.42C10.041 13.5085 10.1295 13.5527 10.2061 13.6118C10.2742 13.6643 10.3352 13.7253 10.3876 13.7933C10.4468 13.87 10.491 13.9585 10.5795 14.1355Z"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
           </div>
           <n-button
             type="primary"
+            size="small"
             :loading="dailySummarySaving"
             @click="saveAllDailySummaries"
           >
-            Save
+            Save & Close
           </n-button>
         </div>
       </div>
@@ -1949,9 +1927,11 @@ watch(loading, () => nextTick(updateConnectors));
   text-align: center;
   cursor: pointer;
   line-height: 1.2;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .panel-drawer-trigger:hover {
   border-color: #bfbfbf;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 .basic-information-content {
   display: flex;
@@ -2019,23 +1999,26 @@ watch(loading, () => nextTick(updateConnectors));
   font-size: 18px;
   font-weight: 700;
   color: #053251;
+  padding-left: 8px;
 }
-.ai-summary-edit-trigger {
+.ai-summary-more-btn {
   margin-left: auto;
-  border: none;
-  background: transparent;
-  color: #053251;
+  margin-right: 6px;
+  flex-shrink: 0;
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
   cursor: pointer;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  line-height: 1.2;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.ai-summary-edit-trigger svg {
-  width: 20px;
-  height: 20px;
+.ai-summary-more-btn:hover {
+  border-color: #bfbfbf;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 .summary-editor-panel {
   display: flex;
@@ -2107,8 +2090,7 @@ watch(loading, () => nextTick(updateConnectors));
 .summary-editor-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 87px;
+  gap: 10px;
   border-top: 1px solid #e5e5e5;
   margin-top: 12px;
   padding-top: 12px;
@@ -2128,36 +2110,10 @@ watch(loading, () => nextTick(updateConnectors));
 .summary-editor-new-note .n-input :deep(input::placeholder) {
   color: #999;
 }
-.summary-editor-send-btn {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: transparent;
-  color: #053251;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.summary-editor-send-btn:hover:not(:disabled) {
-  background: #e9edf5;
-}
-.summary-editor-send-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 .summary-editor-empty {
   color: #999999;
   text-align: center;
   padding: 20px 0;
-}
-.ai-summary-title-icon {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  padding-left: 4px;
 }
 .ai-summary-body {
   display: flex;
