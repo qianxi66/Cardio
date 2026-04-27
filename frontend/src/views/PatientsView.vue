@@ -82,16 +82,24 @@ const summaryDateKey = (value: unknown): string | null => {
 
 const getSummaryDateKey = (summary: Summary): string | null => summaryDateKey(summary.date);
 
+const WEARABLE_STATE_KEYS = new Set([
+  "heart_rate_state",
+  "respiration_state",
+  "spo2_state",
+  "hrv_state",
+]);
+
 const getMaxSeverityFromSummary = (summary: Summary): number => {
   let maxSeverity = 0;
   const summaryRecord = summary as Record<string, unknown>;
   Object.keys(summaryRecord).forEach((key) => {
     if (!key.endsWith("_state")) return;
+    if (WEARABLE_STATE_KEYS.has(key)) return;
     const raw = summaryRecord[key];
-      const value = Number(raw);
-      if (!Number.isNaN(value)) {
-        maxSeverity = Math.max(maxSeverity, Math.min(3, Math.max(0, Math.round(value))));
-      }
+    const value = Number(raw);
+    if (!Number.isNaN(value)) {
+      maxSeverity = Math.max(maxSeverity, Math.min(3, Math.max(0, Math.round(value))));
+    }
   });
   return maxSeverity;
 };
@@ -116,10 +124,22 @@ const getPatientSeverity = async (patient: Patient): Promise<number> => {
   if (!latestDateKey) return maxSeverity;
   try {
     const wearableCoverage = await getWearableCoverage(patient.id, [latestDateKey]);
-    const hasWearableData = !!wearableCoverage?.[latestDateKey];
-    if (hasWearableData) {
-      maxSeverity = Math.max(maxSeverity, 1);
+    const coverageOfDay = wearableCoverage?.[latestDateKey];
+    let wearableSeverity = 0;
+    if (coverageOfDay && typeof coverageOfDay !== "boolean") {
+      const hasAlert =
+        !!coverageOfDay.heart_rate_alert ||
+        !!coverageOfDay.respiration_alert ||
+        !!coverageOfDay.spo2_alert ||
+        !!coverageOfDay.hrv_alert;
+      const hasAnyData =
+        !!coverageOfDay.heart_rate ||
+        !!coverageOfDay.respiration ||
+        !!coverageOfDay.spo2 ||
+        !!coverageOfDay.hrv;
+      wearableSeverity = hasAlert ? 3 : hasAnyData ? 1 : 0;
     }
+    maxSeverity = Math.max(maxSeverity, wearableSeverity);
   } catch {
   }
   return maxSeverity;

@@ -648,8 +648,8 @@ const symptomState = (
   return 0;
 };
 
-// For wearable symptoms (heart_rate, respiration), override state from MongoDB coverage.
-// state 1 = green (has data), state 0 = grey (no data / still loading).
+// For wearable symptoms, state comes from MongoDB sensor coverage:
+// state 0 = grey (no data), state 1 = green (has data, normal), state 3 = red (has out-of-range values).
 const symptomKeyToSensorField: Record<string, "heart_rate" | "respiration" | "spo2" | "hrv"> = {
   heart_rate: "heart_rate",
   respiration: "respiration",
@@ -664,15 +664,18 @@ const dotStateForSymptom = (
 ): number => {
   if (!wearable) return symptomState(summary, symptomKey);
   if (!summary) return 0;
-  const currentState = symptomState(summary, symptomKey);
-  if (currentState > 0) return currentState;
   const key = summaryDateKey(summary.date);
   if (!key) return 0;
   const cov = wearableCoverage.value[key];
   if (!cov) return 0;
+  if (typeof cov === "boolean") {
+    return 0;
+  }
   const sensorField = symptomKeyToSensorField[symptomKey];
   if (!sensorField) return 0;
-  return cov[sensorField] ? 1 : 0;
+  if (!cov[sensorField]) return 0;
+  const alertField = `${sensorField}_alert` as keyof typeof cov;
+  return cov[alertField] ? 3 : 1;
 };
 
 const handleDayOverviewDotStateChange = async (
@@ -1207,23 +1210,31 @@ watch(loading, () => nextTick(updateConnectors));
                   :key="`${row.id}-${symptom.key}`"
                   :class="{ 'dot-armed': isDayOverviewDotArmed(row.id, symptom.key) }"
                 >
-                  <CircleProgress
+                  <n-tooltip
                     v-if="symptom.likert"
-                    class="day-overview-dot-gauge"
-                    :percent="getSymptomScale(row.summary, symptom.key) * 10"
-                    :color="symptom.color"
-                    :id="`${row.id}-${symptom.key}`"
-                    @click.stop="handleDayOverviewDotClick(row, symptom)"
+                    trigger="hover"
+                    placement="top"
                   >
-                    <Dot
-                      :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
-                      :isRead="(row.summary as any)?.read ?? 0"
-                      :variant="'circle'"
-                      :editable="isDayOverviewDotArmed(row.id, symptom.key)"
-                      @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
-                      :loading="symptom.wearable && wearableLoading"
-                    />
-                  </CircleProgress>
+                    <template #trigger>
+                      <CircleProgress
+                        class="day-overview-dot-gauge"
+                        :percent="getSymptomScale(row.summary, symptom.key) * 10"
+                        :color="symptom.color"
+                        :id="`${row.id}-${symptom.key}`"
+                        @click.stop="handleDayOverviewDotClick(row, symptom)"
+                      >
+                        <Dot
+                          :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"
+                          :isRead="(row.summary as any)?.read ?? 0"
+                          :variant="'circle'"
+                          :editable="isDayOverviewDotArmed(row.id, symptom.key)"
+                          @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
+                          :loading="symptom.wearable && wearableLoading"
+                        />
+                      </CircleProgress>
+                    </template>
+                    {{ symptom.display_name }}: {{ getSymptomScale(row.summary, symptom.key) }}
+                  </n-tooltip>
                   <Dot
                     v-else
                     :state="dotStateForSymptom(row.summary, symptom.key, symptom.wearable)"

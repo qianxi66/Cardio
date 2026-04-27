@@ -1,5 +1,6 @@
-import type { CancelToken } from "axios";
+import axios, { type CancelToken } from "axios";
 import api from ".";
+import { apiBasePath } from "@/config";
 import {
   type Patient,
   type CreatePatientRequest,
@@ -209,23 +210,84 @@ export const updateSummarySymptomState = async (
 
 export type WearableSensorCoverage = {
   heart_rate: boolean;
+  heart_rate_alert: boolean;
   respiration: boolean;
+  respiration_alert: boolean;
   spo2: boolean;
+  spo2_alert: boolean;
   hrv: boolean;
+  hrv_alert: boolean;
 };
 export type WearableCoverage = Record<string, WearableSensorCoverage>;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const fetchWearableCoverageChunk = async (
+  patient_id: number,
+  dates: string[],
+): Promise<WearableCoverage> => {
+  const params = new URLSearchParams();
+  dates.forEach((d) => params.append("dates", d));
+  const token = localStorage.getItem("token");
+  const url = `${apiBasePath.replace(/\/$/, "")}/patients/${patient_id}/wearable-coverage?${params.toString()}`;
+  const resp = await axios.get(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    timeout: 12000,
+  });
+  return resp.data as WearableCoverage;
+};
+
+const fetchWearableCoverageWithRetry = async (
+  patient_id: number,
+  dates: string[],
+): Promise<WearableCoverage> => {
+  const maxRetries = 2;
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      return await fetchWearableCoverageChunk(patient_id, dates);
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const retryable = status === 504 || status === 502 || error?.code === "ECONNABORTED";
+      if (!retryable || attempt === maxRetries) {
+        throw error;
+      }
+      await sleep(400 * (attempt + 1));
+      attempt += 1;
+    }
+  }
+  return {};
+};
 
 export const getWearableCoverage = async (
   patient_id: number,
   dates: string[],
 ): Promise<WearableCoverage> => {
   if (!dates.length) return {};
-  const params = new URLSearchParams();
-  dates.forEach((d) => params.append("dates", d));
-  return (await api({
-    url: `/patients/${patient_id}/wearable-coverage?${params.toString()}`,
-    method: "GET",
-  })) as WearableCoverage;
+  const uniqueDates = Array.from(new Set(dates));
+  const maxConcurrent = 3;
+  const taskQueue = uniqueDates.slice();
+  const merged: WearableCoverage = {};
+
+  const worker = async () => {
+    while (taskQueue.length > 0) {
+      const date = taskQueue.shift();
+      if (!date) return;
+      try {
+        const response = await fetchWearableCoverageWithRetry(patient_id, [date]);
+        Object.assign(merged, response);
+      } catch {
+        // Keep list render resilient: a single day's coverage failure should not fail all days.
+      }
+    }
+  };
+
+  const workers = Array.from(
+    { length: Math.min(maxConcurrent, uniqueDates.length) },
+    () => worker(),
+  );
+  await Promise.allSettled(workers);
+  return merged;
 };
 
 export const getPreadmissionMedications = async (patient_id: number) => {

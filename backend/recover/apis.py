@@ -1505,7 +1505,7 @@ def get_wearable_coverage(id):
         return error
     dates_str = request.args.getlist("dates")
     dates_key = tuple(sorted(dates_str))
-    cache_key = ("wearable_coverage", g.current_user.id, patient.id, dates_key)
+    cache_key = ("wearable_coverage_v3", g.current_user.id, patient.id, dates_key)
     cached_payload = _cache_get(cache_key)
     if cached_payload is not None:
         return jsonify(cached_payload)
@@ -1519,63 +1519,122 @@ def get_wearable_coverage(id):
         if client is None:
             return jsonify(coverage)
         mongo_db = client["study_db"]
+
+        # Build per-date time windows (ET midnight boundaries)
+        date_windows = {}
         for date_str in dates_str:
+            day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=EASTERN_TZ)
+            ts_s = int(day_start.timestamp())
+            ts_e = int((day_start + timedelta(days=1)).timestamp())
+            date_windows[date_str] = (ts_s, ts_e)
+
+        overall_start = min(v[0] for v in date_windows.values())
+        overall_end = max(v[1] for v in date_windows.values())
+
+        def ts_to_date(ts):
+            if not isinstance(ts, (int, float)):
+                return None
+            ts_int = int(ts)
+            for d, (s, e) in date_windows.items():
+                if s <= ts_int < e:
+                    return d
+            return None
+
+        def safe_num(raw):
+            if isinstance(raw, (int, float)) and math.isfinite(raw):
+                return float(raw)
+            return None
+
+        BIN_SEC = 15 * 60  # same bin size as wearable timeseries chart
+
+        pfilter = _participant_filter(participant_id)
+
+        # Use the same server-side aggregation functions as the timeseries endpoint.
+        # Query the full overall range at once; map bin offsets back to dates in Python.
+        def offset_to_date(bin_offset):
+            actual_ts = overall_start + int(bin_offset)
+            return ts_to_date(actual_ts)
+
+        # HR — one aggregation for all dates
+        hr_day = {}  # date_str -> (has_data, has_alert)
+        for bin_offset, avg in _aggregate_avg_by_bin(
+            mongo_db, participant_id, "garmin_hr",
+            overall_start, overall_end, BIN_SEC, "heart_rate", min_value=0,
+        ).items():
+            d = offset_to_date(bin_offset)
+            if d is None:
+                continue
+            _, prev_alert = hr_day.get(d, (False, False))
+            hr_day[d] = (True, prev_alert or avg > 120 or avg < 60)
+
+        # Respiration — one aggregation for all dates
+        resp_day = {}
+        for bin_offset, avg in _aggregate_avg_by_bin(
+            mongo_db, participant_id, "garmin_respiration",
+            overall_start, overall_end, BIN_SEC, "respiration", min_value=0,
+        ).items():
+            d = offset_to_date(bin_offset)
+            if d is None:
+                continue
+            _, prev_alert = resp_day.get(d, (False, False))
+            resp_day[d] = (True, prev_alert or avg > 24 or avg < 8)
+
+        # HRV — one aggregation for all dates, RMSSD threshold < 15 (same as chart)
+        hrv_day = {}
+        for bin_offset, rmssd in _aggregate_rmssd_by_bin(
+            mongo_db, participant_id,
+            overall_start, overall_end, BIN_SEC,
+            time_field="timestamp", value_field="bbi",
+        ).items():
+            if rmssd is None:
+                continue
+            d = offset_to_date(bin_offset)
+            if d is None:
+                continue
+            _, prev_alert = hrv_day.get(d, (False, False))
+            hrv_day[d] = (True, prev_alert or rmssd < 15)
+
+        # SpO2 — same candidate sources as timeseries endpoint
+        spo2_day = {}
+        for coll, field in [
+            ("garmin_spo2", "spo2"), ("garmin_spo2", "oxygen_saturation"),
+            ("garmin_pulse_ox", "spo2"), ("garmin_pulse_ox", "oxygen_saturation"),
+            ("garmin_hr", "spo2"), ("garmin_hr", "oxygen_saturation"),
+            ("garmin_respiration", "spo2"), ("garmin_respiration", "oxygen_saturation"),
+            ("garmin_stress", "spo2"), ("garmin_stress", "oxygen_saturation"),
+        ]:
             try:
-                # Keep date-bucket semantics consistent with wearable timeseries API:
-                # interpret requested date in US Eastern timezone.
-                day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=EASTERN_TZ)
-                day_end = day_start + timedelta(days=1)
-                ts_start = int(day_start.timestamp())
-                ts_end = int(day_end.timestamp())
-                base_query = {
-                    "uid": participant_id,
-                    "timestamp": {"$gte": ts_start, "$lt": ts_end},
-                }
-                hr_query = {
-                    **base_query,
-                    "heart_rate": {"$type": "number", "$gt": 0},
-                }
-                respiration_query = {
-                    **base_query,
-                    "respiration": {"$type": "number", "$gt": 0},
-                }
-                ibi_query = {
-                    **base_query,
-                    "bbi": {"$type": "number", "$gt": 0},
-                }
-                spo2_queries = [
-                    {**base_query, "spo2": {"$type": "number", "$gt": 50, "$lte": 100}},
-                    {
-                        **base_query,
-                        "oxygen_saturation": {"$type": "number", "$gt": 50, "$lte": 100},
-                    },
-                ]
-                spo2_sources = [
-                    "garmin_spo2",
-                    "garmin_pulse_ox",
-                    "garmin_hr",
-                    "garmin_respiration",
-                    "garmin_stress",
-                ]
-                has_hr = mongo_db["garmin_hr"].find_one(hr_query, {"_id": 1}) is not None
-                has_respiration = mongo_db["garmin_respiration"].find_one(respiration_query, {"_id": 1}) is not None
-                has_hrv = mongo_db["garmin_ibi"].find_one(ibi_query, {"_id": 1}) is not None
-                has_spo2 = False
-                for source in spo2_sources:
-                    if has_spo2:
-                        break
-                    for q in spo2_queries:
-                        if mongo_db[source].find_one(q, {"_id": 1}) is not None:
-                            has_spo2 = True
-                            break
-                coverage[date_str] = {
-                    "heart_rate": has_hr,
-                    "respiration": has_respiration,
-                    "spo2": has_spo2,
-                    "hrv": has_hrv,
-                }
+                bins = _aggregate_avg_by_bin(
+                    mongo_db, participant_id, coll,
+                    overall_start, overall_end, BIN_SEC, field, min_value=0,
+                )
             except Exception:
-                pass
+                continue
+            for bin_offset, avg in bins.items():
+                if avg < 50 or avg > 100:
+                    continue
+                d = offset_to_date(bin_offset)
+                if d is None:
+                    continue
+                _, prev_alert = spo2_day.get(d, (False, False))
+                spo2_day[d] = (True, prev_alert or avg < 94)
+
+        for date_str in dates_str:
+            has_hr,  hr_alert   = hr_day.get(date_str,   (False, False))
+            has_resp,resp_alert = resp_day.get(date_str,  (False, False))
+            has_spo2,spo2_alert = spo2_day.get(date_str, (False, False))
+            has_hrv, hrv_alert  = hrv_day.get(date_str,  (False, False))
+
+            coverage[date_str] = {
+                "heart_rate": has_hr,
+                "heart_rate_alert": hr_alert,
+                "respiration": has_resp,
+                "respiration_alert": resp_alert,
+                "spo2": has_spo2,
+                "spo2_alert": spo2_alert,
+                "hrv": has_hrv,
+                "hrv_alert": hrv_alert,
+            }
     except Exception as e:
         logging.warning("MongoDB unavailable for wearable-coverage: %s", e)
     _cache_set(cache_key, coverage)
