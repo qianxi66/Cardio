@@ -6,17 +6,18 @@ import type { DrawerPlacement } from "naive-ui";
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
 import CircleProgress from "@/components/CircleProgress.vue";
-import { markSymptomRead, updateSummarySymptomState, updateNote, createNote, deleteNote } from "@/api/patient";
+import { markSymptomRead, updateSummarySymptomState, updateNote, createNote, deleteNote, resetPatientToday } from "@/api/patient";
+import { useMessage, useDialog } from "naive-ui";
 import DetailedWearableChart from "@/components/DetailedWearableChart.vue";
 import ReportDetailView from "@/views/ReportDetailView.vue";
 import { computed, watch, ref, inject, nextTick, onMounted, onBeforeUnmount, type Component } from "vue";
 import type { Patient, Summary, ReportNote } from "@/api/types";
-import { getPatient, getSummaries, getWearableCoverage, getNotes, type WearableCoverage } from "@/api/patient";
+import { getPatient, getSummaries, getNotes } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 import { format } from "date-fns";
 import type { CancelTokenSource } from "axios";
 import axios from "axios";
-import { stateColors } from "@/symptoms";
+import { stateColors, stateMessages } from "@/symptoms";
 
 const refreshPatients = inject<(() => void | Promise<void>) | undefined>("refreshPatients");
 const patient_id = useRouteParams("patient_id");
@@ -26,12 +27,50 @@ const query_dot_state_ = useRouteQuery<string | undefined>("dot_state");
 const patient = ref<Patient | null>(null);
 const summaries = ref<Summary[]>([]);
 const reportNotes = ref<ReportNote[]>([]);
-const wearableCoverage = ref<WearableCoverage>({});
 const loading = ref(true);
-const wearableLoading = ref(false);
 const cancelToken = ref<CancelTokenSource | null>(null);
 const dailySummaryDate = ref<string | null>(null);
 const DEFAULT_TIMEZONE = "America/New_York";
+
+const message = useMessage();
+const dialog = useDialog();
+const resetting = ref(false);
+
+const reloadPatientData = async () => {
+  const pid = parseInt(patient_id.value as string);
+  if (Number.isNaN(pid)) return;
+  patient.value = await getPatient(pid);
+  summaries.value = (await getSummaries(pid)) ?? [];
+  reportNotes.value = (await getNotes(pid)) ?? [];
+};
+
+const handleResetToday = () => {
+  const pid = parseInt(patient_id.value as string);
+  if (Number.isNaN(pid)) return;
+  dialog.warning({
+    title: "Reset today's data",
+    content:
+      "This permanently deletes this patient's conversation logs, symptom summary, and AI daily summary for TODAY. This cannot be undone. Continue?",
+    positiveText: "Reset",
+    negativeText: "Cancel",
+    onPositiveClick: async () => {
+      resetting.value = true;
+      try {
+        const res = await resetPatientToday(pid);
+        await reloadPatientData();
+        await refreshPatients?.();
+        const d = res.deleted;
+        message.success(
+          `Today's data cleared (logs: ${d.conversation_logs}, summary: ${d.summaries}, AI note: ${d.ai_notes}).`,
+        );
+      } catch {
+        message.error("Failed to reset today's data.");
+      } finally {
+        resetting.value = false;
+      }
+    },
+  });
+};
 
 const toDateKey = (value: Date, timeZone = DEFAULT_TIMEZONE): string => {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -208,7 +247,9 @@ const truncateToTwoLineApprox = (text: string, charsPerLine = 70) => {
   const maxChars = charsPerLine * 2;
   if (normalized.length <= maxChars) return normalized;
   const sliced = normalized.slice(0, maxChars);
-  return `${sliced.replace(/[\s,.;:]+$/u, "")}...`;
+  const lastSpace = sliced.lastIndexOf(" ");
+  const wholeWords = lastSpace > 0 ? sliced.slice(0, lastSpace) : sliced;
+  return `${wholeWords.replace(/[\s,.;:]+$/u, "")}...`;
 };
 
 const aiSummaryBody = computed(() => {
@@ -229,7 +270,7 @@ const aiSummaryBody = computed(() => {
     })[0];
 
   if (!match?.content?.trim()) {
-    return { body: "no data for this date", time: "", createdBy: "" };
+    return { body: `no data for ${selectedKey}`, time: "", createdBy: "" };
   }
   const isAi = String(match.creator_type || "").toLowerCase() === "ai";
   const rawBody = match.content.trim();
@@ -313,11 +354,44 @@ const dailySummaryListEl = ref<HTMLElement | null>(null);
 const stagedNewNotes = ref<StagedNewNote[]>([]);
 const stagedNoteIdSeed = ref(-1);
 
+// Keep the hover/focus border neutral so an edited summary is not specially marked.
+// Single height for every small control on this view: the date picker, Reset, More and the
+// five drawer triggers. Exposed as --control-height on the root so all of them can read it,
+// and fed to the date picker's Input peer so naive-ui's own theme value can't diverge.
+// Stretching to the row was tried first and overshot, because the row's box is taller than
+// the picker; pinning one value is what actually keeps them equal.
+const CONTROL_HEIGHT = "28px";
+const datePickerThemeOverrides = {
+  peers: { Input: { heightSmall: CONTROL_HEIGHT } },
+};
+
+const summaryEditorInputThemeOverrides = {
+  borderHover: "1px solid rgb(224, 224, 230)",
+  borderFocus: "1px solid rgb(224, 224, 230)",
+  boxShadowFocus: "none",
+};
+
 const scrollDailySummaryListToTop = async () => {
   await nextTick();
   if (dailySummaryListEl.value) {
     dailySummaryListEl.value.scrollTop = 0;
   }
+};
+
+const highlightedSummaryRowId = ref<number | null>(null);
+
+const scrollDailySummaryRowToTop = async (noteId: number | null) => {
+  await nextTick();
+  const container = dailySummaryListEl.value;
+  if (!container || noteId === null) return;
+  const target = container.querySelector<HTMLElement>(
+    `.summary-editor-row[data-note-id="${noteId}"]`,
+  );
+  if (!target) return;
+  // Use offsetTop (layout-based) rather than getBoundingClientRect (visual/transform-based):
+  // the modal is still mid enter-transition (scale/fade) at this point, which would
+  // otherwise skew the measured rects and produce the wrong scroll delta.
+  container.scrollTop = target.offsetTop;
 };
 
 const reloadPatientNotes = async (patientId: number) => {
@@ -337,13 +411,18 @@ const openDailySummaryEditor = () => {
   dailySummaryDrafts.value = nextDrafts;
   newNoteInput.value = "";
   dailySummaryEditorVisible.value = true;
-  void scrollDailySummaryListToTop();
+  const selectedDateKey = dailySummaryDate.value;
+  const targetRow =
+    (selectedDateKey && dailySummaryRows.value.find((row) => row.createdAtKey.startsWith(selectedDateKey))) ||
+    dailySummaryRows.value[0];
+  highlightedSummaryRowId.value = targetRow?.noteId ?? null;
+  void scrollDailySummaryRowToTop(highlightedSummaryRowId.value);
 };
 
 const saveAllDailySummaries = async () => {
   const patientId = patientIdParam.value;
   if (!patientId) return;
-  sendNewNote();
+  await sendNewNote();
   dailySummarySaving.value = true;
   let hasError = false;
   try {
@@ -378,21 +457,28 @@ const saveAllDailySummaries = async () => {
   }
 };
 
-const sendNewNote = () => {
+const sendNewNote = async () => {
   const content = newNoteInput.value?.trim();
   if (!content) return;
-  const tempId = stagedNoteIdSeed.value;
-  stagedNoteIdSeed.value -= 1;
-  stagedNewNotes.value.unshift({
-    tempId,
-    content,
-    created_at: toEtNowDateTimeString(),
-    created_by: "User",
-    creator_type: "user",
-  });
-  dailySummaryDrafts.value[tempId] = content;
-  newNoteInput.value = "";
-  void scrollDailySummaryListToTop();
+  const patientId = patientIdParam.value;
+  if (!patientId) return;
+
+  newNoteSaving.value = true;
+  try {
+    await createNote(patientId, content);
+    newNoteInput.value = "";
+    await reloadPatientNotes(patientId);
+    const nextDrafts: Record<number, string> = {};
+    dailySummaryRows.value.forEach((row) => {
+      nextDrafts[row.noteId] = row.content;
+    });
+    dailySummaryDrafts.value = nextDrafts;
+    await scrollDailySummaryListToTop();
+  } catch (error) {
+    console.error("Failed to create daily summary note", error);
+  } finally {
+    newNoteSaving.value = false;
+  }
 };
 
 const deleteDailySummary = async (noteId: number) => {
@@ -456,7 +542,7 @@ const updateCompactLayout = () => {
 };
 
 const dailySymptomsCardTitle = computed(() =>
-  isCompactLayout.value ? "Symptoms" : "Patient's Daily Symptoms",
+  isCompactLayout.value ? "Symptoms" : "Daily Symptoms",
 );
 
 const openAdmissionDrawer = () => {
@@ -508,23 +594,6 @@ watch(
     summaries.value = (await getSummaries(parseInt(patient_id.value as string))) ?? [];
     reportNotes.value = (await getNotes(parseInt(patient_id.value as string))) ?? [];
     loading.value = false;
-    // Fetch MongoDB wearable coverage asynchronously — does not block patient info display
-    const coverageDates = summaries.value
-      .map((s) => summaryDateKey(s.date))
-      .filter((d): d is string => d !== null);
-    if (coverageDates.length) {
-      wearableLoading.value = true;
-      getWearableCoverage(
-        parseInt(patient_id.value as string),
-        coverageDates,
-      ).then((cov) => {
-        wearableCoverage.value = cov;
-      }).catch(() => {
-        wearableCoverage.value = {};
-      }).finally(() => {
-        wearableLoading.value = false;
-      });
-    }
   },
   { immediate: true },
 );
@@ -597,6 +666,26 @@ const summaryDateKey = (value?: string | Date): string | null => {
   return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, "0")}-${String(parsed.getUTCDate()).padStart(2, "0")}`;
 };
 
+const availableSummaryDateKeys = computed(() => {
+  const keys = new Set<string>();
+  summaries.value.forEach((summary) => {
+    const key = summaryDateKey(summary.date);
+    if (key) keys.add(key);
+  });
+  return keys;
+});
+
+const isDailySummaryDateDisabled = (
+  _timestamp: number,
+  detail: { type: string; year?: number; month?: number; date?: number },
+) => {
+  if (detail.type !== "date" || detail.year === undefined || detail.month === undefined || detail.date === undefined) {
+    return false;
+  }
+  const key = `${detail.year}-${String(detail.month + 1).padStart(2, "0")}-${String(detail.date).padStart(2, "0")}`;
+  return !availableSummaryDateKeys.value.has(key);
+};
+
 const noteDateKeyET = (value?: string | Date): string | null => {
   if (typeof value === "string") {
     const dateOnly = value.match(/^(\d{4}-\d{2}-\d{2})$/);
@@ -648,34 +737,31 @@ const symptomState = (
   return 0;
 };
 
-// For wearable symptoms, state comes from MongoDB sensor coverage:
-// state 0 = grey (no data), state 1 = green (has data, normal), state 3 = red (has out-of-range values).
-const symptomKeyToSensorField: Record<string, "heart_rate" | "respiration" | "spo2" | "hrv"> = {
-  heart_rate: "heart_rate",
-  respiration: "respiration",
-  spo2: "spo2",
-  hrv: "hrv",
-};
-
 const dotStateForSymptom = (
   summary: Summary | null,
   symptomKey: string,
   wearable: boolean,
 ): number => {
-  if (!wearable) return symptomState(summary, symptomKey);
   if (!summary) return 0;
-  const key = summaryDateKey(summary.date);
-  if (!key) return 0;
-  const cov = wearableCoverage.value[key];
-  if (!cov) return 0;
-  if (typeof cov === "boolean") {
-    return 0;
-  }
-  const sensorField = symptomKeyToSensorField[symptomKey];
-  if (!sensorField) return 0;
-  if (!cov[sensorField]) return 0;
-  const alertField = `${sensorField}_alert` as keyof typeof cov;
-  return cov[alertField] ? 3 : 1;
+  if (!wearable) return symptomState(summary, symptomKey);
+  // Wearable dots now read persisted SQL summary states directly.
+  const raw = (summary as Record<string, unknown>)[`${symptomKey}_state`];
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (Number.isNaN(value) || value <= 0) return 0;
+  return Math.min(3, Math.max(1, Math.round(value)));
+};
+
+// Colour the gauge arc from the dot's state, mirroring Dot.vue's dotColor(). The arc
+// previously used the symptom's fixed palette colour (both likert symptoms hardcode red),
+// so an amber or green dot could sit inside a red arc.
+const dotColorForSymptom = (
+  summary: Summary | null,
+  symptomKey: string,
+  wearable: boolean,
+): string => {
+  const state = dotStateForSymptom(summary, symptomKey, wearable);
+  if (state < 0) return "#1C274C";
+  return stateColors[state] || stateColors[0];
 };
 
 const handleDayOverviewDotStateChange = async (
@@ -775,9 +861,9 @@ const dayOverviewRowHasUnread = (summary: Summary | null): boolean => {
 };
 
 watch(
-  [dayOverviewRows, dayOverviewHasDataSignature, loading, wearableLoading],
-  async ([rows, _signature, isLoading, isWearableLoading]) => {
-    if (isLoading || isWearableLoading || didAutoScrollDayOverview.value || rows.length === 0) return;
+  [dayOverviewRows, dayOverviewHasDataSignature, loading],
+  async ([rows, _signature, isLoading]) => {
+    if (isLoading || didAutoScrollDayOverview.value || rows.length === 0) return;
     const targetRow = rows.find((row) => dayOverviewRowHasData(row.summary));
     if (!targetRow) {
       didAutoScrollDayOverview.value = true;
@@ -797,6 +883,23 @@ watch(
     const deltaTop = target.getBoundingClientRect().top - container.getBoundingClientRect().top;
     container.scrollTop += deltaTop;
     didAutoScrollDayOverview.value = true;
+  },
+  { flush: "post" },
+);
+
+watch(
+  dailySummaryDate,
+  async (dateKey) => {
+    if (!dateKey) return;
+    await nextTick();
+    const container = dayOverviewScrollEl.value;
+    if (!container) return;
+    const target = container.querySelector<HTMLElement>(
+      `.day-overview-row[data-date-key="${dateKey}"]`,
+    );
+    if (!target) return;
+    const deltaTop = target.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    container.scrollTo({ top: container.scrollTop + deltaTop, behavior: "smooth" });
   },
   { flush: "post" },
 );
@@ -955,8 +1058,15 @@ const updateConnectors = () => {
   const conversationCard = reportEl.querySelector('.conversation-card') as HTMLElement | null;
   if (!wearableCard || !conversationCard) return;
 
-  const wearableHeader = wearableCard.querySelector('.n-card__header') as HTMLElement | null;
-  const conversationHeader = conversationCard.querySelector('.n-card__header') as HTMLElement | null;
+  // Both cards are ColoredCards in `rounded` mode, which passes title=null to n-card and
+  // draws its own .roundtag__label instead -- so .n-card__header never exists and this
+  // function used to bail out here, leaving all four connectors on their static CSS
+  // fallbacks. Prefer the roundtag label, keeping n-card__header for the non-rounded case.
+  const headerOf = (card: HTMLElement) =>
+    (card.querySelector(".roundtag__label") ??
+      card.querySelector(".n-card__header")) as HTMLElement | null;
+  const wearableHeader = headerOf(wearableCard);
+  const conversationHeader = headerOf(conversationCard);
   if (!wearableHeader || !conversationHeader) return;
 
   const rowRect = rowEl.getBoundingClientRect();
@@ -967,7 +1077,22 @@ const updateConnectors = () => {
   const conversationCenterY = (ch.top + ch.bottom) / 2 - rowRect.top;
   const midY = (wearableCenterY + conversationCenterY) / 2;
 
-  connectorTailStyle.value = { top: `${midY - 2}px` };
+  // The tail is the stub that visually leaves the Daily Symptoms title bar, so anchor it to
+  // that bar rather than to the midpoint of the two right-hand cards. Those two are on the
+  // independently positioned side column, so once the info card above stopped being a fixed
+  // 225px the midpoint no longer lined up with the title bar. Clamped to the vertical
+  // line's span so the stub still meets it.
+  const dayNavLabel = rowEl.querySelector(
+    ".day-navigator .roundtag__label",
+  ) as HTMLElement | null;
+  let tailY = midY;
+  if (dayNavLabel) {
+    const dl = dayNavLabel.getBoundingClientRect();
+    const dayNavCenterY = (dl.top + dl.bottom) / 2 - rowRect.top;
+    tailY = Math.min(Math.max(dayNavCenterY, wearableCenterY), conversationCenterY);
+  }
+
+  connectorTailStyle.value = { top: `${tailY - 2}px` };
   connectorVerticalStyle.value = {
     top: `${wearableCenterY - 2}px`,
     height: `${Math.max(conversationCenterY - wearableCenterY + 4, 4)}px`,
@@ -981,7 +1106,14 @@ onMounted(() => {
   updateCompactLayout();
   nextTick(() => updateConnectors());
   _connectorRO = new ResizeObserver(() => updateConnectors());
-  if (connectorRowEl.value) _connectorRO.observe(connectorRowEl.value);
+  if (connectorRowEl.value) {
+    _connectorRO.observe(connectorRowEl.value);
+    // The row itself keeps its size when the info card above shrinks, so observing only the
+    // row misses that reflow. The symptoms card absorbs the freed space (flex: 1 1 auto),
+    // so watching it catches the case where the tail needs to follow the title bar up.
+    const dayNav = connectorRowEl.value.querySelector(".day-navigator");
+    if (dayNav) _connectorRO.observe(dayNav);
+  }
   window.addEventListener('resize', updateConnectors);
   window.addEventListener("resize", updateCompactLayout);
 });
@@ -996,28 +1128,13 @@ watch(loading, () => nextTick(updateConnectors));
 </script>
 
 <template>
-  <div class="patient-layout">
+  <div class="patient-layout" :style="{ '--control-height': CONTROL_HEIGHT }">
     <div class="row" ref="connectorRowEl">
       <div class="col main-col">
       <ColoredCard class="information" rounded>
         <div class="card-top-header">
           <Loading :loading="loading" :has-data="!!patient">
             <div class="row patient-header">
-              <div class="patient-avatar" aria-hidden="true">
-                <svg viewBox="0 0 512 512">
-                  <path
-                    d="M458.159,404.216c-18.93-33.65-49.934-71.764-100.409-93.431c-28.868,20.196-63.938,32.087-101.745,32.087
-                    c-37.828,0-72.898-11.89-101.767-32.087c-50.474,21.667-81.479,59.782-100.398,93.431C28.731,448.848,48.417,512,91.842,512
-                    c43.426,0,164.164,0,164.164,0s120.726,0,164.153,0C463.583,512,483.269,448.848,458.159,404.216z"
-                    fill="currentColor"
-                  />
-                  <path
-                    d="M256.005,300.641c74.144,0,134.231-60.108,134.231-134.242v-32.158C390.236,60.108,330.149,0,256.005,0
-                    c-74.155,0-134.252,60.108-134.252,134.242V166.4C121.753,240.533,181.851,300.641,256.005,300.641z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </div>
               <button
                 type="button"
                 class="patient-name patient-name-trigger"
@@ -1030,10 +1147,51 @@ watch(loading, () => nextTick(updateConnectors));
                 {{ patient!.gender }}
               </div>
               <div class="patient-nav-spacer"></div>
+              <div class="patient-action-bar">
+                <button
+                  type="button"
+                  class="panel-drawer-trigger"
+                  title="Admission history"
+                  @click="openAdmissionDrawer"
+                >
+                  Admissions
+                </button>
+                <button
+                  type="button"
+                  class="panel-drawer-trigger"
+                  title="I/O metrics"
+                  @click="openIOMetricDrawer"
+                >
+                  I/O
+                </button>
+                <button
+                  type="button"
+                  class="panel-drawer-trigger"
+                  title="Medications"
+                  @click="openMedicationDrawer"
+                >
+                  Meds
+                </button>
+                <button
+                  type="button"
+                  class="panel-drawer-trigger"
+                  title="Pre-admission medications"
+                  @click="openPreadmissionMedDrawer"
+                >
+                  Pre-Adm
+                </button>
+                <button
+                  type="button"
+                  class="panel-drawer-trigger"
+                  title="Medication administration"
+                  @click="openMedExecDrawer"
+                >
+                  Med Exec
+                </button>
+              </div>
             </div>
             <template #loading>
               <div class="row patient-header">
-                <div class="patient-avatar skeleton-avatar"></div>
                 <n-skeleton
                   class="patient-name"
                   style="height: 30px; width: 180px"
@@ -1052,81 +1210,30 @@ watch(loading, () => nextTick(updateConnectors));
         </div>
         <div class="basic-information-content">
           <div class="basic-top-section">
-            <div v-if="patient" class="row patient-details">
-                <div class="box patient-info-box">
-                  <div class="detail-line">
-                    <span class="label">Cancer Type:</span>
-                    <span class="value">{{ cancerType }}</span>
-                  </div>
-                  <div class="detail-line">
-                    <span class="label">Cancer Diagnosis Date:</span>
-                    <span class="value">{{ cancerStage }}</span>
-                  </div>
-                  <div class="detail-line">
-                    <span class="label">Medication Allergy History:</span>
-                    <span class="value">{{ treatmentType }}</span>
-                  </div>
+            <div v-if="patient" class="patient-details">
+                <div class="detail-line">
+                  <span class="label">Cancer Type:</span>
+                  <span class="value">{{ cancerType }}</span>
                 </div>
-                <div class="box patient-plan-box">
-                  <div class="detail-line">
-                    <span class="label">Treatment Plan:</span>
-                    <span class="value">{{ treatmentPlan }}</span>
-                  </div>
-                  <div class="detail-line">
-                    <span class="label">Treatment Cycle:</span>
-                    <span class="value">{{ treatmentCycle }}</span>
-                  </div>
-                  <div class="detail-line">
-                    <span class="label">Next Appointment Date:</span>
-                    <span class="value">{{ nextAppointmentDate }}</span>
-                  </div>
+                <div class="detail-line">
+                  <span class="label">Cancer Diagnosis Date:</span>
+                  <span class="value">{{ cancerStage }}</span>
                 </div>
-              </div>
-              <div v-if="patient" class="patient-action-bar">
-                <div class="patient-action-cell">
-                  <button
-                    type="button"
-                    class="panel-title panel-drawer-trigger"
-                    @click="openAdmissionDrawer"
-                  >
-                    Admission History
-                  </button>
+                <div class="detail-line">
+                  <span class="label">Medication Allergy History:</span>
+                  <span class="value">{{ treatmentType }}</span>
                 </div>
-                <div class="patient-action-cell">
-                  <button
-                    type="button"
-                    class="panel-title panel-drawer-trigger"
-                    @click="openIOMetricDrawer"
-                  >
-                    I/O Metrics
-                  </button>
+                <div class="detail-line">
+                  <span class="label">Treatment Plan:</span>
+                  <span class="value">{{ treatmentPlan }}</span>
                 </div>
-                <div class="patient-action-cell">
-                  <button
-                    type="button"
-                    class="panel-title panel-drawer-trigger"
-                    @click="openMedicationDrawer"
-                  >
-                    Medications
-                  </button>
+                <div class="detail-line">
+                  <span class="label">Treatment Cycle:</span>
+                  <span class="value">{{ treatmentCycle }}</span>
                 </div>
-                <div class="patient-action-cell">
-                  <button
-                    type="button"
-                    class="panel-title panel-drawer-trigger"
-                    @click="openPreadmissionMedDrawer"
-                  >
-                    Pre-Adm Meds
-                  </button>
-                </div>
-                <div class="patient-action-cell">
-                  <button
-                    type="button"
-                    class="panel-title panel-drawer-trigger"
-                    @click="openMedExecDrawer"
-                  >
-                    Med Execution
-                  </button>
+                <div class="detail-line">
+                  <span class="label">Next Appointment Date:</span>
+                  <span class="value">{{ nextAppointmentDate }}</span>
                 </div>
               </div>
           </div>
@@ -1149,13 +1256,26 @@ watch(loading, () => nextTick(updateConnectors));
           </n-tooltip>
         </template>
         <template #title-extra>
-          <n-date-picker
-            v-model:formatted-value="dailySummaryDate"
-            type="date"
-            value-format="yyyy-MM-dd"
-            size="small"
-            clearable
-          />
+          <div class="day-navigator-extra">
+            <n-date-picker
+              v-model:formatted-value="dailySummaryDate"
+              type="date"
+              value-format="yyyy-MM-dd"
+              size="small"
+              clearable
+              :is-date-disabled="isDailySummaryDateDisabled"
+              :theme-overrides="datePickerThemeOverrides"
+            />
+            <button
+              type="button"
+              class="reset-today-btn"
+              :disabled="resetting"
+              title="Delete this patient's conversation, symptom summary, and AI summary for today"
+              @click="handleResetToday"
+            >
+              Reset
+            </button>
+          </div>
         </template>
         <div class="day-navigator-content">
           <div class="ai-summary-section">
@@ -1179,6 +1299,15 @@ watch(loading, () => nextTick(updateConnectors));
               </span>
             </div>
           </div>
+          <div class="dot-legend">
+            <span class="dot-legend-item" v-for="state in [0, 1, 2, 3]" :key="state">
+              <span
+                class="dot-legend-swatch"
+                :style="{ background: stateColors[state] }"
+              ></span>
+              {{ stateMessages[state] }}
+            </span>
+          </div>
           <div class="day-overview-table">
             <div class="table-row day-overview-header">
               <div class="date">Date</div>
@@ -1197,6 +1326,7 @@ watch(loading, () => nextTick(updateConnectors));
                 v-for="(row, index) in dayOverviewRows"
                 :key="row.id"
                 :data-has-data="dayOverviewRowHasData(row.summary) ? '1' : '0'"
+                :data-date-key="row.dateKey || ''"
                 :class="{
                   odd: index % 2 === 1,
                   selected: row.isSelected,
@@ -1219,7 +1349,7 @@ watch(loading, () => nextTick(updateConnectors));
                       <CircleProgress
                         class="day-overview-dot-gauge"
                         :percent="getSymptomScale(row.summary, symptom.key) * 10"
-                        :color="symptom.color"
+                        :color="dotColorForSymptom(row.summary, symptom.key, symptom.wearable)"
                         :id="`${row.id}-${symptom.key}`"
                         @click.stop="handleDayOverviewDotClick(row, symptom)"
                       >
@@ -1229,7 +1359,6 @@ watch(loading, () => nextTick(updateConnectors));
                           :variant="'circle'"
                           :editable="isDayOverviewDotArmed(row.id, symptom.key)"
                           @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
-                          :loading="symptom.wearable && wearableLoading"
                         />
                       </CircleProgress>
                     </template>
@@ -1242,7 +1371,6 @@ watch(loading, () => nextTick(updateConnectors));
                     :variant="'circle'"
                     :editable="isDayOverviewDotArmed(row.id, symptom.key)"
                     @update:state="handleDayOverviewDotStateChange(row.summary, symptom.key, $event)"
-                    :loading="symptom.wearable && wearableLoading"
                     @click.stop="handleDayOverviewDotClick(row, symptom)"
                   />
                 </div>
@@ -1266,7 +1394,7 @@ watch(loading, () => nextTick(updateConnectors));
               <template #top-card>
                 <ColoredCard
                   class="detailed-wearable-card indigo-title full-title-bar"
-                  title="Patient's Wearable Sensor Data"
+                  title="Wearable Sensor Data"
                   color="#053251"
                   rounded
                 >
@@ -1534,12 +1662,15 @@ watch(loading, () => nextTick(updateConnectors));
             v-for="row in dailySummaryRows"
             :key="row.noteId"
             class="summary-editor-row"
+            :data-note-id="row.noteId"
+            :class="{ highlighted: row.noteId === highlightedSummaryRowId }"
           >
             <div class="summary-editor-input">
               <n-input
                 v-model:value="dailySummaryDrafts[row.noteId]"
                 type="textarea"
                 :autosize="{ minRows: 2, maxRows: 5 }"
+                :theme-overrides="summaryEditorInputThemeOverrides"
               />
             </div>
             <div class="summary-editor-meta">
@@ -1668,33 +1799,23 @@ watch(loading, () => nextTick(updateConnectors));
   width: 100%;
   overflow-y: hidden;
 }
+// Size to the content instead of a fixed 225px. The old fixed height left a large blank
+// band under the details once the action buttons moved up into the header, and it would
+// also clip if a patient's values wrapped onto extra lines. .day-navigator is flex: 1 1
+// auto, so whatever this gives back goes to the symptoms table below.
 .information {
-  flex: 0 0 var(--patient-info-card-height, 225px);
-  height: var(--patient-info-card-height, 225px);
-  min-height: 0;
-}
-.patient-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: #ffffff;
-  color: #053251;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   flex: 0 0 auto;
-}
-.patient-avatar svg {
-  width: 20px;
-  height: 20px;
-}
-.skeleton-avatar {
-  background-color: #f3f3f3;
+  height: auto;
+  min-height: 0;
 }
 .patient-name {
   font-size: 25px;
   line-height: 36px;
   font-weight: 700;
+  // Never let the action buttons squeeze this: without these, flex shrinking collapsed the
+  // name to near-zero width and it wrapped one character per line.
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .patient-name-trigger {
   border: none;
@@ -1711,6 +1832,8 @@ watch(loading, () => nextTick(updateConnectors));
   font-size: 14px;
   line-height: 30px;
   font-weight: 700;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .patient-nav-spacer {
   flex: 1 1 auto;
@@ -1855,16 +1978,6 @@ watch(loading, () => nextTick(updateConnectors));
   width: 100px;
   display: inline-block;
 }
-.box {
-  flex-basis: 0;
-  flex-grow: 1;
-  background-color: #f8f8f8;
-  padding: 12px;
-  .title {
-    font-size: 16px;
-    font-weight: 700;
-  }
-}
 .detail-line {
   display: flex;
   flex-wrap: wrap;
@@ -1879,70 +1992,77 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .detail-line .value {
   min-width: 0;
-  overflow-wrap: anywhere;
+  // break-word, not anywhere: `anywhere` lets a mid-word break count towards the element's
+  // min-content size, so a tight column can be squeezed down to one character per line.
+  // break-word still rescues a single over-long word but keeps min-content at word width.
+  overflow-wrap: break-word;
 }
 .demographic {
   margin: 0;
 }
+// Two columns: the labels here are long ("Medication Allergy History:"), so three columns
+// left the value with almost no room and it wrapped a character at a time.
 .patient-details {
   flex: 0 0 auto;
-  align-items: stretch;
   min-height: 0;
-  .box {
-    overflow: visible;
-  }
-}
-.patient-info-box {
-  background-color: #fff;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
   row-gap: 8px;
 }
-.patient-plan-box {
-  background-color: #fff;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  row-gap: 8px;
-}
-.patient-info-box .detail-line {
-  flex: 0 0 auto;
+.patient-details .detail-line {
   align-items: flex-start;
 }
-.patient-plan-box .detail-line {
-  flex: 0 0 auto;
-  align-items: flex-start;
-}
+// Sits after .patient-nav-spacer in the header row, so it right-aligns beside the patient
+// name instead of occupying its own row under the details (which left the header's right
+// half and the row's right end both empty).
+// Shrinks and wraps before anything else in the header, so a long patient name always wins
+// the space contest.
 .patient-action-bar {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
-  column-gap: 10px;
+  justify-content: flex-end;
+  column-gap: 8px;
   row-gap: 6px;
   align-items: center;
-  margin-top: 12px;
 }
-.patient-action-cell {
-  flex: 0 0 auto;
-}
-.panel-drawer-trigger {
-  margin-top: 3px;
-  align-self: flex-start;
-  border: 1px solid #d9d9d9;
+// One definition for every secondary button on this view (the five drawer triggers, More
+// and Reset). The rule is border-only: hover deepens the border and tints the fill, and
+// never adds a shadow. Shadows read as "floating", which these inline controls are not,
+// and six of them lifting on hover made the panel feel jumpy.
+%secondary-button {
+  // One height for all of them, shared with the date picker via --control-height. Vertical
+  // padding is deliberately 0: the fixed height plus centring governs, so a per-button
+  // padding tweak can't make one of them a different height again.
+  height: var(--control-height);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c8d2db;
   background: #fff;
-  border-radius: 3px;
-  padding: 6px 12px;
-  text-align: center;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #053251;
   cursor: pointer;
   line-height: 1.2;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    border-color: #9fb3c4;
+    background: #eef2f6;
+  }
 }
-.panel-drawer-trigger:hover {
-  border-color: #bfbfbf;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+.panel-drawer-trigger {
+  @extend %secondary-button;
+  // Tighter than the other secondary buttons: five of these share the header row with the
+  // patient name, and with more padding they wrapped onto a second line.
+  padding: 0 8px;
+  text-align: center;
+  white-space: nowrap;
 }
 .basic-information-content {
   display: flex;
@@ -1998,8 +2118,7 @@ watch(loading, () => nextTick(updateConnectors));
 }
 .ai-summary-section {
   flex: 0 0 auto;
-  padding-bottom: 16px;
-  border-bottom: 2px solid #053251;
+  padding-bottom: 8px;
   background-color: #f3f3f3;
   background-clip: content-box;
 }
@@ -2010,26 +2129,67 @@ watch(loading, () => nextTick(updateConnectors));
   font-size: 18px;
   font-weight: 700;
   color: #053251;
-  padding-left: 8px;
+  // 6px inset on top/left/right, matching .ai-summary-body-text's padding-left and
+  // .ai-summary-body-meta's padding-right, so the grey panel is evenly inset all round.
+  // The left value also lines the title up with the summary text below it.
+  padding: 6px 6px 0;
 }
 .ai-summary-more-btn {
+  @extend %secondary-button;
   margin-left: auto;
-  margin-right: 6px;
   flex-shrink: 0;
-  border: 1px solid #d9d9d9;
-  background: #fff;
-  border-radius: 3px;
-  padding: 4px 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #333;
-  cursor: pointer;
-  line-height: 1.2;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  padding: 0 10px;
 }
-.ai-summary-more-btn:hover {
-  border-color: #bfbfbf;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+.dot-legend {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 0 8px 8px;
+  border-bottom: 2px solid #053251;
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  line-height: 1.2;
+}
+.dot-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dot-legend-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.day-navigator-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.day-navigator-extra :deep(.n-date-picker) {
+  width: 124px;
+}
+.reset-today-btn {
+  @extend %secondary-button;
+  flex-shrink: 0;
+  padding: 0 10px;
+  // Destructive action: red label on the shared neutral container, with a red-tinted
+  // border and hover fill so the whole control reads as the warning, not just the text.
+  border-color: #e3c3c3;
+  color: #c0392b;
+
+  &:hover {
+    border-color: #d29b9b;
+    background: #fbf0ef;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 .summary-editor-panel {
   display: flex;
@@ -2037,6 +2197,7 @@ watch(loading, () => nextTick(updateConnectors));
   max-height: 70vh;
 }
 .summary-editor-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2050,6 +2211,12 @@ watch(loading, () => nextTick(updateConnectors));
   grid-template-columns: minmax(0, 1.6fr) minmax(150px, 0.4fr);
   gap: 10px;
   align-items: start;
+  border-radius: 6px;
+  padding: 4px;
+}
+.summary-editor-row.highlighted {
+  outline: 2px solid #808080;
+  outline-offset: -2px;
 }
 .summary-editor-input {
   min-width: 0;
@@ -2135,12 +2302,15 @@ watch(loading, () => nextTick(updateConnectors));
   color: #333;
   line-height: 1.5;
   overflow: hidden;
+  // Bottom half of the grey panel's 6px inset. On the flex container rather than on both
+  // children: the two are top-aligned and different heights, so putting it here gives a
+  // single 6px gap below whichever is taller, instead of two rules that can drift apart.
+  padding-bottom: 6px;
 }
 .ai-summary-body-text {
   flex: 1 1 74%;
   min-width: 0;
   padding-left: 6px;
-  padding-bottom: 0;
   line-height: 1.35;
   white-space: normal;
   overflow-wrap: break-word;
@@ -2275,10 +2445,6 @@ watch(loading, () => nextTick(updateConnectors));
   flex-direction: column;
   row-gap: 12px;
   min-height: 0;
-}
-.panel-title {
-  font-size: 14px;
-  font-weight: 700;
 }
 .overview-box {
   flex: 1 1 0;
@@ -2572,9 +2738,6 @@ watch(loading, () => nextTick(updateConnectors));
   cursor: pointer;
 }
 .information {
-  flex: 0 0 var(--patient-info-card-height, 225px);
-  height: var(--patient-info-card-height, 225px);
-  min-height: 0;
   :deep(.n-card__content) {
     overflow: overlay;
     padding: 16px 16px;

@@ -36,7 +36,10 @@ from .config import (
 )
 from .openai_utils import conversation, key_questions, summary as openai_summary
 from .symptoms import symptom_descriptions
-from pymongo import MongoClient
+try:
+    from pymongo import MongoClient
+except Exception:
+    MongoClient = None
 import logging
 from sqlalchemy.exc import OperationalError
 from zoneinfo import ZoneInfo
@@ -108,6 +111,8 @@ def _invalidate_patient_related_cache(patient_id):
 def _get_shared_mongo_client():
     """Return a module-level MongoClient singleton, creating it on first call."""
     global _shared_mongo_client
+    if MongoClient is None:
+        return None
     if _shared_mongo_client is None:
         try:
             _shared_mongo_client = MongoClient(
@@ -183,6 +188,19 @@ def _participant_filter(participant_id):
     return {"$or": [{"uid": participant_id}, {"participant_id": participant_id}]}
 
 
+def _participant_time_filter(participant_id, start_ts, end_ts, time_field="timestamp"):
+    """Index-friendly participant + time-window match for the garmin_* collections.
+
+    Deliberately matches `uid` directly rather than $or-ing it with `participant_id`:
+    those collections are indexed on (uid, timestamp), and an $or whose other branch has
+    no index makes MongoDB fall back to a collection scan for the whole query. As of
+    2026-08 `participant_id` is present in 0 documents across every garmin_* collection,
+    so the branch bought nothing and cost the index. `timestamp` is numeric in 100% of
+    documents, so the raw range comparison here is safe (no string timestamps to miss).
+    """
+    return {"uid": participant_id, time_field: {"$gte": start_ts, "$lte": end_ts}}
+
+
 def _average_metric(db2, participant_id, collection, start_ts, end_ts, value_field):
     values = []
     cursor = db2[collection].find(
@@ -251,17 +269,13 @@ def _aggregate_avg_by_bin(
     min_value=0,
 ):
     pipeline = [
-        {"$match": {**_participant_filter(participant_id)}},
+        # Keep uid + the timestamp range in the very first $match, on the raw fields, so
+        # this can be served by the uid_1_timestamp_1 index. Filtering on a computed field
+        # after $addFields (as this previously did) forces a full collection scan --
+        # ~5.2M documents per request across the collections this endpoint touches.
+        {"$match": _participant_time_filter(participant_id, start_ts, end_ts)},
         {
             "$addFields": {
-                "_ts": {
-                    "$convert": {
-                        "input": "$timestamp",
-                        "to": "long",
-                        "onError": None,
-                        "onNull": None,
-                    }
-                },
                 "_val": {
                     "$convert": {
                         "input": f"${value_field}",
@@ -272,15 +286,10 @@ def _aggregate_avg_by_bin(
                 },
             }
         },
-        {
-            "$match": {
-                "_ts": {"$gte": start_ts, "$lte": end_ts},
-                "_val": {"$gt": min_value},
-            }
-        },
+        {"$match": {"_val": {"$gt": min_value}}},
         {
             "$group": {
-                "_id": _bucket_offset_expr(start_ts, interval_seconds, field="_ts"),
+                "_id": _bucket_offset_expr(start_ts, interval_seconds, field="timestamp"),
                 "avg_value": {"$avg": "$_val"},
             }
         },
@@ -311,25 +320,15 @@ def _aggregate_rmssd_by_bin(
     value_field="value",
 ):
     pipeline = [
-        {"$match": {**_participant_filter(participant_id)}},
+        # Same index concern as _aggregate_avg_by_bin: filter uid + the time window up
+        # front on the raw indexed fields. garmin_ibi is the largest collection (~3.5M
+        # docs) so scanning it dominated this endpoint's latency (~1.5s of ~3.5s).
+        # The previous version fell back to `processed_at` when `timestamp` was missing;
+        # as of 2026-08 `timestamp` is present and numeric in 100% of garmin_ibi documents,
+        # so bucketing on it directly preserves behaviour on the real data.
+        {"$match": _participant_time_filter(participant_id, start_ts, end_ts, time_field)},
         {
             "$addFields": {
-                "_ts_primary": {
-                    "$convert": {
-                        "input": f"${time_field}",
-                        "to": "long",
-                        "onError": None,
-                        "onNull": None,
-                    }
-                },
-                "_ts_fallback": {
-                    "$convert": {
-                        "input": "$processed_at",
-                        "to": "long",
-                        "onError": None,
-                        "onNull": None,
-                    }
-                },
                 "_val_primary": {
                     "$convert": {
                         "input": f"${value_field}",
@@ -348,21 +347,11 @@ def _aggregate_rmssd_by_bin(
                 },
             }
         },
-        {
-            "$addFields": {
-                "_ts": {"$ifNull": ["$_ts_primary", "$_ts_fallback"]},
-                "_val": {"$ifNull": ["$_val_primary", "$_val_fallback"]},
-            }
-        },
-        {
-            "$match": {
-                "_ts": {"$gte": start_ts, "$lte": end_ts},
-                "_val": {"$gt": 0},
-            }
-        },
+        {"$addFields": {"_val": {"$ifNull": ["$_val_primary", "$_val_fallback"]}}},
+        {"$match": {"_val": {"$gt": 0}}},
         {
             "$group": {
-                "_id": _bucket_offset_expr(start_ts, interval_seconds, field="_ts"),
+                "_id": _bucket_offset_expr(start_ts, interval_seconds, field=time_field),
                 "values": {"$push": "$_val"},
             }
         },
@@ -601,7 +590,31 @@ def get_user_info():
 def get_patients():
     try:
         patients = g.current_user.patients
-        patients_dict = [_columns_dict(patient) for patient in patients]
+        patient_ids = [patient.id for patient in patients]
+
+        # The patient list only needs each patient's most recent summary (to colour the
+        # severity dot). Embedding it here lets the dashboard render the whole list from a
+        # single request instead of one GET /patients/<id>/summaries per patient.
+        # Fetched in one query and reduced in Python so this stays a single round trip to
+        # the DB as well (no per-patient lazy loads).
+        latest_summary_by_patient = {}
+        if patient_ids:
+            rows = (
+                Summary.query
+                .filter(Summary.patient_id.in_(patient_ids))
+                .order_by(Summary.patient_id, Summary.date.desc(), Summary.id.desc())
+                .all()
+            )
+            for row in rows:
+                if row.patient_id not in latest_summary_by_patient:
+                    latest_summary_by_patient[row.patient_id] = row
+
+        patients_dict = []
+        for patient in patients:
+            data = _columns_dict(patient)
+            latest = latest_summary_by_patient.get(patient.id)
+            data["latest_summary"] = _summary_dict(latest) if latest is not None else None
+            patients_dict.append(data)
         return jsonify(patients_dict)
 
     except Exception as e:
@@ -1367,6 +1380,53 @@ def get_summaries(id):
     return jsonify([_summary_dict(item) for item in items])
 
 
+@current_app.route("/patients/<int:id>/reset_today", methods=["POST"])
+@login_required
+def reset_patient_today(id):
+    """Delete today's (Eastern day) conversation logs, symptom summary, and AI
+    daily summary note for a patient, then invalidate the server cache so the
+    dashboard reflects a clean slate immediately."""
+    patient, error = _get_patient_for_user(id, g.current_user.id)
+    if error:
+        return error
+
+    now_et = datetime.now(EASTERN_TZ)
+    et_day_start = now_et.replace(hour=0, minute=0, second=0, microsecond=0)
+    et_day_end = et_day_start + timedelta(days=1)
+    # Conversation logs / AI notes use UTC-naive timestamps.
+    utc_start = et_day_start.astimezone(timezone.utc).replace(tzinfo=None)
+    utc_end = et_day_end.astimezone(timezone.utc).replace(tzinfo=None)
+    # Summary rows are bucketed on Eastern-naive day midnight.
+    sum_start = et_day_start.replace(tzinfo=None)
+    sum_end = et_day_end.replace(tzinfo=None)
+
+    logs_deleted = (
+        ConversationLog.query.filter_by(patient_id=patient.id)
+        .filter(ConversationLog.date >= utc_start, ConversationLog.date < utc_end)
+        .delete(synchronize_session=False)
+    )
+    summaries_deleted = (
+        Summary.query.filter_by(patient_id=patient.id)
+        .filter(Summary.date >= sum_start, Summary.date < sum_end)
+        .delete(synchronize_session=False)
+    )
+    notes_deleted = (
+        Note.query.filter_by(patient_id=patient.id, creator_type="ai")
+        .filter(Note.created_at >= utc_start, Note.created_at < utc_end)
+        .delete(synchronize_session=False)
+    )
+    db.session.commit()
+    _invalidate_patient_related_cache(patient.id)
+    return jsonify({
+        "message": "success",
+        "deleted": {
+            "conversation_logs": logs_deleted,
+            "summaries": summaries_deleted,
+            "ai_notes": notes_deleted,
+        },
+    })
+
+
 @current_app.route("/patients/<int:id>/summaries", methods=["POST"])
 @login_required
 def create_summary(id):
@@ -1488,17 +1548,15 @@ def create_risk(id):
 @current_app.route("/patients/<int:id>/wearable-coverage", methods=["GET"])
 @login_required
 def get_wearable_coverage(id):
-    """Return per-date wearable data availability from MongoDB.
+    """Return per-date wearable dot states from precomputed SQL summary rows.
 
     Query params:
       dates: repeated YYYY-MM-DD strings, e.g. ?dates=2026-03-01&dates=2026-03-02
     Returns JSON: {"2026-03-01": true, "2026-03-02": false, ...}
-    A date is true only when there is plottable wearable data, aligned with
-    the timeseries endpoint semantics:
-      - garmin_hr.heart_rate > 0
-      - garmin_respiration.respiration > 0
-      - garmin_ibi.bbi > 0
-    MongoDB documents use field ``uid`` matching Patient.participant_id.
+        Dot color mapping:
+            - 0 => no data (gray)
+            - 1 => data and normal (green)
+            - 3 => data and out-of-range alert (red)
     """
     patient, error = _get_patient_for_user(id, g.current_user.id)
     if error:
@@ -1509,134 +1567,77 @@ def get_wearable_coverage(id):
     cached_payload = _cache_get(cache_key)
     if cached_payload is not None:
         return jsonify(cached_payload)
-    participant_id = patient.participant_id
     coverage = {d: False for d in dates_str}
-    if not participant_id or not dates_str:
+    if not dates_str:
         _cache_set(cache_key, coverage)
         return jsonify(coverage)
+
+    def _state_value(summary_obj, field_name, average_field_name):
+        state = getattr(summary_obj, field_name, None)
+        if state in (0, 1, 3):
+            return state
+        # Backward-compatible fallback for legacy rows without state fields.
+        avg_value = getattr(summary_obj, average_field_name, None)
+        return 1 if avg_value is not None else 0
+
+    def _day_key(summary_date):
+        if summary_date is None:
+            return None
+        if summary_date.tzinfo is None:
+            day_et = summary_date.date()
+        else:
+            day_et = summary_date.astimezone(EASTERN_TZ).date()
+        return day_et.isoformat()
+
     try:
-        client = _get_shared_mongo_client()
-        if client is None:
-            return jsonify(coverage)
-        mongo_db = client["study_db"]
+        min_day = min(datetime.strptime(d, "%Y-%m-%d") for d in dates_str)
+        max_day = max(datetime.strptime(d, "%Y-%m-%d") for d in dates_str)
+        day_start = min_day.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = (max_day + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Build per-date time windows (ET midnight boundaries)
-        date_windows = {}
-        for date_str in dates_str:
-            day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=EASTERN_TZ)
-            ts_s = int(day_start.timestamp())
-            ts_e = int((day_start + timedelta(days=1)).timestamp())
-            date_windows[date_str] = (ts_s, ts_e)
-
-        overall_start = min(v[0] for v in date_windows.values())
-        overall_end = max(v[1] for v in date_windows.values())
-
-        def ts_to_date(ts):
-            if not isinstance(ts, (int, float)):
-                return None
-            ts_int = int(ts)
-            for d, (s, e) in date_windows.items():
-                if s <= ts_int < e:
-                    return d
-            return None
-
-        def safe_num(raw):
-            if isinstance(raw, (int, float)) and math.isfinite(raw):
-                return float(raw)
-            return None
-
-        BIN_SEC = 15 * 60  # same bin size as wearable timeseries chart
-
-        pfilter = _participant_filter(participant_id)
-
-        # Use the same server-side aggregation functions as the timeseries endpoint.
-        # Query the full overall range at once; map bin offsets back to dates in Python.
-        def offset_to_date(bin_offset):
-            actual_ts = overall_start + int(bin_offset)
-            return ts_to_date(actual_ts)
-
-        # HR — one aggregation for all dates
-        hr_day = {}  # date_str -> (has_data, has_alert)
-        for bin_offset, avg in _aggregate_avg_by_bin(
-            mongo_db, participant_id, "garmin_hr",
-            overall_start, overall_end, BIN_SEC, "heart_rate", min_value=0,
-        ).items():
-            d = offset_to_date(bin_offset)
-            if d is None:
-                continue
-            _, prev_alert = hr_day.get(d, (False, False))
-            hr_day[d] = (True, prev_alert or avg > 120 or avg < 60)
-
-        # Respiration — one aggregation for all dates
-        resp_day = {}
-        for bin_offset, avg in _aggregate_avg_by_bin(
-            mongo_db, participant_id, "garmin_respiration",
-            overall_start, overall_end, BIN_SEC, "respiration", min_value=0,
-        ).items():
-            d = offset_to_date(bin_offset)
-            if d is None:
-                continue
-            _, prev_alert = resp_day.get(d, (False, False))
-            resp_day[d] = (True, prev_alert or avg > 24 or avg < 8)
-
-        # HRV — one aggregation for all dates, RMSSD threshold < 15 (same as chart)
-        hrv_day = {}
-        for bin_offset, rmssd in _aggregate_rmssd_by_bin(
-            mongo_db, participant_id,
-            overall_start, overall_end, BIN_SEC,
-            time_field="timestamp", value_field="bbi",
-        ).items():
-            if rmssd is None:
-                continue
-            d = offset_to_date(bin_offset)
-            if d is None:
-                continue
-            _, prev_alert = hrv_day.get(d, (False, False))
-            hrv_day[d] = (True, prev_alert or rmssd < 15)
-
-        # SpO2 — same candidate sources as timeseries endpoint
-        spo2_day = {}
-        for coll, field in [
-            ("garmin_spo2", "spo2"), ("garmin_spo2", "oxygen_saturation"),
-            ("garmin_pulse_ox", "spo2"), ("garmin_pulse_ox", "oxygen_saturation"),
-            ("garmin_hr", "spo2"), ("garmin_hr", "oxygen_saturation"),
-            ("garmin_respiration", "spo2"), ("garmin_respiration", "oxygen_saturation"),
-            ("garmin_stress", "spo2"), ("garmin_stress", "oxygen_saturation"),
-        ]:
-            try:
-                bins = _aggregate_avg_by_bin(
-                    mongo_db, participant_id, coll,
-                    overall_start, overall_end, BIN_SEC, field, min_value=0,
-                )
-            except Exception:
-                continue
-            for bin_offset, avg in bins.items():
-                if avg < 50 or avg > 100:
-                    continue
-                d = offset_to_date(bin_offset)
-                if d is None:
-                    continue
-                _, prev_alert = spo2_day.get(d, (False, False))
-                spo2_day[d] = (True, prev_alert or avg < 94)
+        summaries = (
+            Summary.query.filter_by(patient_id=patient.id)
+            .filter(Summary.date >= day_start, Summary.date < day_end)
+            .all()
+        )
+        summary_by_day = {}
+        for summary in summaries:
+            key = _day_key(summary.date)
+            if key and key not in summary_by_day:
+                summary_by_day[key] = summary
 
         for date_str in dates_str:
-            has_hr,  hr_alert   = hr_day.get(date_str,   (False, False))
-            has_resp,resp_alert = resp_day.get(date_str,  (False, False))
-            has_spo2,spo2_alert = spo2_day.get(date_str, (False, False))
-            has_hrv, hrv_alert  = hrv_day.get(date_str,  (False, False))
+            summary = summary_by_day.get(date_str)
+            if summary is None:
+                coverage[date_str] = {
+                    "heart_rate": False,
+                    "heart_rate_alert": False,
+                    "respiration": False,
+                    "respiration_alert": False,
+                    "spo2": False,
+                    "spo2_alert": False,
+                    "hrv": False,
+                    "hrv_alert": False,
+                }
+                continue
+
+            hr_state = _state_value(summary, "heart_rate_state", "heart_rate_average")
+            resp_state = _state_value(summary, "respiration_state", "respiration_average")
+            spo2_state = _state_value(summary, "spo2_state", "spo2_average")
+            hrv_state = _state_value(summary, "hrv_state", "hrv_average")
 
             coverage[date_str] = {
-                "heart_rate": has_hr,
-                "heart_rate_alert": hr_alert,
-                "respiration": has_resp,
-                "respiration_alert": resp_alert,
-                "spo2": has_spo2,
-                "spo2_alert": spo2_alert,
-                "hrv": has_hrv,
-                "hrv_alert": hrv_alert,
+                "heart_rate": hr_state in (1, 3),
+                "heart_rate_alert": hr_state == 3,
+                "respiration": resp_state in (1, 3),
+                "respiration_alert": resp_state == 3,
+                "spo2": spo2_state in (1, 3),
+                "spo2_alert": spo2_state == 3,
+                "hrv": hrv_state in (1, 3),
+                "hrv_alert": hrv_state == 3,
             }
     except Exception as e:
-        logging.warning("MongoDB unavailable for wearable-coverage: %s", e)
+        logging.warning("Failed to read wearable coverage from SQL summaries: %s", e)
     _cache_set(cache_key, coverage)
     return jsonify(coverage)
 

@@ -5,7 +5,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
-from pymongo import MongoClient
+try:
+    from pymongo import MongoClient
+except Exception:
+    MongoClient = None
 from sqlalchemy.exc import OperationalError
 
 from .app import app
@@ -16,6 +19,18 @@ from .symptoms import symptom_descriptions
 
 EASTERN_TZ = ZoneInfo("America/New_York")
 BIN_SECONDS = 5 * 60
+STATE_BIN_SECONDS = 15 * 60
+
+
+def _create_mongo_client():
+    if MongoClient is None:
+        print("[cardio_summary_sync] pymongo is not installed; skip wearable sync/backfill")
+        return None
+    try:
+        return MongoClient(mongodb_url, **mongodb_client_kwargs)
+    except Exception as exc:
+        print(f"[cardio_summary_sync] cannot create Mongo client: {exc}")
+        return None
 
 
 def _participant_filter(participant_id: str):
@@ -232,9 +247,68 @@ def _wearable_state(metric: str, stats: dict) -> int:
     return 1
 
 
+def _scan_alert_state(metric: str, value_map: dict[int, float | None]) -> int:
+    """Compute state from binned values: 0=no data, 1=green, 3=red."""
+    values = [
+        value
+        for value in value_map.values()
+        if isinstance(value, (int, float)) and math.isfinite(value)
+    ]
+    if not values:
+        return 0
+    for value in values:
+        if _is_alert(metric, value):
+            return 3
+    return 1
+
+
+def _merge_spo2_bins(db2, participant_id: str, start_ts: int, end_ts: int, bin_seconds: int):
+    spo2_candidates = [
+        ("garmin_spo2", "spo2"),
+        ("garmin_spo2", "oxygen_saturation"),
+        ("garmin_pulse_ox", "spo2"),
+        ("garmin_pulse_ox", "oxygen_saturation"),
+        ("garmin_hr", "spo2"),
+        ("garmin_hr", "oxygen_saturation"),
+        ("garmin_respiration", "spo2"),
+        ("garmin_respiration", "oxygen_saturation"),
+        ("garmin_stress", "spo2"),
+        ("garmin_stress", "oxygen_saturation"),
+    ]
+    spo2_map: dict[int, float] = {}
+    from .apis import _aggregate_avg_by_bin
+
+    for collection_name, value_field in spo2_candidates:
+        try:
+            cur_map = _aggregate_avg_by_bin(
+                db2,
+                participant_id,
+                collection_name,
+                start_ts,
+                end_ts,
+                bin_seconds,
+                value_field,
+                min_value=0,
+            )
+        except Exception:
+            continue
+        for bucket, value in cur_map.items():
+            if not isinstance(value, (int, float)) or not math.isfinite(value):
+                continue
+            if value < 50 or value > 100:
+                continue
+            if bucket not in spo2_map:
+                spo2_map[bucket] = float(value)
+    return spo2_map
+
+
 def _sync_once():
+    from .apis import _aggregate_avg_by_bin, _aggregate_rmssd_by_bin
+
     day_start_sql, start_ts, end_ts = _day_window_eastern_now()
-    client = MongoClient(mongodb_url, **mongodb_client_kwargs)
+    client = _create_mongo_client()
+    if client is None:
+        return
     db2 = client["study_db"]
     try:
         patients = Patient.query.filter(Patient.participant_id.isnot(None)).all()
@@ -260,6 +334,44 @@ def _sync_once():
             resp = _safe_stats(resp_values)
             hrv = _safe_stats(hrv_values)
             spo2 = _safe_stats(spo2_values)
+
+            # Dot states follow the same 15-minute bin rule used by chart logic.
+            hr_map = _aggregate_avg_by_bin(
+                db2,
+                participant_id,
+                "garmin_hr",
+                start_ts,
+                end_ts,
+                STATE_BIN_SECONDS,
+                "heart_rate",
+                min_value=0,
+            )
+            resp_map = _aggregate_avg_by_bin(
+                db2,
+                participant_id,
+                "garmin_respiration",
+                start_ts,
+                end_ts,
+                STATE_BIN_SECONDS,
+                "respiration",
+                min_value=0,
+            )
+            hrv_map = _aggregate_rmssd_by_bin(
+                db2,
+                participant_id,
+                start_ts,
+                end_ts,
+                STATE_BIN_SECONDS,
+                time_field="timestamp",
+                value_field="bbi",
+            )
+            spo2_map = _merge_spo2_bins(
+                db2,
+                participant_id,
+                start_ts,
+                end_ts,
+                STATE_BIN_SECONDS,
+            )
 
             has_wearable_data = any(
                 [
@@ -294,11 +406,11 @@ def _sync_once():
             summary.spo2_max = _round_metric("spo2_max", spo2["max"])
             summary.spo2_average = _round_metric("spo2_average", spo2["avg"])
 
-            # Update wearable dot states based on alert thresholds
-            summary.heart_rate_state = _wearable_state("heart_rate", hr)
-            summary.respiration_state = _wearable_state("respiration", resp)
-            summary.spo2_state = _wearable_state("spo2", spo2)
-            summary.hrv_state = _wearable_state("hrv", hrv)
+            # Update wearable dot states from 15-minute bins.
+            summary.heart_rate_state = _scan_alert_state("heart_rate", hr_map)
+            summary.respiration_state = _scan_alert_state("respiration", resp_map)
+            summary.spo2_state = _scan_alert_state("spo2", spo2_map)
+            summary.hrv_state = _scan_alert_state("hrv", hrv_map)
 
             try:
                 db.session.commit()
@@ -359,7 +471,9 @@ def backfill_wearable_states():
 
     BIN_BACKFILL = 15 * 60  # 15-min bins, same as chart
 
-    client = MongoClient(mongodb_url, **mongodb_client_kwargs)
+    client = _create_mongo_client()
+    if client is None:
+        return
     db2 = client["study_db"]
     try:
         patients = Patient.query.filter(Patient.participant_id.isnot(None)).all()

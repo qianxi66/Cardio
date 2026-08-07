@@ -72,6 +72,9 @@ export type Patient = {
     med_admin_execution_event_count?: number;
   }[];
   summaries?: Summary[];
+  // Only sent by GET /patients (the list endpoint), which embeds each patient's most
+  // recent summary so the list can be rendered without a per-patient summaries request.
+  latest_summary?: Summary | null;
   risks?: Risk[];
   conversation_logs?: ConversationLog[];
   notes?: { id: number; content: string; creator_type: string; created_at: string; created_by?: string }[];

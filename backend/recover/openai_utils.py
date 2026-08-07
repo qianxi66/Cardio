@@ -22,7 +22,7 @@ if use_azure_openai:
     _model = azure_openai_deployment
 else:
     client = OpenAI(api_key=openai_key)
-    _model = "gpt-4o"
+    _model = "gpt-5.6"
 
 prompt_path = Path(__file__).with_name("prompt.txt")
 conversation_system_prompt = open(prompt_path, "r").read(10000000)
@@ -42,7 +42,7 @@ def gpt_inference(client, messages, stop=None, model=None, **argv):
         kwargs.pop("max_tokens", None)
         kwargs.setdefault("max_completion_tokens", 2048)
     else:
-        kwargs.setdefault("max_tokens", 512)
+        kwargs.setdefault("reasoning_effort", "none")
     try:
         response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content

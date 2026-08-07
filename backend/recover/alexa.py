@@ -5,7 +5,8 @@
 # session persistence, api calls, and more.
 # This sample is built using the handler classes approach in skill builder.
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import json
 import threading
 
@@ -52,17 +53,15 @@ def _lookup_patient_by_alexa_identity(identity: str):
 
 
 def to_speech(handler_input, response):
-    break_audio = ' <break time="10s" /> '
-    sound_bank_audio = "<prosody volume='silent'> . </prosody>"
-    # speak_output = response + break_audio*18 + sound_bank_audio
     speak_output = response
-    ask_output = (
-        "Anything else I can help? You can repeat your sentence."
-        + break_audio * 3
-        + sound_bank_audio
-    )
+    ask_output = "Sorry, I didn't catch that. " + response
 
-    return handler_input.response_builder.speak(speak_output).ask(ask_output).response
+    return (
+        handler_input.response_builder.speak(speak_output)
+        .ask(ask_output)
+        .set_should_end_session(False)
+        .response
+    )
 
 def getLastMessage(alexa_user_id: str):
     patient = _lookup_patient_by_alexa_identity(alexa_user_id)
@@ -89,7 +88,7 @@ def getLastMessage(alexa_user_id: str):
     )
     if len(messages) == 0:
         # create a new assistant message
-        msg = "Hello, this is the Cardio research study chatbot assistant. Are you ready to start today's questions? This skill's content is not intended as a substitute for professional medical advice or treatment."
+        msg = "Hello, this is the Cardio research study chatbot assistant developed by Northeastern University Human-centered AI lab. We'll go through eight symptom-related questions, which will take about 2 to 5 minutes. Are you ready to start today's questions?"
         message = ConversationLog(
             patient_id=patient.id,
             role="assistant",
@@ -99,6 +98,8 @@ def getLastMessage(alexa_user_id: str):
         )
         db.session.add(message)
         db.session.commit()
+        from .apis import _invalidate_patient_related_cache
+        _invalidate_patient_related_cache(patient.id)
         return {"message": "success", "last_message": message.as_dict()}
     messages = [message.as_dict() for message in messages]
     messages = [i for i in messages if i["role"] == "assistant"]
@@ -125,7 +126,15 @@ def session_end_hook(alexa_user_id):
         logger.info(f"patient: {patient}")
         if patient is None:
             return jsonify({"message": "patient not found"}), 404
-        logger.info("session end hook done")
+        # Run the conversation symptom extraction so the dashboard summary is
+        # updated when an Alexa session ends (imported lazily to avoid any
+        # import-order coupling with apis).
+        try:
+            from .apis import process_patient_summary
+            process_patient_summary(patient.id, datetime.utcnow())
+            logger.info("session end hook: process_patient_summary done for patient_id=%s", patient.id)
+        except Exception as e:
+            logger.error(f"session_end_hook: process_patient_summary failed: {e}")
         return jsonify({"message": "success"})
 
 def conversationEnded(alexa_user_id: str):
@@ -188,9 +197,19 @@ def conversation(alexa_user_id: str, content: str):
         db.session.add(log)
         db.session.commit()
         
-        # get all conversation logs for this patient
+        # Only feed TODAY's conversation to the model. The prompt assumes all
+        # messages happen in the same day; mixing in prior days' logs (which may
+        # use an older question format) makes the model drift off the required
+        # output format and inflates latency toward Alexa's response timeout.
+        _now_et = datetime.now(ZoneInfo("America/New_York"))
+        _day_start_utc = (
+            _now_et.replace(hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
         conversation_logs = (
             ConversationLog.query.filter_by(patient_id=patient.id)
+            .filter(ConversationLog.date >= _day_start_utc)
             .order_by(ConversationLog.date.asc())
             .all()
         )
@@ -213,18 +232,17 @@ def conversation(alexa_user_id: str, content: str):
             chain_of_thoughts = assistant_message.split("==============")[0]
             assistant_message = assistant_message.split("==============")[1].strip(" \n")
         except IndexError:
-            chain_of_thoughts = """breathing: not discussed
-fever: not discussed
-stools: not discussed
-pain: not discussed
-drainage: not discussed
-activity: not discussed
-conscious: not discussed
-constipation: not discussed
-diarrhea: not discussed
-eating: not discussed
+            chain_of_thoughts = """blood_pressure: not discussed
+chest_pain: not discussed
+shortness_of_breath: not discussed
 swelling: not discussed
-mood: not discussed
+dizziness: not discussed
+palpitation: not discussed
+fatigue: not discussed
+weight: not discussed
+weight_gain: not discussed
+fainted: not discussed
+misc: not discussed
 """
             pass
         log = ConversationLog(
@@ -236,6 +254,8 @@ mood: not discussed
         )
         db.session.add(log)
         db.session.commit()
+        from .apis import _invalidate_patient_related_cache
+        _invalidate_patient_related_cache(patient.id)
         return log.as_dict()
     except PatientNotFound as e:
         logger.error(f"Patient not found: {e}")
@@ -294,7 +314,7 @@ class LaunchRequestHandler(AbstractRequestHandler):
             if "CONVERSATION_END" in speak_output:
                 speak_output = "Happy to help you again! What can I do for you?"
         else:
-            speak_output = "Hello, this is the Cardio research study chatbot assistant. Are you ready to start today's questions?"
+            speak_output = "Hello, this is the Cardio research study chatbot assistant developed by Northeastern University Human-centered AI lab. We'll go through eight symptom-related questions, which will take about 2 to 5 minutes. Are you ready to start today's questions?"
 
         logger.info(f"{speak_output=}")
         return to_speech(handler_input, speak_output)
@@ -387,33 +407,43 @@ class ConversationHandler(AbstractRequestHandler):
             logger.info(f"{speak_output=}")
             if "CONVERSATION_END" in speak_output:
                 conversationEnded(user_id)
+                final_message = speak_output.replace("CONVERSATION_END", "")
                 return (
-                    handler_input.response_builder.speak(
-                        speak_output.replace("CONVERSATION_END", "")
-                    )
+                    handler_input.response_builder.speak(final_message)
                     .set_should_end_session(True)
                     .response
                 )
 
+            reprompt_output = "Sorry, I didn't catch that. " + speak_output
             return (
                 handler_input.response_builder.speak(speak_output)
-                .ask(speak_output)
+                .ask(reprompt_output)
+                .set_should_end_session(False)
                 .response
             )
         except PatientNotFound:
-            return handler_input.response_builder.speak(
-                "We don't have a valid participant ID for you. Please say 'please note my alexa ID' and contact system administrator"
-            ).response
+            speak_output = "We don't have a valid participant ID for you. Please say 'please note my alexa ID' and contact system administrator"
+            return (
+                handler_input.response_builder.speak(speak_output)
+                .set_should_end_session(True)
+                .response
+            )
         except ConversationError as e:
             logger.error(f"Conversation error: {e}")
-            return handler_input.response_builder.speak(
-                "We are encountering a system internal error. Please try again later or contact the system administrator"
-            ).response
+            speak_output = "We are encountering a system internal error. Please try again later or contact the system administrator"
+            return (
+                handler_input.response_builder.speak(speak_output)
+                .set_should_end_session(True)
+                .response
+            )
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
-            return handler_input.response_builder.speak(
-                "We are encountering a system internal error. Please try again later or contact the system administrator"
-            ).response
+            speak_output = "We are encountering a system internal error. Please try again later or contact the system administrator"
+            return (
+                handler_input.response_builder.speak(speak_output)
+                .set_should_end_session(True)
+                .response
+            )
 
 
 class CatchAllExceptionHandler(AbstractExceptionHandler):
@@ -443,6 +473,7 @@ class CatchAllExceptionHandler(AbstractExceptionHandler):
                         permissions=["alexa::profile:email:read"],
                     )
                 )
+                .set_should_end_session(True)
                 .response
             )
         logger.info(handler_input.request_envelope)
@@ -452,6 +483,7 @@ class CatchAllExceptionHandler(AbstractExceptionHandler):
         return (
             handler_input.response_builder.speak(speak_output)
             .ask(speak_output)
+            .set_should_end_session(False)
             .response
         )
 

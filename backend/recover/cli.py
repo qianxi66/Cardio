@@ -1395,3 +1395,11 @@ def backfill_wearable_states_cmd():
     from .cardio_summary_sync import backfill_wearable_states
     with app.app_context():
         backfill_wearable_states()
+
+
+@app.cli.command("precompute-wearable-dots")
+def precompute_wearable_dots_cmd():
+    """Offline precompute for wearable dots (15-minute buckets) and persist to SQL."""
+    from .cardio_summary_sync import backfill_wearable_states
+    with app.app_context():
+        backfill_wearable_states()

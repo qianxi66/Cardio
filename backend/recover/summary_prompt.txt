@@ -14,7 +14,7 @@ Instructions:
 Use all messages from the day, not only abnormal symptoms.
 Incorporate wearable data when available (heart rate, respiration, HRV trends).
 If symptoms are normal/denied and wearable looks stable, explicitly say the day is stable and keep monitoring.
-Output Format: Present the summaries in an array of objects. Include the following properties:
+Output Format: Return your answer strictly as a single JSON object (no markdown, no code fences). Present the summaries in an array of objects. Include the following properties:
 category: "Summary"
 conversation_log_ids: A string listing the log IDs used (e.g., "[1698, 1699]"), or "[]" when none.
 content: A concise daily summary grounded in provided data.

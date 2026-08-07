@@ -82,6 +82,11 @@ const getSeriesSelected = (name: string) => {
   return !!selected.value[name];
 };
 const isLoading = ref(false);
+const hasAnyData = computed(() =>
+  seriesDefs.value.some((series) => series.data.some((value) => value !== null)),
+);
+const showNoData = computed(() => !isLoading.value && !hasAnyData.value);
+const noDataRect = ref<{ x: number; y: number; width: number; height: number } | null>(null);
 const markerTime = ref<string>("21:00");
 const markerPixel = ref<number | null>(null);
 const isDragging = ref(false);
@@ -882,6 +887,11 @@ const scheduleResize = () => {
   requestAnimationFrame(() => {
     chart?.resize();
     updateMarkerGraphic();
+    try {
+      noDataRect.value = getGridRect();
+    } catch {
+      noDataRect.value = null;
+    }
   });
 };
 
@@ -1128,7 +1138,25 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <Loading :loading="isLoading" :has-data="true" :debounce-ms="150">
-      <div class="chart" ref="chartEl"></div>
+      <div class="chart-area">
+        <div class="chart" ref="chartEl"></div>
+        <div
+          v-if="showNoData"
+          class="chart-no-data"
+          :style="
+            noDataRect
+              ? {
+                  left: `${noDataRect.x}px`,
+                  top: `${noDataRect.y}px`,
+                  width: `${noDataRect.width}px`,
+                  height: `${noDataRect.height}px`,
+                }
+              : { inset: 0 }
+          "
+        >
+          No data
+        </div>
+      </div>
     </Loading>
   </div>
 </template>
@@ -1165,9 +1193,6 @@ onBeforeUnmount(() => {
   padding: 0;
   cursor: pointer;
 }
-.legend-item:not(.active) {
-  opacity: 0.5;
-}
 .legend-box {
   width: 12px;
   height: 12px;
@@ -1201,13 +1226,30 @@ onBeforeUnmount(() => {
   height: 8px;
   display: block;
 }
-.chart {
+.chart-area {
+  position: relative;
   flex: 1 1 0;
   width: 100%;
   height: 100%;
   min-height: 0;
   min-width: 0;
+}
+.chart {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
   overflow: hidden;
+}
+.chart-no-data {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #808080;
+  font-family: "Arial Black";
+  font-size: 13px;
+  pointer-events: none;
 }
 :deep(.n-spin),
 :deep(.n-spin-container),

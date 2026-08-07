@@ -2,12 +2,17 @@ import json
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 from flask_migrate import Migrate
-from ask_sdk_core.serialize import DefaultSerializer
-from ask_sdk_core.skill import CustomSkill
-from ask_sdk_model import RequestEnvelope
+try:
+    from ask_sdk_core.serialize import DefaultSerializer
+    from ask_sdk_core.skill import CustomSkill
+    from ask_sdk_model import RequestEnvelope
+except Exception:
+    DefaultSerializer = None
+    CustomSkill = None
+    RequestEnvelope = None
 
 from . import config  # noqa
-from .db import db
+from .db import db, ensure_summary_wearable_columns
 
 # cors allow everyting
 
@@ -30,18 +35,25 @@ with app.app_context():
     from . import apis  # noqa
     from . import cli  # noqa
     from . import db as db_module  # noqa
+    ensure_summary_wearable_columns()
 
 try:
     from . import alexa as alexa_module  # noqa
 except Exception:
     alexa_module = None
 
-serializer = DefaultSerializer()
+serializer = DefaultSerializer() if DefaultSerializer is not None else None
 
 
 @app.route("/invoke_skill", methods=["POST"])
 def invoke_skill():
-    if not alexa_module or not getattr(alexa_module, "skill_builder", None):
+    if (
+        not alexa_module
+        or not getattr(alexa_module, "skill_builder", None)
+        or serializer is None
+        or CustomSkill is None
+        or RequestEnvelope is None
+    ):
         return jsonify({"error": "Alexa module not available"}), 500
     raw_body = request.get_data(as_text=True)
     try:
@@ -54,7 +66,9 @@ def invoke_skill():
             skill_configuration=alexa_module.skill_builder.skill_configuration
         )
         response = skill.invoke(envelope, None)
-        return jsonify(serializer.serialize(response))
+        serialized = serializer.serialize(response)
+        print("ALEXA_RESPONSE:", json.dumps(serialized), flush=True)
+        return jsonify(serialized)
     except Exception as exc:
         app.logger.exception("Alexa invoke_skill failed: %s", exc)
         return jsonify({"error": "Alexa invoke error"}), 500

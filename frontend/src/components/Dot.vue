@@ -13,6 +13,10 @@ const props = withDefaults(
     reviewable?: boolean;
     isRead?: boolean | number;
     variant?: 'default' | 'wearable' | 'circle';
+    // The grow-on-hover effect signals "clickable". Pass false where the dot is purely an
+    // indicator (e.g. the patient list) so it doesn't advertise an interaction that isn't
+    // there. Defaults to true because the symptoms table's dots really are clickable.
+    interactive?: boolean;
   }>(),
   {
     loading: false,
@@ -21,14 +25,19 @@ const props = withDefaults(
     reviewable: false,
     isRead: 0,
     variant: 'default',
+    interactive: true,
   },
 );
 // on edit trigger
 const emit = defineEmits(["update:state"]);
+// Match the summary/log row's corner radius (.table-row-block in assets/main.scss)
+// instead of naive-ui's 3px default, so the state popover and the rows agree.
+const POPOVER_BORDER_RADIUS = "4px";
 const buttonThemeOverrides: ButtonThemeOverrides = {
   colorHover: "white",
   colorPressed: "white",
   colorFocus: "white",
+  borderRadius: POPOVER_BORDER_RADIUS,
 };
 const popoverEl = ref<{ setShow: (value: boolean) => void } | null>(null);
 const dotColor = computed(() => {
@@ -41,6 +50,7 @@ const dotColor = computed(() => {
   <div v-if="!editable">
     <div
       class="dot"
+      :class="{ interactive: props.interactive }"
       v-if="!props.loading && props.state >= 0"
     >
       <!-- circle variant (also used for wearable to keep unified look) -->
@@ -63,7 +73,11 @@ const dotColor = computed(() => {
         />
       </svg>
     </div>
-    <n-icon class="dot" v-else-if="!props.loading && props.state == -1">
+    <n-icon
+      class="dot"
+      :class="{ interactive: props.interactive }"
+      v-else-if="!props.loading && props.state == -1"
+    >
       <svg
         xmlns="http://www.w3.org/2000/svg"
         xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -88,7 +102,7 @@ const dotColor = computed(() => {
       :show-arrow="false"
       raw
       placement="bottom-start"
-      :theme-overrides="{ boxShadow: 'none' }"
+      :theme-overrides="{ boxShadow: 'none', borderRadius: POPOVER_BORDER_RADIUS }"
     >
       <template #trigger>
         <Dot :state="props.state" :loading="props.loading" :is-read="props.isRead" :variant="props.variant"></Dot>
@@ -147,11 +161,8 @@ const dotColor = computed(() => {
   transform: scale(1);
   transition: transform 0.12s ease, filter 0.12s ease;
 }
-.dot:hover {
-  transform: scale(1.2);
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
-}
-.dot:active {
+.dot.interactive:hover,
+.dot.interactive:active {
   transform: scale(1.2);
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
 }

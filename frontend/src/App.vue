@@ -6,6 +6,13 @@ import AppHeader from "@/components/AppHeader.vue";
 const themeOverrides: GlobalThemeOverrides = {
   common: {
     bodyColor: "#e6e6e6",
+    // Keep naive-ui scrollbars solid (non-translucent) and dimensionally identical to the
+    // native ::-webkit-scrollbar rules in assets/main.scss, so every scroll area matches.
+    scrollbarColor: "#d7d7d7",
+    scrollbarColorHover: "#d7d7d7",
+    scrollbarWidth: "8px",
+    scrollbarHeight: "8px",
+    scrollbarBorderRadius: "10px",
   },
   Button: {
     color: "white",

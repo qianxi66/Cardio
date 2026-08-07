@@ -71,6 +71,23 @@ export const updatePatient = async (id: number, data: UpdatePatientRequest) => {
   return result;
 };
 
+export const resetPatientToday = async (id: number) => {
+  const result = await api({
+    url: `/patients/${id}/reset_today`,
+    method: "POST",
+  });
+  patientCache.delete(`${id}`);
+  patientInFlight.delete(`${id}`);
+  return result as {
+    message: string;
+    deleted: {
+      conversation_logs: number;
+      summaries: number;
+      ai_notes: number;
+    };
+  };
+};
+
 export const createPatient = async (data: CreatePatientRequest) => {
   return (await api({
     url: `/patients`,
@@ -265,29 +282,14 @@ export const getWearableCoverage = async (
 ): Promise<WearableCoverage> => {
   if (!dates.length) return {};
   const uniqueDates = Array.from(new Set(dates));
-  const maxConcurrent = 3;
-  const taskQueue = uniqueDates.slice();
-  const merged: WearableCoverage = {};
-
-  const worker = async () => {
-    while (taskQueue.length > 0) {
-      const date = taskQueue.shift();
-      if (!date) return;
-      try {
-        const response = await fetchWearableCoverageWithRetry(patient_id, [date]);
-        Object.assign(merged, response);
-      } catch {
-        // Keep list render resilient: a single day's coverage failure should not fail all days.
-      }
-    }
-  };
-
-  const workers = Array.from(
-    { length: Math.min(maxConcurrent, uniqueDates.length) },
-    () => worker(),
-  );
-  await Promise.allSettled(workers);
-  return merged;
+  // The endpoint takes `dates` as a repeated query param and resolves the whole set with a
+  // single ranged query, so ask for every date at once rather than one request per date.
+  try {
+    return await fetchWearableCoverageWithRetry(patient_id, uniqueDates);
+  } catch {
+    // Keep list render resilient: a coverage failure should not fail the whole view.
+    return {};
+  }
 };
 
 export const getPreadmissionMedications = async (patient_id: number) => {

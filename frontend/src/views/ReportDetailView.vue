@@ -143,13 +143,10 @@ const formatLogTime = (value?: string | Date) => {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: true,
+    hour12: false,
   }).formatToParts(parsed);
   const pick = (type: string) => parts.find((p) => p.type === type)?.value || "";
-  const hour = pick("hour");
-  const minute = pick("minute");
-  const dayPeriod = pick("dayPeriod").toLowerCase();
-  return `${pick("year")}-${pick("month")}-${pick("day")} ${hour}:${minute} ${dayPeriod}`;
+  return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
 };
 
 const loadConversationLogs = async (showLoading = true) => {
@@ -313,7 +310,7 @@ watch(jump_query, () => nextTick(scrollToLogs));
     <ColoredCard
       color="#053251"
       rounded
-      title="Patient's Conversational Log"
+      title="Conversational Log"
       class="conversation-card indigo-title full-title-bar"
     >
       <div class="conversation-scroll" v-if="logsForDate.length > 0">
@@ -489,8 +486,11 @@ watch(jump_query, () => nextTick(scrollToLogs));
   position: relative;
   padding: 10px 14px;
   background: #ffffff;
-  border-radius: 6px;
-  border: 1px solid #d9d9d9;
+  // Shared by the .log-selected highlight ring below so the two radii can't drift apart.
+  --log-row-radius: 6px;
+  --log-row-border-width: 1px;
+  border-radius: var(--log-row-radius);
+  border: var(--log-row-border-width) solid #d9d9d9;
 }
 .log-row.log-patient {
   padding: 5px 14px;
@@ -505,12 +505,13 @@ watch(jump_query, () => nextTick(scrollToLogs));
 .log-row.log-selected::after {
   content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  // An absolutely positioned child is laid out against the *padding* box, i.e. inside the
+  // 1px border, where staying concentric would require a smaller radius. Pull it back out
+  // onto the border box instead so it shares the row's radius exactly and cleanly covers
+  // the base border, rather than leaving a sliver of it showing at the corners.
+  inset: calc(-1 * var(--log-row-border-width));
   border: 2px solid var(--log-highlight-color, #053251);
-  border-radius: 6px;
+  border-radius: var(--log-row-radius);
   pointer-events: none;
 }
 .log-role {

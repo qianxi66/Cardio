@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ColoredCard from "@/components/ColoredCard.vue";
 import Dot from "@/components/Dot.vue";
-import { getPatients, getSummaries, getWearableCoverage } from "@/api/patient";
+import { getPatients } from "@/api/patient";
 import Loading from "@/components/Loading.vue";
 import { ref, watch, computed, provide, onMounted, onBeforeUnmount } from "vue";
 import { useRouteParams } from "@vueuse/router";
@@ -14,10 +14,6 @@ const loading = ref(true);
 const searchTerm = ref("");
 const patient_id = useRouteParams<number>("patient_id");
 const DEFAULT_TIMEZONE = "America/New_York";
-const pad2 = (n: number) => String(n).padStart(2, "0");
-const patientListScrollbarThemeOverrides = {
-  width: "8px",
-};
 const sidebarOpen = ref(false);
 const isCompactLayout = ref(false);
 
@@ -67,21 +63,6 @@ const toEtDateKey = (value: unknown, timeZone = DEFAULT_TIMEZONE): string | null
   return `${y}-${m}-${d}`;
 };
 
-const summaryDateKey = (value: unknown): string | null => {
-  if (!value) return null;
-  if (typeof value === "string") {
-    // Treat summary date as calendar date (not moment-in-time).
-    const datePrefix = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (datePrefix) return `${datePrefix[1]}-${datePrefix[2]}-${datePrefix[3]}`;
-  }
-  const parsed = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return null;
-  // Use UTC calendar components to avoid local/system timezone drift.
-  return `${parsed.getUTCFullYear()}-${pad2(parsed.getUTCMonth() + 1)}-${pad2(parsed.getUTCDate())}`;
-};
-
-const getSummaryDateKey = (summary: Summary): string | null => summaryDateKey(summary.date);
-
 const WEARABLE_STATE_KEYS = new Set([
   "heart_rate_state",
   "respiration_state",
@@ -104,7 +85,21 @@ const getMaxSeverityFromSummary = (summary: Summary): number => {
   return maxSeverity;
 };
 
-const getPatientSeverity = async (patient: Patient): Promise<number> => {
+const WEARABLE_METRICS = ["heart_rate", "respiration", "spo2", "hrv"] as const;
+
+// Mirrors the backend's _state_value() in get_wearable_coverage: prefer the explicit
+// *_state column, falling back to *_average for legacy rows written before the state
+// columns existed. The summaries payload already carries every column, so the wearable
+// dot state can be derived locally instead of issuing one request per patient.
+const wearableStateValue = (summary: Summary, metric: string): number => {
+  const record = summary as unknown as Record<string, unknown>;
+  const state = record[`${metric}_state`];
+  if (state === 0 || state === 1 || state === 3) return state;
+  const average = record[`${metric}_average`];
+  return average !== null && average !== undefined ? 1 : 0;
+};
+
+const getPatientSeverity = (patient: Patient): number => {
   const summaries = (patient.summaries ?? []) as Summary[];
   const latestSummary = summaries
     .slice()
@@ -116,33 +111,12 @@ const getPatientSeverity = async (patient: Patient): Promise<number> => {
 
   if (!latestSummary) return 0;
 
-  const latestDateKey = getSummaryDateKey(latestSummary);
-  let maxSeverity = getMaxSeverityFromSummary(latestSummary);
-
-  // Compatibility fallback: if wearable states are still 0 but day has coverage,
-  // keep at least green.
-  if (!latestDateKey) return maxSeverity;
-  try {
-    const wearableCoverage = await getWearableCoverage(patient.id, [latestDateKey]);
-    const coverageOfDay = wearableCoverage?.[latestDateKey];
-    let wearableSeverity = 0;
-    if (coverageOfDay && typeof coverageOfDay !== "boolean") {
-      const hasAlert =
-        !!coverageOfDay.heart_rate_alert ||
-        !!coverageOfDay.respiration_alert ||
-        !!coverageOfDay.spo2_alert ||
-        !!coverageOfDay.hrv_alert;
-      const hasAnyData =
-        !!coverageOfDay.heart_rate ||
-        !!coverageOfDay.respiration ||
-        !!coverageOfDay.spo2 ||
-        !!coverageOfDay.hrv;
-      wearableSeverity = hasAlert ? 3 : hasAnyData ? 1 : 0;
-    }
-    maxSeverity = Math.max(maxSeverity, wearableSeverity);
-  } catch {
-  }
-  return maxSeverity;
+  const maxSeverity = getMaxSeverityFromSummary(latestSummary);
+  const wearableSeverity = WEARABLE_METRICS.reduce(
+    (acc, metric) => Math.max(acc, wearableStateValue(latestSummary, metric)),
+    0,
+  );
+  return Math.max(maxSeverity, wearableSeverity);
 };
 
 const sortPatientsBySeverity = (items: Patient[]): Patient[] =>
@@ -177,23 +151,18 @@ const loadPatient = async () => {
   loading.value = true;
   try {
     const res = await getPatients();
-    const mapped = await Promise.all(
-      (res ?? []).map(async (item) => {
-        const summaries = await getSummaries(item.id).catch(() => []);
-        const patientWithSummaries: Patient = {
-          ...item,
-          summaries,
-        };
-        const severity = await getPatientSeverity(patientWithSummaries);
-        return {
-          ...item,
-          summaries,
-          read: !!item.last_read_at,
-          state: severity,
-          reviewed: false,
-        };
-      }),
-    );
+    // GET /patients already embeds each patient's latest summary, which is all the
+    // severity dot needs — no per-patient summaries request.
+    const mapped = (res ?? []).map((item) => {
+      const summaries = item.latest_summary ? [item.latest_summary] : [];
+      return {
+        ...item,
+        summaries,
+        read: !!item.last_read_at,
+        state: getPatientSeverity({ ...item, summaries }),
+        reviewed: false,
+      };
+    });
     patients.value = sortPatientsBySeverity(mapped);
   } finally {
     loading.value = false;
@@ -257,37 +226,11 @@ watch(patients, (list) => {
       <template #header>
         <div class="header">
           <div class="title">Patient List</div>
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <n-button
-                quaternary
-                circle
-                @click="$router.push('/create_patient')"
-              >
-                <template #icon>
-                  <n-icon size="17.5" quaternary type="primary">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="120 120 272 272"
-                    >
-                      <path
-                        d="M368.5 240H272v-96.5c0-8.8-7.2-16-16-16s-16 7.2-16 16V240h-96.5c-8.8 0-16 7.2-16 16
-                        0 4.4 1.8 8.4 4.7 11.3 2.9 2.9 6.9 4.7 11.3 4.7H240v96.5c0 4.4 1.8 8.4 4.7
-                        11.3 2.9 2.9 6.9 4.7 11.3 4.7 8.8 0 16-7.2 16-16V272h96.5c8.8 0
-                        16-7.2 16-16s-7.2-16-16-16z"
-                      />
-                    </svg>
-                  </n-icon>
-                </template>
-              </n-button>
-            </template>
-            Create a Patient
-          </n-tooltip>
         </div>
         <div class="filterpart">
           <n-input
             v-model:value="searchTerm"
-            placeholder="Search by Patient Name"
+            placeholder="Search by name"
             @keydown.esc="searchTerm = ''"
             clearable
           >
@@ -299,11 +242,7 @@ watch(patients, (list) => {
         :has-data="filteredPatients.length !== 0"
         class="patient-list"
       >
-        <n-scrollbar
-          class="patient-list-scrollbar"
-          trigger="hover"
-          :theme-overrides="patientListScrollbarThemeOverrides"
-        >
+        <n-scrollbar class="patient-list-scrollbar" trigger="hover">
           <div
             :class="{
               'patient-card': true,
@@ -314,7 +253,12 @@ watch(patients, (list) => {
             :key="p.id"
           >
             <div class="dot-holder">
-              <Dot :state="p.state" :is-read="1" variant="circle"></Dot>
+              <Dot
+                :state="p.state"
+                :is-read="1"
+                variant="circle"
+                :interactive="false"
+              ></Dot>
             </div>
             <component
               :is="p.id == patient_id ? 'div' : 'router-link'"
@@ -328,22 +272,21 @@ watch(patients, (list) => {
                 {{ p.name || p.users?.[0]?.name || "n/a" }}
               </div>
               <div class="age-sex">
-                <span v-if="p.age">{{ p.age }} y.o.</span>
-                <span v-if="p.age && p.gender"> , </span>
-                <span v-if="p.gender">{{ p.gender }}</span>
+                {{ p.age || "--" }} y.o. {{ p.gender || "--" }}
               </div>
             </component>
           </div>
         </n-scrollbar>
+        <template #empty>
+          <div class="patient-list-empty">
+            {{ searchTerm ? "No results found" : "No patients yet" }}
+          </div>
+        </template>
         <template #loading>
-          <n-scrollbar
-            class="patient-list-scrollbar"
-            trigger="hover"
-            :theme-overrides="patientListScrollbarThemeOverrides"
-          >
+          <n-scrollbar class="patient-list-scrollbar" trigger="hover">
             <div class="patient-card" v-for="i in 10" :key="i">
               <div class="dot-holder">
-                <Dot loading variant="circle"></Dot>
+                <Dot loading variant="circle" :interactive="false"></Dot>
               </div>
               <div class="patient-info">
                 <n-skeleton
@@ -425,6 +368,17 @@ watch(patients, (list) => {
   flex: 1 1 auto;
   min-height: 0;
 }
+// Matches .day-overview-empty in PatientDetailView so empty states read the same.
+.patient-list-empty {
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999999;
+  font-size: 14px;
+  text-align: center;
+  padding: 12px;
+}
 .patient-list-scrollbar:deep(.n-scrollbar-rail--vertical) {
   right: 0 !important;
 }
@@ -439,6 +393,13 @@ watch(patients, (list) => {
 }
 .patient-list:deep(.n-input) {
   margin-top: 0;
+}
+// naive-ui's clear button keeps a fixed 1em box (plus the suffix's 4px margin) even while
+// the icon is hidden, which left the placeholder ~18px short of fitting. Collapse the
+// suffix while there is nothing to clear: the wrapper renders __placeholder instead of
+// __clear in that state, so the space is only taken once the field actually has text.
+.patient-list:deep(.n-input__suffix:has(.n-base-clear__placeholder)) {
+  display: none;
 }
 .header :deep(.n-button) {
   width: 24px;

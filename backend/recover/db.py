@@ -3,9 +3,10 @@ from __future__ import annotations
 import types
 import typing as t
 import sqlite3
+import logging
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Column, Index, Table, Float, Boolean, Date, Integer, String, Text, event
+from sqlalchemy import ForeignKey, Column, Index, Table, Float, Boolean, Date, Integer, String, Text, event, text as sql_text
 from sqlalchemy.engine import Engine
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.table import _Table
@@ -194,11 +195,39 @@ class Summary(db.Model):
     date: Mapped[datetime] = mapped_column(db.DateTime, default=datetime.utcnow)
     read: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # Precomputed wearable aggregates and dot states.
+    # Dot state convention: 0=no data (gray), 1=normal (green), 3=alert (red).
+    heart_rate_min: Mapped[Optional[float]] = mapped_column(Float)
+    heart_rate_max: Mapped[Optional[float]] = mapped_column(Float)
+    heart_rate_average: Mapped[Optional[float]] = mapped_column(Float)
+    heart_rate_state: Mapped[Optional[int]] = mapped_column(Integer)
+
+    spo2_min: Mapped[Optional[float]] = mapped_column(Float)
+    spo2_max: Mapped[Optional[float]] = mapped_column(Float)
+    spo2_average: Mapped[Optional[float]] = mapped_column(Float)
+    spo2_state: Mapped[Optional[int]] = mapped_column(Integer)
+
+    respiration_min: Mapped[Optional[float]] = mapped_column(Float)
+    respiration_max: Mapped[Optional[float]] = mapped_column(Float)
+    respiration_average: Mapped[Optional[float]] = mapped_column(Float)
+    respiration_state: Mapped[Optional[int]] = mapped_column(Integer)
+
+    hrv_min: Mapped[Optional[float]] = mapped_column(Float)
+    hrv_max: Mapped[Optional[float]] = mapped_column(Float)
+    hrv_average: Mapped[Optional[float]] = mapped_column(Float)
+    hrv_state: Mapped[Optional[int]] = mapped_column(Integer)
+
 for symptom_name in symptom_descriptions:
-    setattr(Summary, f"{symptom_name}_state", mapped_column(Integer, nullable=True))
-    setattr(Summary, f"{symptom_name}_logs", mapped_column(String, nullable=True))
+    state_col = f"{symptom_name}_state"
+    logs_col = f"{symptom_name}_logs"
+    if not hasattr(Summary, state_col):
+        setattr(Summary, state_col, mapped_column(Integer, nullable=True))
+    if not hasattr(Summary, logs_col):
+        setattr(Summary, logs_col, mapped_column(String, nullable=True))
     if symptom_descriptions[symptom_name].get("likert", False):
-        setattr(Summary, f"{symptom_name}_scale", mapped_column(Integer, nullable=True))
+        scale_col = f"{symptom_name}_scale"
+        if not hasattr(Summary, scale_col):
+            setattr(Summary, scale_col, mapped_column(Integer, nullable=True))
 
 
 class Risk(db.Model):
@@ -381,3 +410,63 @@ def get(
 
 # Apply the get method to the db instance
 db.get = types.MethodType(get, db)
+
+
+def ensure_summary_wearable_columns() -> None:
+    """Idempotently add wearable columns missing from summary table.
+
+    Some deployed DBs come from divergent migration branches. This guard keeps
+    commands and APIs functional by adding required columns on demand.
+    """
+    required_columns = {
+        "heart_rate_min": "FLOAT",
+        "heart_rate_max": "FLOAT",
+        "heart_rate_average": "FLOAT",
+        "heart_rate_state": "INTEGER",
+        "spo2_min": "FLOAT",
+        "spo2_max": "FLOAT",
+        "spo2_average": "FLOAT",
+        "spo2_state": "INTEGER",
+        "respiration_min": "FLOAT",
+        "respiration_max": "FLOAT",
+        "respiration_average": "FLOAT",
+        "respiration_state": "INTEGER",
+        "hrv_min": "FLOAT",
+        "hrv_max": "FLOAT",
+        "hrv_average": "FLOAT",
+        "hrv_state": "INTEGER",
+    }
+    try:
+        summary_exists = db.session.execute(
+            sql_text("SELECT name FROM sqlite_master WHERE type='table' AND name='summary'")
+        ).first() is not None
+        alembic_exists = db.session.execute(
+            sql_text("SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'")
+        ).first() is not None
+    except Exception:
+        db.session.rollback()
+        return
+
+    if not summary_exists:
+        if not alembic_exists:
+            # Fresh DB before first migration: do nothing and let `flask db upgrade` create tables.
+            return
+        logging.warning(
+            "summary table is missing while alembic_version exists; migration chain may be incomplete"
+        )
+        return
+
+    try:
+        rows = db.session.execute(sql_text("PRAGMA table_info(summary)")).fetchall()
+    except Exception:
+        db.session.rollback()
+        return
+    existing = {row[1] for row in rows}
+    changed = False
+    for col_name, col_type in required_columns.items():
+        if col_name in existing:
+            continue
+        db.session.execute(sql_text(f"ALTER TABLE summary ADD COLUMN {col_name} {col_type}"))
+        changed = True
+    if changed:
+        db.session.commit()
