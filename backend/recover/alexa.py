@@ -52,9 +52,16 @@ def _lookup_patient_by_alexa_identity(identity: str):
     return None
 
 
+# Spoken by Alexa after ~8s of silence, before it listens for another ~8s. Deliberately
+# short and not a repeat of the question: the previous wording ("Sorry, I didn't catch
+# that") was wrong for the silence case, since the patient has not said anything, and
+# re-reading the whole question spends the extra time talking rather than listening.
+REPROMPT_TEXT = "I'm still here. Take your time."
+
+
 def to_speech(handler_input, response):
     speak_output = response
-    ask_output = "Sorry, I didn't catch that. " + response
+    ask_output = REPROMPT_TEXT
 
     return (
         handler_input.response_builder.speak(speak_output)
@@ -414,7 +421,7 @@ class ConversationHandler(AbstractRequestHandler):
                     .response
                 )
 
-            reprompt_output = "Sorry, I didn't catch that. " + speak_output
+            reprompt_output = REPROMPT_TEXT
             return (
                 handler_input.response_builder.speak(speak_output)
                 .ask(reprompt_output)
