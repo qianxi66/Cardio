@@ -2,6 +2,7 @@ from datetime import datetime
 from pymongo import MongoClient, DESCENDING
 
 from .config import mongodb_url, mongodb_client_kwargs
+from .mongo import get_mongo_client
 
 
 METRICS = {
@@ -80,7 +81,10 @@ def _latest_value(db, collection_name, patient_id, participant_id=None):
 
 
 def metrics_for_participant(patient_id, participant_id=None, db_name=None):
-    client = MongoClient(mongodb_url, **mongodb_client_kwargs)
+    # Shared process-wide client; see recover.mongo. Must not be closed here.
+    client = get_mongo_client()
+    if client is None:
+        return {}
     db = client[db_name or "study_db"]
     metrics = {}
     try:
@@ -95,5 +99,5 @@ def metrics_for_participant(patient_id, participant_id=None, db_name=None):
                 "updated_at": datetime.utcnow(),
             }
     finally:
-        client.close()
+        pass  # shared client, see recover.mongo
     return metrics

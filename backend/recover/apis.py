@@ -28,6 +28,7 @@ from .db import (
     db,
     Token,
 )
+from .mongo import get_mongo_client
 from .config import (
     VALID_API_KEYS,
     mongodb_url,
@@ -109,38 +110,30 @@ def _invalidate_patient_related_cache(patient_id):
         api_response_cache.pop(key, None)
 
 def _get_shared_mongo_client():
-    """Return a module-level MongoClient singleton, creating it on first call."""
-    global _shared_mongo_client
-    if MongoClient is None:
-        return None
-    if _shared_mongo_client is None:
-        try:
-            _shared_mongo_client = MongoClient(
-                mongodb_url, **mongodb_client_kwargs, serverSelectionTimeoutMS=3000
-            )
-        except Exception as e:
-            logging.warning("Failed to create shared MongoDB client: %s", e)
-    return _shared_mongo_client
+    """Deprecated alias for recover.mongo.get_mongo_client()."""
+    return get_mongo_client()
 
 
 def _get_mongo_client():
-    """Create a fresh MongoClient per-request, backing off if MongoDB is unavailable."""
+    """Return the process-wide client, with a short backoff when MongoDB is unreachable.
+
+    The client is shared (see recover.mongo), so callers must not close it. The ping keeps
+    the old behaviour of failing fast and backing off during an outage instead of making
+    every request wait for server selection.
+    """
     global _mongo_unavailable_until
     now = time.time()
     if now < _mongo_unavailable_until:
         return None
-    client = None
+    client = get_mongo_client()
+    if client is None:
+        _mongo_unavailable_until = now + MONGO_BACKOFF_SECONDS
+        return None
     try:
-        client = MongoClient(mongodb_url, **mongodb_client_kwargs)
         client.admin.command("ping")
         return client
     except Exception:
         _mongo_unavailable_until = now + MONGO_BACKOFF_SECONDS
-        if client is not None:
-            try:
-                client.close()
-            except Exception:
-                pass
         return None
 
 
@@ -787,7 +780,7 @@ def _mongo_wearable_stats(
             "min": min(values),
         }
     finally:
-        client.close()
+        pass  # shared client, see recover.mongo
 
 
 def _mongo_latest_value(
@@ -832,7 +825,7 @@ def _mongo_latest_value(
             return None
         return value
     finally:
-        client.close()
+        pass  # shared client, see recover.mongo
 
 
 def _mongo_has_any(
@@ -864,7 +857,7 @@ def _mongo_has_any(
         doc = db2[collection_name].find(query, {"_id": 1}).limit(1)
         return next(doc, None) is not None
     finally:
-        client.close()
+        pass  # shared client, see recover.mongo
 
 
 def _steps_max_since_reset(
@@ -920,7 +913,7 @@ def _steps_max_since_reset(
             return None
         return max(day_values)
     finally:
-        client.close()
+        pass  # shared client, see recover.mongo
 
 
 def _steps_total_for_window(
@@ -971,7 +964,7 @@ def _steps_total_for_window(
         total = sum(values)
         return total if total > 0 else max_val
     finally:
-        client.close()
+        pass  # shared client, see recover.mongo
 
 
 def _step_resets(
@@ -1017,7 +1010,7 @@ def _step_resets(
             prev_val = value
         return resets
     finally:
-        client.close()
+        pass  # shared client, see recover.mongo
 
 
 def _day_window_from_steps_reset(
@@ -1313,7 +1306,7 @@ def get_patient_wearable_timeseries(id):
                 series["spo2"].append(spo2_map.get(i * bin_seconds))
                 series["heart_rate_variability"].append(hrv_map.get(i * bin_seconds))
         finally:
-            client.close()
+            pass  # shared client, see recover.mongo
 
         payload = {
             "times": labels,

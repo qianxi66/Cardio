@@ -27,6 +27,7 @@ from ask_sdk_core.skill_builder import CustomSkillBuilder
 from ask_sdk_core.api_client import DefaultApiClient
 from .app import app, db
 from .db import Patient, User, ConversationLog
+from .mongo import get_mongo_client
 from .openai_utils import conversation as openai_conversation
 from .config import auto_create_patient, mongodb_url, mongodb_client_kwargs
 from pymongo import MongoClient
@@ -87,22 +88,26 @@ def _prior_days_context(patient_id, day_start_utc):
     unfinished question from weeks earlier and ask it as if it were today's.
     """
     window_start = day_start_utc - timedelta(days=HISTORY_WINDOW_DAYS - 1)
+    # with_entities keeps these as plain row tuples instead of ORM instances. They are only
+    # ever read as text, and every ORM instance loaded here would be added to the session's
+    # identity map that gets walked again at request teardown.
     rows = (
         ConversationLog.query.filter_by(patient_id=patient_id)
         .filter(ConversationLog.date >= window_start)
         .filter(ConversationLog.date < day_start_utc)
         .order_by(ConversationLog.date.asc())
+        .with_entities(ConversationLog.date, ConversationLog.role, ConversationLog.content)
         .all()
     )
     if not rows:
         return None
     lines = []
-    for row in rows:
-        speaker = "Patient" if row.role == "user" else "Assistant"
-        text = (row.content or "").replace("\n", " ").strip()
+    for row_date, role, content in rows:
+        speaker = "Patient" if role == "user" else "Assistant"
+        text = (content or "").replace("\n", " ").strip()
         if not text:
             continue
-        lines.append(f"[{row.date.strftime('%Y-%m-%d')}] {speaker}: {text}")
+        lines.append(f"[{row_date.strftime('%Y-%m-%d')}] {speaker}: {text}")
     if not lines:
         return None
     block = "\n".join(lines)
@@ -222,8 +227,10 @@ def conversation(alexa_user_id: str, content: str):
         wearable_data = None
         if patient.participant_id:
             try:
-                client = MongoClient(mongodb_url, **mongodb_client_kwargs)
-                db2 = client["study_db"]
+                # Shared process-wide client: this ran on every single Alexa turn, and
+                # building/closing a MongoClient each time churns its monitor threads.
+                client = get_mongo_client()
+                db2 = client["study_db"] if client is not None else None
                 stress_value = _latest_field_value(
                     db2, "garmin_stress", patient.participant_id, "heart_rate"
                 )
@@ -245,11 +252,7 @@ def conversation(alexa_user_id: str, content: str):
                 }
             except Exception as e:
                 logger.warning("Wearable lookup failed: %s", e)
-            finally:
-                try:
-                    client.close()
-                except Exception:
-                    pass
+
         
         # Create conversation log for user message
         log = ConversationLog(
