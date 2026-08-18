@@ -69,7 +69,9 @@ def gpt_inference(client, messages, stop=None, model=None, **argv):
         return ""
 
 
-def conversation(messages, wearable_data=None, recent_reports_summaries=None):
+def conversation(
+    messages, wearable_data=None, recent_reports_summaries=None, prior_days_context=None
+):
     system_messages = [{"role": "system", "content": conversation_system_prompt}]
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if wearable_data:
@@ -78,6 +80,21 @@ def conversation(messages, wearable_data=None, recent_reports_summaries=None):
             "content": f"Today's wearable data: {json.dumps(wearable_data)}"
         })
     
+    if prior_days_context:
+        # Background only. `messages` still holds today's turns alone, so the model keeps
+        # an accurate sense of where the live conversation is; this block just lets it
+        # recognise a symptom the patient has been reporting on repeated days.
+        system_messages.append({
+            "role": "system",
+            "content": (
+                "Transcript of this patient's check-ins from the previous days, for "
+                "background only. These are NOT part of today's conversation: do not "
+                "continue or re-ask a question from them, and do not treat their answers "
+                "as given today. Use them only to notice recurring or worsening symptoms.\n"
+                f"{prior_days_context}"
+            ),
+        })
+
     system_messages.append({
         "role": "system",
         "content": f"current time: {current_time}"

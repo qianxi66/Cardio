@@ -5,7 +5,8 @@
 # session persistence, api calls, and more.
 # This sample is built using the handler classes approach in skill builder.
 import logging
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
 import threading
@@ -59,6 +60,57 @@ def _lookup_patient_by_alexa_identity(identity: str):
 REPROMPT_TEXT = "I'm still here. Take your time."
 
 
+# Size of the sliding window in days, counting today. Today is always sent in full as the
+# live conversation; the HISTORY_WINDOW_DAYS - 1 days before it go in as background only.
+HISTORY_WINDOW_DAYS = 5
+# Hard cap on that background block. Extra context costs latency, and Alexa drops the
+# session if the endpoint takes longer than roughly 8 seconds (we have already seen two
+# nginx 499s from exactly that). If the window is bigger than this, the oldest lines go.
+HISTORY_MAX_CHARS = 4000
+
+
+def _today_start_utc():
+    """Naive-UTC timestamp of today's 00:00 Eastern, matching how logs are stored."""
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    return (
+        now_et.replace(hour=0, minute=0, second=0, microsecond=0)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+
+
+def _prior_days_context(patient_id, day_start_utc):
+    """Compact, date-stamped transcript of the days before today.
+
+    Returned as text for a system message rather than as extra entries in the chat
+    messages list: replaying old turns as real turns is what made the skill pick up an
+    unfinished question from weeks earlier and ask it as if it were today's.
+    """
+    window_start = day_start_utc - timedelta(days=HISTORY_WINDOW_DAYS - 1)
+    rows = (
+        ConversationLog.query.filter_by(patient_id=patient_id)
+        .filter(ConversationLog.date >= window_start)
+        .filter(ConversationLog.date < day_start_utc)
+        .order_by(ConversationLog.date.asc())
+        .all()
+    )
+    if not rows:
+        return None
+    lines = []
+    for row in rows:
+        speaker = "Patient" if row.role == "user" else "Assistant"
+        text = (row.content or "").replace("\n", " ").strip()
+        if not text:
+            continue
+        lines.append(f"[{row.date.strftime('%Y-%m-%d')}] {speaker}: {text}")
+    if not lines:
+        return None
+    block = "\n".join(lines)
+    if len(block) > HISTORY_MAX_CHARS:
+        block = "(earlier lines omitted)\n" + block[-HISTORY_MAX_CHARS:]
+    return block
+
+
 def to_speech(handler_input, response):
     speak_output = response
     ask_output = REPROMPT_TEXT
@@ -88,8 +140,13 @@ def getLastMessage(alexa_user_id: str):
             db.session.commit()
         else:
             return {"message": "Patient not found."}, 404
+    # Today only. Without this the launch handler replayed the last assistant message from
+    # any point in history, so opening the skill could re-ask a question left unanswered
+    # weeks ago; the model then saw only today's (empty) log and started over with the
+    # greeting, giving the patient one stray turn before the real opening.
     messages = (
         ConversationLog.query.filter_by(patient_id=patient.id)
+        .filter(ConversationLog.date >= _today_start_utc())
         .order_by(ConversationLog.date.asc())
         .all()
     )
@@ -208,12 +265,8 @@ def conversation(alexa_user_id: str, content: str):
         # messages happen in the same day; mixing in prior days' logs (which may
         # use an older question format) makes the model drift off the required
         # output format and inflates latency toward Alexa's response timeout.
-        _now_et = datetime.now(ZoneInfo("America/New_York"))
-        _day_start_utc = (
-            _now_et.replace(hour=0, minute=0, second=0, microsecond=0)
-            .astimezone(timezone.utc)
-            .replace(tzinfo=None)
-        )
+        _day_start_utc = _today_start_utc()
+        prior_days_context = _prior_days_context(patient.id, _day_start_utc)
         conversation_logs = (
             ConversationLog.query.filter_by(patient_id=patient.id)
             .filter(ConversationLog.date >= _day_start_utc)
@@ -232,7 +285,11 @@ def conversation(alexa_user_id: str, content: str):
         ]
         logger.info(f"conversation_logs: {conversation_logs}")
             
-        assistant_message = openai_conversation(conversation_logs, wearable_data=wearable_data)
+        assistant_message = openai_conversation(
+            conversation_logs,
+            wearable_data=wearable_data,
+            prior_days_context=prior_days_context,
+        )
         logger.info("Wearable data sent to LLM: %s", wearable_data)
         logger.info(f"assistant_message: {assistant_message}")
         try:
@@ -281,7 +338,18 @@ class PatientNotFound(Exception):
 class ConversationError(Exception):
     pass
 
+# Alexa userId -> (email, expires_at). The UPS lookup below is an outbound HTTPS call to
+# Amazon on the critical path of *every* request, and the endpoint only has ~8 seconds
+# before Alexa abandons the session (we have seen nginx 499s from exactly that). The
+# address behind a given userId does not change during a session, so cache it.
+_EMAIL_CACHE = {}
+EMAIL_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+
 def get_customer_email(handler_input: HandlerInput) -> str:
+    # Permission is re-checked on every request, before the cache is consulted, so a
+    # patient who revokes email consent starts failing immediately instead of being
+    # served from a warm entry.
     try:
         permissions = handler_input.request_envelope.context.system.user.permissions
         if not permissions or not permissions.consent_token:
@@ -290,10 +358,21 @@ def get_customer_email(handler_input: HandlerInput) -> str:
         raise EmailPermissionDenied
 
     try:
+        user_id = handler_input.request_envelope.context.system.user.user_id
+    except Exception:
+        user_id = None
+
+    if user_id:
+        cached = _EMAIL_CACHE.get(user_id)
+        if cached and cached[1] > time.time():
+            return cached[0]
+
+    try:
         ups_client = handler_input.service_client_factory.get_ups_service()
         result = ups_client.get_profile_email()
-        logger.info(result)
         if isinstance(result, str) and result:
+            if user_id:
+                _EMAIL_CACHE[user_id] = (result, time.time() + EMAIL_CACHE_TTL_SECONDS)
             return result
         raise EmailPermissionDenied
     except Exception as e:
