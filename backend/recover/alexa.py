@@ -26,8 +26,9 @@ from ask_sdk_core.handler_input import HandlerInput
 from ask_sdk_core.skill_builder import CustomSkillBuilder
 from ask_sdk_core.api_client import DefaultApiClient
 from .app import app, db
-from .db import Patient, User, ConversationLog
+from .db import Patient, User, ConversationLog, Summary
 from .mongo import get_mongo_client
+from .symptoms import symptom_descriptions
 from .openai_utils import conversation as openai_conversation
 from .config import auto_create_patient, mongodb_url, mongodb_client_kwargs
 from pymongo import MongoClient
@@ -77,6 +78,47 @@ def _today_start_utc():
         now_et.replace(hour=0, minute=0, second=0, microsecond=0)
         .astimezone(timezone.utc)
         .replace(tzinfo=None)
+    )
+
+
+# Symptoms the daily check-in is expected to cover, taken from the same table the
+# extraction uses so the two can't drift apart.
+CONVERSATION_SYMPTOMS = [
+    key
+    for key, meta in symptom_descriptions.items()
+    if meta.get("source") == "conversation"
+]
+
+
+def _todays_questions_are_done(patient_id):
+    """Whether every symptom was covered in today's check-in.
+
+    Reads the Summary row that process_patient_summary() writes when a session ends;
+    state 0 means the symptom was never discussed. Note chain_of_thoughts is not usable
+    for this: the Cardio prompt no longer emits the checklist, so the parse always falls
+    back and stores "not discussed" for everything.
+
+    Summary.date is bucketed to Eastern midnight as a naive value, which is a different
+    convention from ConversationLog.date (naive UTC), so _today_start_utc() must not be
+    reused here -- doing so silently matched nothing.
+
+    Returns False when there is no row yet, which is the safe default: it makes the skill
+    offer to carry on rather than assume a check-in it cannot see was finished.
+    """
+    day_start = datetime.now(ZoneInfo("America/New_York")).replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+    )
+    summary = (
+        Summary.query.filter_by(patient_id=patient_id)
+        .filter(Summary.date >= day_start)
+        .filter(Summary.date < day_start + timedelta(days=1))
+        .order_by(Summary.date.desc())
+        .first()
+    )
+    if summary is None:
+        return False
+    return all(
+        (getattr(summary, f"{key}_state", 0) or 0) != 0 for key in CONVERSATION_SYMPTOMS
     )
 
 
@@ -401,7 +443,33 @@ class LaunchRequestHandler(AbstractRequestHandler):
             speak_output = last_message["last_message"]["content"]
             logger.info(f"last_message: {speak_output=}")
             if "CONVERSATION_END" in speak_output:
-                speak_output = "Happy to help you again! What can I do for you?"
+                # Today's session already wrapped up. "What can I do for you?" was far too
+                # open a question for a patient to answer, so say which of the two things
+                # is actually on offer: resume the remaining questions, or take an addition.
+                patient = _lookup_patient_by_alexa_identity(get_customer_email(handler_input))
+                done = (
+                    _todays_questions_are_done(patient.id)
+                    if patient is not None
+                    else False
+                )
+                speak_output = (
+                    "Happy to help you again. Is there anything you would like to add?"
+                    if done
+                    else "Happy to help you again. Can we continue today's questions?"
+                )
+                # Record it, so when the patient answers the model sees what was asked
+                # instead of a bare reply sitting after CONVERSATION_END.
+                if patient is not None:
+                    db.session.add(
+                        ConversationLog(
+                            patient_id=patient.id,
+                            role="assistant",
+                            chain_of_thoughts="",
+                            content=speak_output,
+                            date=datetime.utcnow(),
+                        )
+                    )
+                    db.session.commit()
         else:
             speak_output = "Hello, this is the Cardio research study chatbot assistant developed by Northeastern University Human-centered AI lab. We'll go through eight symptom-related questions, which will take about 2 to 5 minutes. Are you ready to start today's questions?"
 
