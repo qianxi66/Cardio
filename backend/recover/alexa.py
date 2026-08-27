@@ -64,7 +64,12 @@ REPROMPT_TEXT = "I'm still here. Take your time."
 
 # Size of the sliding window in days, counting today. Today is always sent in full as the
 # live conversation; the HISTORY_WINDOW_DAYS - 1 days before it go in as background only.
-HISTORY_WINDOW_DAYS = 5
+# Set to 1 (today only) as of the 2026-08-19 team meeting: the clinical protocol has
+# no rule that fires on a symptom repeating across days, and the agent follows the
+# fixed question list regardless of prior answers, so earlier days added latency
+# without changing what it asks. Raise this to re-enable the window for a study that
+# does need cross-day context.
+HISTORY_WINDOW_DAYS = 1
 # Hard cap on that background block. Extra context costs latency, and Alexa drops the
 # session if the endpoint takes longer than roughly 8 seconds (we have already seen two
 # nginx 499s from exactly that). If the window is bigger than this, the oldest lines go.
@@ -453,7 +458,8 @@ class LaunchRequestHandler(AbstractRequestHandler):
                     else False
                 )
                 speak_output = (
-                    "Happy to help you again. Is there anything you would like to add?"
+                    "You have finished today's questions. If you have any discomfort, "
+                    "please reach out to your providers."
                     if done
                     else "Happy to help you again. Can we continue today's questions?"
                 )
