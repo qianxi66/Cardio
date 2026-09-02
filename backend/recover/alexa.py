@@ -4,6 +4,7 @@
 # Please visit https://alexa.design/cookbook for additional examples on implementing slots, dialog management,
 # session persistence, api calls, and more.
 # This sample is built using the handler classes approach in skill builder.
+import re
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,7 @@ from ask_sdk_core.dispatch_components import (
 from ask_sdk_model.ui.ask_for_permissions_consent_card import (
     AskForPermissionsConsentCard,
 )
+from ask_sdk_model.ui.simple_card import SimpleCard
 from ask_sdk_core.exceptions import SerializationException
 from ask_sdk_core.handler_input import HandlerInput
 from ask_sdk_core.skill_builder import CustomSkillBuilder
@@ -163,6 +165,29 @@ def _prior_days_context(patient_id, day_start_utc):
     return block
 
 
+CARD_TITLE = "Cardio Daily Check-in"
+_SSML_TAG = re.compile(r"<[^>]+>")
+
+
+def _transcript_card(reply, heard=None):
+    """A card per turn, so the exchange is readable in the Alexa app.
+
+    Testers could not follow the check-in: the app's own activity feed showed only
+    the last couple of lines, and for several of them no text at all, because the
+    skill had never sent a card. Each turn now sends one, and the feed keeps them,
+    so the whole conversation can be scrolled back through and reviewed.
+
+    What we heard goes in too. Speech recognition was the other complaint, and a
+    patient who can see that "dizzy" came through as something else knows to say
+    it again rather than wondering why the reply made no sense.
+    """
+    body = _SSML_TAG.sub("", (reply or "")).replace("CONVERSATION_END", "").strip()
+    heard = _SSML_TAG.sub("", (heard or "")).strip()
+    if heard:
+        body = f"You said: {heard}\n\n{body}"
+    return SimpleCard(title=CARD_TITLE, content=body or " ")
+
+
 def to_speech(handler_input, response):
     speak_output = response
     ask_output = REPROMPT_TEXT
@@ -170,6 +195,7 @@ def to_speech(handler_input, response):
     return (
         handler_input.response_builder.speak(speak_output)
         .ask(ask_output)
+        .set_card(_transcript_card(speak_output))
         .set_should_end_session(False)
         .response
     )
@@ -573,6 +599,7 @@ class ConversationHandler(AbstractRequestHandler):
                 final_message = speak_output.replace("CONVERSATION_END", "")
                 return (
                     handler_input.response_builder.speak(final_message)
+                    .set_card(_transcript_card(final_message, message))
                     .set_should_end_session(True)
                     .response
                 )
@@ -581,6 +608,7 @@ class ConversationHandler(AbstractRequestHandler):
             return (
                 handler_input.response_builder.speak(speak_output)
                 .ask(reprompt_output)
+                .set_card(_transcript_card(speak_output, message))
                 .set_should_end_session(False)
                 .response
             )
